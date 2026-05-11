@@ -12,6 +12,8 @@ pre-commit:
     - name: package-lock-check
       run: bun scripts/hooks/package-lock-check.ts
       glob: "{package.json,bun.lock}"
+    - name: build
+      run: bun run build
 
 pre-push:
   jobs:
