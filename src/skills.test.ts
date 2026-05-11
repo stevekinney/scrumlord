@@ -35,6 +35,7 @@ describe('setupSkills', () => {
     ]);
     expect(existsSync(join(root, '.agents/skills/tasks/SKILL.md'))).toBe(true);
     const cursorSkill = await Bun.file(join(root, '.cursor/rules/tasks.md')).text();
+    expect(cursorSkill).toContain('tasks init');
     expect(cursorSkill).toContain('tasks next');
     expect(cursorSkill).toContain('--status in-progress --branch');
     expect(cursorSkill).toContain('tasks sync-git-status --quiet');

@@ -6,6 +6,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 
 - Run commands from anywhere inside the project; the CLI resolves the Git root first and only then opens `tmp/tasks.db`.
 - All data commands return JSON. Parse the JSON instead of scraping human-readable text.
+- Run `tasks init` when the project has not been set up yet. It creates and migrates `tmp/tasks.db`, writes local task skills, and installs managed Scrumlord Lefthook jobs when a Lefthook configuration exists.
 - Prefer `tasks available` or `tasks next` before choosing new work.
 - Store the Git branch on tasks with `--branch` when work is branch-bound.
 - Do not store worktree paths. Scrumlord derives the worktree from Git when it needs one.
@@ -34,6 +35,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 ## Useful Commands
 
 ```bash
+tasks init
 tasks next
 tasks available
 tasks blocked

@@ -292,6 +292,12 @@ describe('runTasksCli', () => {
       { projectRoot: root, state: 'SUCCESS' },
     ]);
 
+    const initResult = await runTasksCli(['init'], {
+      cwd: root,
+      initializeProject: async (options) => ({ initialized: true, cwd: options.cwd }),
+    });
+    expect(JSON.parse(initResult.stdout)).toEqual({ initialized: true, cwd: root });
+
     const setupResult = await runTasksCli(['setup-skills', '--all'], { cwd: root });
     expect(JSON.parse(setupResult.stdout).map((entry: { target: string }) => entry.target)).toEqual(
       ['codex', 'claude', 'cursor'],

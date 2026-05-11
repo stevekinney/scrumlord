@@ -26,6 +26,7 @@ bun run validate
 The package exposes a `tasks` binary. All data commands print JSON, and failures print JSON to stderr with a non-zero exit code.
 
 ```bash
+tasks init
 tasks create --title "Write tests" --description "Add regression coverage" --priority 3
 tasks update $TASK_ID --status in-progress --branch "$(git branch --show-current)"
 tasks available
@@ -35,6 +36,10 @@ tasks blocked-by $TASK_ID
 tasks add-blocker $TASK_ID $BLOCKER_TASK_ID
 tasks add-tag $TASK_ID testing
 ```
+
+### Initialization
+
+- `tasks init`: Resolve the project root, create and migrate `tmp/tasks.db`, write Codex, Claude, and Cursor task skills, and add managed Scrumlord jobs to an existing Lefthook configuration when one is present.
 
 ### Query Commands
 
@@ -141,6 +146,7 @@ store.close();
 ### Exports
 
 - `createTaskStore(options?)`: Resolve the project root, open `tmp/tasks.db`, run migrations, and return a task store.
+- `initializeProject(options?)`: Run the same first-run setup as `tasks init`.
 - `resolveProjectRoot(cwd?)`: Resolve the Git or workspace root without creating the database.
 - `setupSkills(projectRoot, target)`: Write agent skill files for `codex`, `claude`, `cursor`, or `--all`.
 - `setupGitHooks(projectRoot)`: Add Scrumlord synchronization jobs to an existing Lefthook configuration.

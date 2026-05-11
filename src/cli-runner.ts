@@ -2,6 +2,7 @@ import { createTaskStore } from './database.js';
 import { ScrumlordError, errorMessage } from './errors.js';
 import { setupGitHooks } from './git-hooks.js';
 import { syncGitStatus } from './git-status.js';
+import { initializeProject, type InitializeProjectOptions } from './init.js';
 import { resolveProjectRoot } from './root-resolution.js';
 import { setupSkills, skillTargets, type SkillTarget } from './skills.js';
 import type { CreateTaskInput, TaskStore, UpdateTaskInput } from './types.js';
@@ -16,6 +17,7 @@ type CliResult = {
 type CliOptions = {
   cwd?: string;
   createStore?: (cwd: string) => Promise<TaskStore>;
+  initializeProject?: (options: InitializeProjectOptions) => Promise<unknown>;
   setupGitHooks?: (projectRoot: string) => Promise<unknown>;
   syncGitStatus?: (store: TaskStore) => Promise<unknown>;
   github?: {
@@ -51,6 +53,7 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   available: noPositionals,
   blocked: noPositionals,
   completed: noPositionals,
+  init: noPositionals,
   next: noPositionals,
   pr: { minPositionals: 0, maxPositionals: 1, booleanFlags: ['open', 'url'] },
   comments: noPositionals,
@@ -433,7 +436,13 @@ const runSetupGitHooksBoundaryCommand: BoundaryCommandHandler = async (_parsed, 
   return success(await (options.setupGitHooks ?? setupGitHooks)(root));
 };
 
+const runInitBoundaryCommand: BoundaryCommandHandler = async (_parsed, options) => {
+  const init = options.initializeProject ?? initializeProject;
+  return success(await init(options.cwd === undefined ? {} : { cwd: options.cwd }));
+};
+
 const boundaryCommandHandlers: Record<string, BoundaryCommandHandler> = {
+  init: runInitBoundaryCommand,
   pr: runPullRequestBoundaryCommand,
   comments: runCommentsBoundaryCommand,
   ci: runContinuousIntegrationBoundaryCommand,
