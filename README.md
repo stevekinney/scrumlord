@@ -1,125 +1,186 @@
-# Project Name
+# Scrumlord
 
-## Prerequisites
+Scrumlord is a Bun-first task graph for local projects. It stores lightweight tasks in `tmp/tasks.db` at the resolved project root, gives you a JSON CLI for automation, and exposes the same behavior as an importable TypeScript library.
 
-- [Bun](https://bun.sh) installed on your machine.
+The critical rule is root resolution: Scrumlord resolves the project root before opening or creating a database. It first asks Git for the repository root. If the current directory is not inside Git, it walks upward until it finds a `package.json` with npm-style `workspaces`. If neither exists, it exits without touching the filesystem.
+
+> [!NOTE]
+> This package is intentionally Bun-only. It uses `bun:sqlite`, Bun Shell, and Bun-native file APIs.
 
 ## Installation
 
-Create a new project based on this template:
-
 ```bash
-# Basic installation
-bun create github.com/stevekinney/bun-template $PROJECT_DIRECTORY
-
-# Skip installing dependencies (useful for CI or offline work)
-bun create github.com/stevekinney/bun-template $PROJECT_DIRECTORY --no-install
+bun add scrumlord
 ```
 
-The `--no-install` flag is helpful when:
-
-- Working in offline environments
-- Using CI pipelines with cached dependencies
-- You plan to modify dependencies before installation
-
-## Core Tools
-
-- Bun: runtime, bundler, test runner, and package manager
-- TypeScript: strict type checking
-- Oxlint: fast Rust-based linter
-- Prettier: formatting
-- Lefthook: Git hooks
-
-## Development
-
-Start the development server:
+During local development in this repository:
 
 ```bash
-bun run dev
+bun install
+bun run build
+bun run validate
 ```
 
-### Git Hooks (Lefthook)
+## CLI
 
-Lefthook is installed via the `prepare` script on `bun install`. Hook implementations live in `scripts/hooks/` and are configured in `lefthook.yml`.
-
-- `pre-commit`: formats staged files with Prettier, runs oxlint --fix on staged files, checks that `bun.lock` is staged when `package.json` changes. Fast by design — typecheck and tests are intentionally deferred to pre-push.
-- `pre-push`: runs `bun run validate` (format check, lint, typecheck, tests, build, and package validation). This is the full gate before code leaves your machine.
-- `post-checkout`: installs deps when `package.json` + `bun.lock` changed; surfaces config changes.
-- `post-merge`: installs/cleans when dependencies or config changed; shows merge stats.
-
-Use `--no-verify` to bypass hooks (not recommended; CI will catch you anyway).
-
-### Running Tests
-
-This template uses Bun's built-in test runner with a preloaded setup file at `test/setup.ts` that resets mocks and system time after each test.
+The package exposes a `tasks` binary. All data commands print JSON, and failures print JSON to stderr with a non-zero exit code.
 
 ```bash
-bun test              # run all tests
-bun test --watch      # watch mode
-bun test --coverage   # coverage report
+tasks create --title "Write tests" --description "Add regression coverage" --priority 3
+tasks update $TASK_ID --status in-progress --branch "$(git branch --show-current)"
+tasks available
+tasks next
+tasks blocked
+tasks blocked-by $TASK_ID
+tasks add-blocker $TASK_ID $BLOCKER_TASK_ID
+tasks add-tag $TASK_ID testing
 ```
 
-Coverage thresholds are configured in `bunfig.toml` under `[test]`. The default is 100% for `src/`.
+### Query Commands
 
-For mocking, clock control, and module mocking see the [bun:test docs](https://bun.sh/docs/test/mocks).
+- `tasks available`: Ready tasks that are not blocked, deleted, or archived and have no future start date.
+- `tasks blocked`: Active tasks with at least one incomplete blocker.
+- `tasks completed`: Completed tasks that have not been soft-deleted.
+- `tasks get <task-id>`: A single task by ID.
+- `tasks with-tag <tag>`: Tasks with one normalized tag.
+- `tasks with-all-tags <tag...>`: Tasks that have every supplied tag.
+- `tasks with-any-tag <tag...>`: Tasks that have at least one supplied tag.
+- `tasks with-branch <branch>`: Tasks associated with one Git branch.
+- `tasks blocked-by <task-id>`: Tasks blocking the supplied task.
+- `tasks blocking <task-id>`: Tasks blocked by the supplied task.
+- `tasks priority <priority>`: Tasks with priority `1`, `2`, or `3`.
+- `tasks next`: The highest-priority available task.
 
-### Continuous Integration
+### Mutation Commands
 
-A CI workflow at `.github/workflows/ci.yaml` runs `bun run validate` on every push and pull request against Node 22 (LTS) and Node 24 (latest). This includes linting, typechecking, tests, build, and package validation (`publint` + `@arethetypeswrong/cli`).
+- `tasks create --title <title> [--description <markdown>] [--priority 1|2|3] [--status draft|ready|in-progress|in-review|completed] [--draft] [--start-date <date>] [--due-date <date>] [--branch <branch>] [--tag <tag>] [--tags <tag,tag>] [--parent <task-id>] [--blocked-by <task-id>]`
+- `tasks update <task-id> [--title <title>] [--description <markdown>] [--priority 1|2|3] [--status <status>] [--start-date <date>] [--due-date <date>] [--branch <branch>] [--parent <task-id>]`
+- `tasks delete <task-id>`: Soft-delete a task.
+- `tasks archive <task-id>`: Mark a task as archived.
+- `tasks restore <task-id>`: Clear `deleted` and `archived`.
+- `tasks add-tag <task-id> <tag>`
+- `tasks remove-tag <task-id> <tag>`
+- `tasks set-parent <task-id> <parent-task-id>`
+- `tasks clear-parent <task-id>`
+- `tasks add-blocker <task-id> <blocked-by-task-id>`
+- `tasks remove-blocker <task-id> <blocked-by-task-id>`
+- `tasks cleanup <days>`: Permanently remove completed or archived tasks whose last modified timestamp is older than the supplied day count.
 
-### Understanding `bun run` vs `bunx`
+All flags use kebab case. Tags are trimmed and lowercased before storage. `branch` is optional and stored as text. Worktree paths are not stored; `tasks sync-git-status` derives the current worktree from `git worktree list --porcelain`.
 
-- **bun run**: Executes scripts defined in `package.json` or runs local TypeScript/JavaScript files directly.
-- **bun x**: Executes binaries from installed packages. For packages already in `devDependencies`, prefer `bun run <script>` or calling the binary directly rather than `bunx`, which can pull a remote version.
+### Git Status Automation
 
-## Project Structure
+Scrumlord can keep branch-bound tasks synchronized with Git and GitHub state:
 
-- `src/` — Source code
-- `test/` — Test setup (`test/setup.ts` is preloaded by bun:test)
-- `scripts/hooks/` — Git hook implementations (TypeScript + Bun)
-- `scripts/setup/` — One-time `bun create` setup scripts (self-remove after first install)
-- `lefthook.yml` — Git hook configuration
+- `tasks sync-git-status`: Look at the current Git branch, derive its worktree, inspect the matching pull request with `gh`, and update tasks whose `branch` equals the current branch.
+- `tasks sync-git-status --quiet`: Run the same synchronization without printing JSON, which is useful in hooks.
+- `tasks setup-git-hooks`: If a Lefthook configuration is present, add jobs for `post-checkout`, `post-commit`, `post-merge`, and `pre-push` that run `tasks sync-git-status --quiet`, then run `bun run lefthook install`.
 
-## Library Output
+The synchronization rules are intentionally small: a `ready` task on the current branch becomes `in-progress` when work begins, an open pull request moves it to `in-review`, and a pull request merged into `main` as the `origin/main` integration branch marks it `completed`.
 
-When built, the package emits two ESM bundles:
+### Pull Request Commands
 
-- `dist/node/index.js` — Node-compatible build (`Bun.build target: 'node'`)
-- `dist/bun/index.js` — Bun-optimized build (`Bun.build target: 'bun'`)
-- `dist/index.d.ts` — Shared TypeScript declarations
+These commands resolve the current branch’s open pull request with the GitHub CLI. If `gh` is not installed, the command fails with a JSON error.
 
-The `package.json` `exports` map routes Bun consumers to the Bun build and Node/bundler consumers to the Node build automatically.
+- `tasks pr`: Print the pull request URL. This is the same as `tasks pr --url`.
+- `tasks pr --open`: Print the URL and open it in the system browser.
+- `tasks comments`: Print unresolved pull request review comments.
+- `tasks ci`: Print pull request check status from `gh pr checks`.
 
-Published `src/` code must not use Bun-only runtime APIs (`Bun.file`, `Bun.serve`, etc.) — those belong in `scripts/` and tests only.
+### Agent Skill Setup
 
-## Publishing
+Scrumlord can write local agent instructions for the CLI:
 
-Publishing is opt-in. When you're ready to publish to npm:
+```bash
+tasks setup-skills codex
+tasks setup-skills claude
+tasks setup-skills cursor
+tasks setup-skills --all
+```
 
-1. Set `publishConfig` in your `package.json` as needed:
-   ```json
-   "publishConfig": { "access": "public", "provenance": true }
-   ```
-2. Tag the release: `git tag vX.Y.Z && git push --tags`
-3. The `release.yaml` workflow triggers, verifies the tag matches `package.json`, builds, validates the package exports, and publishes with npm provenance (requires `id-token: write` permission, already set in the workflow).
+The generated files teach agents to use the CLI instead of editing `tmp/tasks.db` directly.
 
-## Customization
+## Library API
 
-### TypeScript Configuration
+```ts
+import { createTaskStore, resolveProjectRoot } from 'scrumlord';
 
-The base `tsconfig.json` targets ESNext with strict settings tuned for a Bun library. To add a frontend app layer:
+const root = await resolveProjectRoot();
+const store = await createTaskStore();
 
-- Extend `tsconfig.json` in a new `tsconfig.frontend.json`
-- Add `"lib": ["ESNext","DOM","DOM.Iterable"]` and `"jsx": "react-jsx"` (or your framework equivalent)
+const task = store.create({
+  title: 'Write task graph tests',
+  description: 'Cover dependency and tag queries.',
+  priority: 3,
+  tags: ['testing'],
+});
 
-### Template Setup (bun-create)
+console.log(store.available());
+store.close();
+```
 
-When using `bun create` with this template, a postinstall sequence runs once to bootstrap the project:
+### Exports
 
-- Sets `package.json:name` from the folder name
-- Copies `.env.example` to `.env` (or appends missing keys)
-- Writes `OPEN_AI_API_KEY`, `ANTHROPIC_AI_API_KEY`, and `GEMINI_AI_API_KEY` from your shell into `.env` if the values are currently empty or placeholder
-- Runs `bun run prepare` to install Lefthook hooks
-- Removes `scripts/setup/` and the `bun-create` entry from `package.json`
+- `createTaskStore(options?)`: Resolve the project root, open `tmp/tasks.db`, run migrations, and return a task store.
+- `resolveProjectRoot(cwd?)`: Resolve the Git or workspace root without creating the database.
+- `setupSkills(projectRoot, target)`: Write agent skill files for `codex`, `claude`, `cursor`, or `--all`.
+- `setupGitHooks(projectRoot)`: Add Scrumlord synchronization jobs to an existing Lefthook configuration.
+- `syncGitStatus(store, options?)`: Synchronize branch-bound task statuses with the current Git branch and pull request state.
+- `worktreeForBranch(projectRoot, branch, runner?)`: Derive a branch worktree from `git worktree list --porcelain`.
+- `ScrumlordError`: Expected operational error with a stable `code`.
+- Types: `Task`, `TaskIdentifier`, `TaskPriority`, `TaskReference`, `TaskStatus`, `TaskStore`, `CreateTaskInput`, `UpdateTaskInput`, and `DateInput`.
 
-These steps are idempotent — safe to re-run if something fails partway through.
+### Task Store Methods
+
+- `create(input)`: Create a task. IDs default to `crypto.randomUUID()`, status defaults to `ready`, priority defaults to `1`, and timestamps are UTC ISO strings.
+- `update(id, input)`: Update task fields and refresh `lastModifiedAt`.
+- `delete(id)`: Soft-delete a task.
+- `archive(id)`: Mark a task archived.
+- `restore(id)`: Clear `deleted` and `archived`.
+- `getTask(id)`: Return one task or `null`.
+- `available()`: Return ready, unblocked, active tasks with no future start date.
+- `blocked()`: Return active tasks with incomplete blockers.
+- `completed()`: Return completed tasks that are not deleted.
+- `withTag(tag)`: Return tasks with a normalized tag.
+- `withAllTags(...tags)`: Return tasks containing every tag.
+- `withAnyTag(...tags)`: Return tasks containing at least one tag.
+- `withBranch(branch)`: Return tasks associated with a Git branch.
+- `blockedBy(taskOrId)`: Return blockers of a task.
+- `blocking(taskOrId)`: Return tasks that depend on a task.
+- `withPriority(priority)`: Return tasks with a priority.
+- `next()`: Return the first available task after priority sorting.
+- `cleanup(days)`: Permanently remove old completed or archived tasks.
+- `addTag(id, tag)` and `removeTag(id, tag)`: Manage tags.
+- `setParent(id, parent)` and `clearParent(id)`: Manage parent task relationships.
+- `addBlocker(id, blockedBy)` and `removeBlocker(id, blockedBy)`: Manage dependency edges.
+- `close()`: Close the SQLite connection.
+
+Returned `Task` objects include relationship IDs:
+
+```ts
+type Task = {
+  id: string;
+  title: string;
+  status: 'draft' | 'ready' | 'in-progress' | 'in-review' | 'completed';
+  description: string;
+  priority: 1 | 2 | 3;
+  createdAt: string;
+  startDate: string | null;
+  dueDate: string | null;
+  branch: string | null;
+  tags: string[];
+  parent: string | null;
+  subtasks: string[];
+  blockedBy: string[];
+  blocking: string[];
+  lastModifiedAt: string;
+  archived: boolean;
+  deleted: boolean;
+};
+```
+
+## Database And Migrations
+
+Scrumlord creates `tmp/tasks.db` only after root resolution succeeds. The database has normalized tables for tasks, tags, parent relationships, dependency edges, and applied migrations. Migrations run automatically when the task store opens.
+
+Parent relationships and dependency edges reject self-references and cycles. Foreign keys cascade cleanup rows for tags and dependencies when a task is permanently removed.

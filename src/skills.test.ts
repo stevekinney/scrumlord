@@ -1,0 +1,42 @@
+import { afterEach, describe, expect, it } from 'bun:test';
+import { existsSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { setupSkills } from './skills';
+
+const temporaryDirectories: string[] = [];
+
+const temporaryDirectory = async (): Promise<string> => {
+  const directory = await mkdtemp(join(tmpdir(), 'scrumlord-skills-'));
+  temporaryDirectories.push(directory);
+  return directory;
+};
+
+afterEach(async () => {
+  await Promise.all(
+    temporaryDirectories
+      .splice(0)
+      .map((directory) => rm(directory, { force: true, recursive: true })),
+  );
+});
+
+describe('setupSkills', () => {
+  it('writes requested agent instruction files', async () => {
+    const root = await temporaryDirectory();
+
+    expect(await setupSkills(root, 'codex')).toEqual([
+      { target: 'codex', path: join(root, '.agents/skills/tasks/SKILL.md') },
+    ]);
+    expect(await setupSkills(root, '--all')).toEqual([
+      { target: 'codex', path: join(root, '.agents/skills/tasks/SKILL.md') },
+      { target: 'claude', path: join(root, '.claude/skills/tasks/SKILL.md') },
+      { target: 'cursor', path: join(root, '.cursor/rules/tasks.md') },
+    ]);
+    expect(existsSync(join(root, '.agents/skills/tasks/SKILL.md'))).toBe(true);
+    const cursorSkill = await Bun.file(join(root, '.cursor/rules/tasks.md')).text();
+    expect(cursorSkill).toContain('tasks next');
+    expect(cursorSkill).toContain('--status in-progress --branch');
+    expect(cursorSkill).toContain('tasks sync-git-status --quiet');
+  });
+});
