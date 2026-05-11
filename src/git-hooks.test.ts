@@ -13,6 +13,19 @@ const temporaryDirectory = async (): Promise<string> => {
   return directory;
 };
 
+const expectRejectionMessage = async (
+  promise: Promise<unknown>,
+  message: string,
+): Promise<void> => {
+  try {
+    await promise;
+    throw new Error('Expected promise to reject.');
+  } catch (error) {
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toHaveProperty('message', message);
+  }
+};
+
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories
@@ -68,10 +81,12 @@ describe('setupGitHooks', () => {
 
     const configuration = await Bun.file(configurationPath).text();
     expect(configuration.match(/tasks-sync-git-status/g)?.length).toBe(4);
+    expect(configuration.match(/scrumlord:begin/g)?.length).toBe(4);
+    expect(configuration.match(/scrumlord:end/g)?.length).toBe(4);
     expect(configuration).toContain('run: tasks sync-git-status --quiet');
-    expect(configuration).toContain('post-commit:\n  jobs:\n    - name: tasks-sync-git-status');
+    expect(configuration).toContain('post-commit:\n  jobs:\n    # scrumlord:begin');
     expect(configuration).toContain(
-      'pre-push:\n  jobs:\n    - name: tasks-sync-git-status\n      run: tasks sync-git-status --quiet\n    - name: validate',
+      'pre-push:\n  jobs:\n    # scrumlord:begin\n    - name: tasks-sync-git-status\n      run: tasks sync-git-status --quiet\n    # scrumlord:end\n    - name: validate',
     );
   });
 
@@ -83,20 +98,28 @@ describe('setupGitHooks', () => {
       [
         'post-checkout:',
         '  jobs:',
+        '    # scrumlord:begin',
         '    - name: tasks-sync-git-status',
         '      run: tasks sync-git-status --quiet',
+        '    # scrumlord:end',
         'post-commit:',
         '  jobs:',
+        '    # scrumlord:begin',
         '    - name: tasks-sync-git-status',
         '      run: tasks sync-git-status --quiet',
+        '    # scrumlord:end',
         'post-merge:',
         '  jobs:',
+        '    # scrumlord:begin',
         '    - name: tasks-sync-git-status',
         '      run: tasks sync-git-status --quiet',
+        '    # scrumlord:end',
         'pre-push:',
         '  jobs:',
+        '    # scrumlord:begin',
         '    - name: tasks-sync-git-status',
         '      run: tasks sync-git-status --quiet',
+        '    # scrumlord:end',
         '',
       ].join('\n'),
     );
@@ -107,5 +130,57 @@ describe('setupGitHooks', () => {
     expect(result.install).toBeNull();
     const configuration = await Bun.file(configurationPath).text();
     expect(configuration.match(/tasks-sync-git-status/g)?.length).toBe(4);
+  });
+
+  it('replaces stale managed hook blocks', async () => {
+    const root = await temporaryDirectory();
+    const configurationPath = join(root, 'lefthook.yml');
+    await Bun.write(
+      configurationPath,
+      [
+        'pre-push:',
+        '  jobs:',
+        '    # scrumlord:begin',
+        '    - name: old-tasks-sync',
+        '      run: tasks available',
+        '    # scrumlord:end',
+        '',
+      ].join('\n'),
+    );
+
+    const result = await setupGitHooks(root, { install: false });
+
+    expect(result.changed).toBe(true);
+    const configuration = await Bun.file(configurationPath).text();
+    expect(configuration).toContain('    - name: tasks-sync-git-status');
+    expect(configuration).toContain('      run: tasks sync-git-status --quiet');
+    expect(configuration).not.toContain('old-tasks-sync');
+  });
+
+  it('fails clearly when the managed Lefthook block is malformed', async () => {
+    const root = await temporaryDirectory();
+    await Bun.write(
+      join(root, 'lefthook.yml'),
+      ['pre-push:', '  jobs:', '    # scrumlord:begin', '    - name: tasks-sync-git-status'].join(
+        '\n',
+      ),
+    );
+
+    await expectRejectionMessage(
+      setupGitHooks(root, { install: false }),
+      'Managed Scrumlord hook block is missing an end marker.',
+    );
+  });
+
+  it('fails clearly when Lefthook installation fails', async () => {
+    const root = await temporaryDirectory();
+    await Bun.write(join(root, 'lefthook.yml'), 'pre-push:\n');
+
+    await expectRejectionMessage(
+      setupGitHooks(root, {
+        runner: async () => ({ exitCode: 1, stdout: '', stderr: 'lefthook failed' }),
+      }),
+      'Could not install Lefthook hooks: lefthook failed',
+    );
   });
 });

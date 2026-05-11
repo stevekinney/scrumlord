@@ -15,9 +15,17 @@ const findWorkspaceRoot = async (cwd: string): Promise<string | null> => {
   let current = resolve(cwd);
 
   while (true) {
-    const packageJsonFile = Bun.file(join(current, 'package.json'));
+    const packageJsonPath = join(current, 'package.json');
+    const packageJsonFile = Bun.file(packageJsonPath);
     if (await packageJsonFile.exists()) {
-      if (hasWorkspaces(await packageJsonFile.json())) return current;
+      try {
+        if (hasWorkspaces(await packageJsonFile.json())) return current;
+      } catch {
+        throw new ScrumlordError(
+          'invalid_workspace_package_json',
+          `Could not parse workspace package.json: ${packageJsonPath}`,
+        );
+      }
     }
 
     const parent = dirname(current);
@@ -27,6 +35,7 @@ const findWorkspaceRoot = async (cwd: string): Promise<string | null> => {
 };
 
 const findGitRoot = async (cwd: string): Promise<string | null> => {
+  if (!Bun.which('git')) return null;
   const result = await $`git -C ${cwd} rev-parse --show-toplevel`.quiet().nothrow();
   if (result.exitCode !== 0) return null;
   const root = result.stdout.toString().trim();

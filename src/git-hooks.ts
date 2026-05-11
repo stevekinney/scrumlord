@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CommandRunner, CommandResult } from './command-runner.js';
 import { runCommand } from './command-runner.js';
+import { ScrumlordError } from './errors.js';
 
 export type SetupGitHooksResult = {
   configurationPath: string | null;
@@ -17,7 +18,12 @@ type SetupGitHooksOptions = {
 
 const managedHooks = ['post-checkout', 'post-commit', 'post-merge', 'pre-push'] as const;
 const managedCommand = 'tasks sync-git-status --quiet';
-const managedJob = ['    - name: tasks-sync-git-status', `      run: ${managedCommand}`];
+const managedBlock = [
+  '    # scrumlord:begin',
+  '    - name: tasks-sync-git-status',
+  `      run: ${managedCommand}`,
+  '    # scrumlord:end',
+];
 const lefthookConfigurationNames = [
   'lefthook.yml',
   'lefthook.yaml',
@@ -44,7 +50,20 @@ const sectionRange = (lines: string[], hook: string): { start: number; end: numb
 
 const appendHook = (lines: string[], hook: string): void => {
   if (lines.at(-1) !== '') lines.push('');
-  lines.push(`${hook}:`, '  jobs:', ...managedJob);
+  lines.push(`${hook}:`, '  jobs:', ...managedBlock);
+};
+
+const managedBlockRange = (section: string[]): { start: number; end: number } | null => {
+  const start = section.findIndex((line) => line.trim() === '# scrumlord:begin');
+  const end = section.findIndex((line) => line.trim() === '# scrumlord:end');
+  if (start === -1 && end === -1) return null;
+  if (start === -1 || end === -1 || end < start) {
+    throw new ScrumlordError(
+      'lefthook_managed_block_invalid',
+      'Managed Scrumlord hook block is missing an end marker.',
+    );
+  }
+  return { start, end };
 };
 
 const ensureHook = (lines: string[], hook: string): boolean => {
@@ -55,17 +74,25 @@ const ensureHook = (lines: string[], hook: string): boolean => {
   }
 
   const section = lines.slice(range.start, range.end);
+  const blockRange = managedBlockRange(section);
+  if (blockRange) {
+    const currentBlock = section.slice(blockRange.start, blockRange.end + 1);
+    if (currentBlock.join('\n') === managedBlock.join('\n')) return false;
+    lines.splice(range.start + blockRange.start, currentBlock.length, ...managedBlock);
+    return true;
+  }
+
   if (section.some((line) => line.includes(managedCommand))) return false;
 
   const jobsIndex = lines.findIndex(
     (line, index) => index > range.start && index < range.end && line.trim() === 'jobs:',
   );
   if (jobsIndex === -1) {
-    lines.splice(range.start + 1, 0, '  jobs:', ...managedJob);
+    lines.splice(range.start + 1, 0, '  jobs:', ...managedBlock);
     return true;
   }
 
-  lines.splice(jobsIndex + 1, 0, ...managedJob);
+  lines.splice(jobsIndex + 1, 0, ...managedBlock);
   return true;
 };
 
@@ -90,6 +117,12 @@ export const setupGitHooks = async (
     options.install === false
       ? null
       : await (options.runner ?? runCommand)(['bun', 'run', 'lefthook', 'install'], projectRoot);
+  if (install && install.exitCode !== 0) {
+    throw new ScrumlordError(
+      'lefthook_install_failed',
+      `Could not install Lefthook hooks: ${install.stderr.trim() || install.stdout.trim()}`,
+    );
+  }
 
   return { configurationPath, changed: changedHooks.length > 0, hooks: [...managedHooks], install };
 };

@@ -261,6 +261,9 @@ describe('runTasksCli', () => {
       async pullRequestUrl(projectRoot: string, open: boolean) {
         return { projectRoot, open, url: 'https://github.test/pull/1' };
       },
+      async pullRequestStatus(projectRoot: string) {
+        return { projectRoot, readyToMerge: true };
+      },
       async unresolvedReviewComments(projectRoot: string) {
         return [{ projectRoot, body: 'Please fix this.' }];
       },
@@ -274,6 +277,11 @@ describe('runTasksCli', () => {
       projectRoot: root,
       open: true,
       url: 'https://github.test/pull/1',
+    });
+    const pullRequestStatusResult = await runTasksCli(['pr', 'status'], { cwd: root, github });
+    expect(JSON.parse(pullRequestStatusResult.stdout)).toEqual({
+      projectRoot: root,
+      readyToMerge: true,
     });
     const commentsResult = await runTasksCli(['comments'], { cwd: root, github });
     expect(JSON.parse(commentsResult.stdout)).toEqual([
@@ -309,6 +317,12 @@ describe('runTasksCli', () => {
     const unknownCommandResult = await runTasksCli(['unknown'], { createStore });
     expect(JSON.parse(unknownCommandResult.stderr).error.code).toBe('unknown_command');
 
+    const unknownPullRequestCommandResult = await runTasksCli(['pr', 'checks'], { createStore });
+    expect(JSON.parse(unknownPullRequestCommandResult.stderr).error).toEqual({
+      code: 'unknown_command',
+      message: 'Unknown pull request command: pr checks.',
+    });
+
     const missingTitleResult = await runTasksCli(['create'], { createStore });
     expect(JSON.parse(missingTitleResult.stderr).error.code).toBe('missing_title');
 
@@ -325,6 +339,58 @@ describe('runTasksCli', () => {
       cwd: invalidSkillRoot,
     });
     expect(JSON.parse(invalidSkillResult.stderr).error.code).toBe('invalid_skill_target');
-    expect(createStoreCalls).toBe(2);
+    expect(createStoreCalls).toBe(0);
+  });
+
+  it('rejects missing flag values, unknown flags, and unexpected positional arguments', async () => {
+    const createStore = async () => fakeStore([]);
+
+    const missingFlagValueResult = await runTasksCli(['create', '--title'], { createStore });
+    expect(JSON.parse(missingFlagValueResult.stderr).error).toEqual({
+      code: 'missing_flag_value',
+      message: '--title requires a value.',
+    });
+
+    const unknownFlagResult = await runTasksCli(['available', '--json'], { createStore });
+    expect(JSON.parse(unknownFlagResult.stderr).error).toEqual({
+      code: 'unknown_flag',
+      message: 'Unknown flag for available: --json.',
+    });
+
+    const unexpectedArgumentResult = await runTasksCli(['get', 'task-id', 'extra'], {
+      createStore,
+    });
+    expect(JSON.parse(unexpectedArgumentResult.stderr).error).toEqual({
+      code: 'unexpected_argument',
+      message: 'get expects exactly 1 argument.',
+    });
+
+    const missingVariadicArgumentResult = await runTasksCli(['with-all-tags'], { createStore });
+    expect(JSON.parse(missingVariadicArgumentResult.stderr).error).toEqual({
+      code: 'missing_argument',
+      message: 'with-all-tags expects at least 1 argument.',
+    });
+
+    const invalidCleanupResult = await runTasksCli(['cleanup', '1.5'], { createStore });
+    expect(JSON.parse(invalidCleanupResult.stderr).error).toEqual({
+      code: 'invalid_cleanup_days',
+      message: 'Cleanup days must be a non-negative integer.',
+    });
+  });
+
+  it('rejects empty comma-delimited tag lists before opening a store', async () => {
+    let createStoreCalls = 0;
+    const result = await runTasksCli(['create', '--title', 'Task', '--tags', ','], {
+      createStore: async () => {
+        createStoreCalls += 1;
+        return fakeStore([]);
+      },
+    });
+
+    expect(JSON.parse(result.stderr).error).toEqual({
+      code: 'invalid_tag',
+      message: 'Tags cannot be empty.',
+    });
+    expect(createStoreCalls).toBe(0);
   });
 });

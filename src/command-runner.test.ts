@@ -12,4 +12,12 @@ describe('runCommand', () => {
     expect(result.stdout).toBe('ok\n');
     expect(result.stderr).toBe('warn\n');
   });
+
+  it('returns a failed command result when the executable is missing', async () => {
+    const result = await runCommand(['scrumlord-command-that-does-not-exist'], import.meta.dir);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Executable not found');
+  });
 });

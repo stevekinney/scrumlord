@@ -40,24 +40,28 @@ type TaskRow = {
   parent_id: string | null;
 };
 
-type TaskDatabaseOptions = {
-  cwd?: string;
-  now?: () => Date;
-};
+type TaskDatabaseOptions = { cwd?: string; now?: () => Date };
 
 type QueryBindings = Record<string, string | number | null>;
 
 const booleanToInteger = (value: boolean): number => (value ? 1 : 0);
 
+const validateDateOrder = (startDate: string | null, dueDate: string | null): void => {
+  if (startDate && dueDate && dueDate < startDate) {
+    throw new ScrumlordError('invalid_date_range', 'Due date cannot be before start date.');
+  }
+};
+
 class SqliteTaskStore implements TaskStore {
-  readonly projectRoot: string;
-  readonly databasePath: string;
   readonly #database: Database;
   readonly #now: () => Date;
 
-  constructor(projectRoot: string, databasePath: string, database: Database, now: () => Date) {
-    this.projectRoot = projectRoot;
-    this.databasePath = databasePath;
+  constructor(
+    readonly projectRoot: string,
+    readonly databasePath: string,
+    database: Database,
+    now: () => Date,
+  ) {
     this.#database = database;
     this.#now = now;
   }
@@ -72,6 +76,9 @@ class SqliteTaskStore implements TaskStore {
     const startDate = parsedStartDate === undefined ? null : parsedStartDate;
     const dueDate = parsedDueDate === undefined ? null : parsedDueDate;
     const branch = parseOptionalText(input.branch) ?? null;
+    validateDateOrder(startDate, dueDate);
+    if (this.getTask(id))
+      throw new ScrumlordError('duplicate_task_id', `Task already exists: ${id}`);
 
     const transaction = this.#database.transaction(() => {
       this.#database
@@ -115,6 +122,7 @@ class SqliteTaskStore implements TaskStore {
       'dueDate' in input ? (parseDateInput(input.dueDate, 'dueDate') ?? null) : current.dueDate;
     const branch = 'branch' in input ? (parseOptionalText(input.branch) ?? null) : current.branch;
     const now = this.#now().toISOString();
+    validateDateOrder(startDate, dueDate);
 
     const transaction = this.#database.transaction(() => {
       this.#database
@@ -420,10 +428,7 @@ class SqliteTaskStore implements TaskStore {
 
   private insertTag(id: TaskIdentifier, tag: string): void {
     this.#database
-      .query<
-        unknown,
-        QueryBindings
-      >('INSERT OR IGNORE INTO task_tags (task_id, tag) VALUES ($id, $tag)')
+      .query('INSERT OR IGNORE INTO task_tags (task_id, tag) VALUES ($id, $tag)')
       .run({ id, tag: normalizeTag(tag) });
   }
 
@@ -453,10 +458,9 @@ class SqliteTaskStore implements TaskStore {
       throw new ScrumlordError('dependency_cycle', 'Task dependencies cannot create a cycle.');
     }
     this.#database
-      .query<
-        unknown,
-        QueryBindings
-      >('INSERT OR IGNORE INTO task_dependencies (task_id, blocked_by_task_id) VALUES ($id, $blockedBy)')
+      .query(
+        'INSERT OR IGNORE INTO task_dependencies (task_id, blocked_by_task_id) VALUES ($id, $blockedBy)',
+      )
       .run({ id, blockedBy });
   }
 
@@ -494,10 +498,7 @@ class SqliteTaskStore implements TaskStore {
 
   private touch(id: TaskIdentifier): void {
     this.#database
-      .query<
-        unknown,
-        QueryBindings
-      >('UPDATE tasks SET last_modified_at = $lastModifiedAt WHERE id = $id')
+      .query('UPDATE tasks SET last_modified_at = $lastModifiedAt WHERE id = $id')
       .run({ id, lastModifiedAt: this.#now().toISOString() });
   }
 
@@ -520,14 +521,38 @@ class SqliteTaskStore implements TaskStore {
   }
 }
 
-/** Creates the task store for the resolved project root and runs pending migrations. */
 export const createTaskStore = async (options: TaskDatabaseOptions = {}): Promise<TaskStore> => {
   const now = options.now ?? (() => new Date());
   const projectRoot = await resolveProjectRoot(options.cwd);
   const databaseDirectory = join(projectRoot, 'tmp');
-  mkdirSync(databaseDirectory, { recursive: true });
+  try {
+    mkdirSync(databaseDirectory, { recursive: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new ScrumlordError(
+      'database_directory_failed',
+      `Could not create task database directory ${databaseDirectory}: ${message}`,
+    );
+  }
+
   const databasePath = join(databaseDirectory, 'tasks.db');
-  const database = new Database(databasePath, { create: true, readwrite: true, strict: true });
-  runMigrations(database, now);
+  let database: Database;
+  try {
+    database = new Database(databasePath, { create: true, readwrite: true, strict: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new ScrumlordError(
+      'database_open_failed',
+      `Could not open task database ${databasePath}: ${message}`,
+    );
+  }
+
+  try {
+    runMigrations(database, now);
+  } catch (error) {
+    database.close(false);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new ScrumlordError('migration_failed', `Could not run task migrations: ${message}`);
+  }
   return new SqliteTaskStore(projectRoot, databasePath, database, now);
 };

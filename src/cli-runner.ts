@@ -20,6 +20,7 @@ type CliOptions = {
   syncGitStatus?: (store: TaskStore) => Promise<unknown>;
   github?: {
     pullRequestUrl(projectRoot: string, open: boolean): Promise<unknown>;
+    pullRequestStatus(projectRoot: string): Promise<unknown>;
     unresolvedReviewComments(projectRoot: string): Promise<unknown>;
     continuousIntegrationStatus(projectRoot: string): Promise<unknown>;
   };
@@ -32,12 +33,124 @@ type ParsedArguments = {
 };
 
 type StoreCommandHandler = (store: TaskStore, parsed: ParsedArguments) => unknown;
+type BoundaryCommandHandler = (parsed: ParsedArguments, options: CliOptions) => Promise<CliResult>;
+type CommandSpecification = {
+  valueFlags?: readonly string[];
+  booleanFlags?: readonly string[];
+  minPositionals?: number;
+  maxPositionals?: number;
+};
 
 const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 const success = (value: unknown): CliResult => ({ exitCode: 0, stdout: json(value), stderr: '' });
+const noPositionals = { minPositionals: 0, maxPositionals: 0 };
+const onePositional = { minPositionals: 1, maxPositionals: 1 };
+const twoPositionals = { minPositionals: 2, maxPositionals: 2 };
+
+const commandSpecifications: Record<string, CommandSpecification> = {
+  available: noPositionals,
+  blocked: noPositionals,
+  completed: noPositionals,
+  next: noPositionals,
+  pr: { minPositionals: 0, maxPositionals: 1, booleanFlags: ['open', 'url'] },
+  comments: noPositionals,
+  ci: noPositionals,
+  get: onePositional,
+  'with-tag': onePositional,
+  'with-all-tags': { minPositionals: 1 },
+  'with-any-tag': { minPositionals: 1 },
+  'with-branch': onePositional,
+  'blocked-by': onePositional,
+  blocking: onePositional,
+  priority: onePositional,
+  'with-priority': onePositional,
+  delete: onePositional,
+  archive: onePositional,
+  restore: onePositional,
+  'clear-parent': onePositional,
+  cleanup: onePositional,
+  create: {
+    ...noPositionals,
+    valueFlags: [
+      'title',
+      'description',
+      'priority',
+      'status',
+      'start-date',
+      'due-date',
+      'branch',
+      'parent',
+      'tag',
+      'tags',
+      'blocked-by',
+    ],
+    booleanFlags: ['draft'],
+  },
+  update: {
+    ...onePositional,
+    valueFlags: [
+      'title',
+      'description',
+      'priority',
+      'status',
+      'start-date',
+      'due-date',
+      'branch',
+      'parent',
+      'archived',
+      'deleted',
+    ],
+  },
+  'add-tag': twoPositionals,
+  'remove-tag': twoPositionals,
+  'set-parent': twoPositionals,
+  'add-blocker': twoPositionals,
+  'remove-blocker': twoPositionals,
+  'sync-git-status': { ...noPositionals, booleanFlags: ['quiet'] },
+  'setup-skills': { minPositionals: 0, maxPositionals: 1, booleanFlags: ['all'] },
+  'setup-git-hooks': noPositionals,
+};
+
+const appendFlag = (flags: Map<string, string[]>, name: string, value: string): void => {
+  flags.set(name, [...(flags.get(name) ?? []), value]);
+};
+
+const flagKind = (
+  specification: CommandSpecification | undefined,
+  name: string,
+): 'unknown' | 'boolean' | 'value' => {
+  if (!specification) return 'value';
+  if (specification.booleanFlags?.includes(name)) return 'boolean';
+  if (specification.valueFlags?.includes(name)) return 'value';
+  return 'unknown';
+};
+
+const parseFlag = (
+  command: string | undefined,
+  specification: CommandSpecification | undefined,
+  flags: Map<string, string[]>,
+  value: string,
+  next: string | undefined,
+): number => {
+  const name = value.slice(2);
+  const kind = flagKind(specification, name);
+  if (kind === 'unknown') {
+    throw new ScrumlordError('unknown_flag', `Unknown flag for ${command}: --${name}.`);
+  }
+  if (kind === 'boolean') {
+    appendFlag(flags, name, 'true');
+    return 0;
+  }
+  if (!next || next.startsWith('--')) {
+    throw new ScrumlordError('missing_flag_value', `--${name} requires a value.`);
+  }
+  appendFlag(flags, name, next);
+  return 1;
+};
 
 const parseArguments = (argv: string[]): ParsedArguments => {
   const [command, ...rest] = argv;
+  const specification = command ? commandSpecifications[command] : undefined;
   const positionals: string[] = [];
   const flags = new Map<string, string[]>();
 
@@ -48,18 +161,42 @@ const parseArguments = (argv: string[]): ParsedArguments => {
       continue;
     }
 
-    const name = value.slice(2);
-    const next = rest[index + 1];
-    if (!next || next.startsWith('--')) {
-      flags.set(name, [...(flags.get(name) ?? []), 'true']);
-      continue;
-    }
-
-    flags.set(name, [...(flags.get(name) ?? []), next]);
-    index += 1;
+    index += parseFlag(command, specification, flags, value, rest[index + 1]);
   }
 
   return { command, positionals, flags };
+};
+
+const plural = (count: number): string => (count === 1 ? '' : 's');
+
+const unexpectedArgumentMessage = (command: string, minimum: number, maximum: number): string => {
+  const expectation =
+    minimum === maximum
+      ? `exactly ${maximum} argument${plural(maximum)}`
+      : `at most ${maximum} argument${plural(maximum)}`;
+  return `${command} expects ${expectation}.`;
+};
+
+const validatePositionals = (parsed: ParsedArguments): void => {
+  if (!parsed.command) return;
+  const specification = commandSpecifications[parsed.command];
+  if (!specification) return;
+
+  const count = parsed.positionals.length;
+  const minimum = specification.minPositionals ?? 0;
+  const maximum = specification.maxPositionals;
+  if (count < minimum) {
+    throw new ScrumlordError(
+      'missing_argument',
+      `${parsed.command} expects at least ${minimum} argument${plural(minimum)}.`,
+    );
+  }
+
+  if (maximum === undefined || count <= maximum) return;
+  throw new ScrumlordError(
+    'unexpected_argument',
+    unexpectedArgumentMessage(parsed.command, minimum, maximum),
+  );
 };
 
 const required = (values: string[], name: string): string => {
@@ -71,8 +208,19 @@ const required = (values: string[], name: string): string => {
 const flag = (flags: Map<string, string[]>, name: string): string | undefined =>
   flags.get(name)?.at(-1);
 
-const flagList = (flags: Map<string, string[]>, name: string): string[] => {
-  return (flags.get(name) ?? []).flatMap((value) => value.split(',')).filter(Boolean);
+const flagList = (
+  flags: Map<string, string[]>,
+  name: string,
+  emptyError: { code: string; message: string } = {
+    code: 'invalid_flag_list',
+    message: `--${name} must include at least one value.`,
+  },
+): string[] => {
+  const values = (flags.get(name) ?? []).flatMap((value) => value.split(',')).filter(Boolean);
+  if (flags.has(name) && values.length === 0) {
+    throw new ScrumlordError(emptyError.code, emptyError.message);
+  }
+  return values;
 };
 
 const isSkillTarget = (target: string): target is SkillTarget =>
@@ -87,7 +235,10 @@ const createInputFromFlags = (flags: Map<string, string[]>): CreateTaskInput => 
     description: flag(flags, 'description') ?? '',
     priority: parsePriority(Number(flag(flags, 'priority') ?? 1)),
     status: flags.has('draft') ? 'draft' : parseStatus(flag(flags, 'status') ?? 'ready'),
-    tags: flagList(flags, 'tag').concat(flagList(flags, 'tags')),
+    tags: flagList(flags, 'tag', {
+      code: 'invalid_tag',
+      message: 'Tags cannot be empty.',
+    }).concat(flagList(flags, 'tags', { code: 'invalid_tag', message: 'Tags cannot be empty.' })),
     blockedBy: flagList(flags, 'blocked-by'),
   };
   const optionalFields = [
@@ -161,6 +312,17 @@ const secondPositional = (parsed: ParsedArguments, name: string): string => {
   return required(parsed.positionals.slice(1), name);
 };
 
+const cleanupDaysFrom = (parsed: ParsedArguments): number => {
+  const days = Number(required(parsed.positionals, 'days'));
+  if (!Number.isInteger(days) || days < 0) {
+    throw new ScrumlordError(
+      'invalid_cleanup_days',
+      'Cleanup days must be a non-negative integer.',
+    );
+  }
+  return days;
+};
+
 const storeCommandHandlers: Record<string, StoreCommandHandler> = {
   available: (store) => store.available(),
   blocked: (store) => store.blocked(),
@@ -190,10 +352,19 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
     store.addBlocker(taskId(parsed), secondPositional(parsed, 'blocked-by task id')),
   'remove-blocker': (store, parsed) =>
     store.removeBlocker(taskId(parsed), secondPositional(parsed, 'blocked-by task id')),
-  cleanup: (store, parsed) => store.cleanup(Number(required(parsed.positionals, 'days'))),
+  cleanup: (store, parsed) => store.cleanup(cleanupDaysFrom(parsed)),
 };
 
 const storeCommands = new Set([...Object.keys(storeCommandHandlers), 'sync-git-status']);
+
+const validateStoreCommandInput = (parsed: ParsedArguments): void => {
+  if (parsed.command === 'create') createInputFromFlags(parsed.flags);
+  if (parsed.command === 'update') updateInputFromFlags(parsed.flags);
+  if (parsed.command === 'cleanup') cleanupDaysFrom(parsed);
+  if (parsed.command === 'priority' || parsed.command === 'with-priority') {
+    parsePriority(Number(required(parsed.positionals, 'priority')));
+  }
+};
 
 const runStoreCommand = async (
   store: TaskStore,
@@ -222,39 +393,60 @@ const normalizeSkillTarget = (parsed: ParsedArguments): SkillTarget | '--all' =>
   );
 };
 
+const githubModule = async (options: CliOptions): Promise<NonNullable<CliOptions['github']>> => {
+  return options.github ?? (await import('./github.js'));
+};
+
+const runPullRequestBoundaryCommand: BoundaryCommandHandler = async (parsed, options) => {
+  const github = await githubModule(options);
+  const root = await resolveProjectRoot(options.cwd);
+  const subcommand = parsed.positionals[0];
+  if (subcommand === 'status') return success(await github.pullRequestStatus(root));
+  if (subcommand) {
+    throw new ScrumlordError('unknown_command', `Unknown pull request command: pr ${subcommand}.`);
+  }
+  return success(await github.pullRequestUrl(root, parsed.flags.has('open')));
+};
+
+const runCommentsBoundaryCommand: BoundaryCommandHandler = async (_parsed, options) => {
+  const github = await githubModule(options);
+  const root = await resolveProjectRoot(options.cwd);
+  return success(await github.unresolvedReviewComments(root));
+};
+
+const runContinuousIntegrationBoundaryCommand: BoundaryCommandHandler = async (
+  _parsed,
+  options,
+) => {
+  const github = await githubModule(options);
+  const root = await resolveProjectRoot(options.cwd);
+  return success(await github.continuousIntegrationStatus(root));
+};
+
+const runSetupSkillsBoundaryCommand: BoundaryCommandHandler = async (parsed, options) => {
+  const root = await resolveProjectRoot(options.cwd);
+  return success(await setupSkills(root, normalizeSkillTarget(parsed)));
+};
+
+const runSetupGitHooksBoundaryCommand: BoundaryCommandHandler = async (_parsed, options) => {
+  const root = await resolveProjectRoot(options.cwd);
+  return success(await (options.setupGitHooks ?? setupGitHooks)(root));
+};
+
+const boundaryCommandHandlers: Record<string, BoundaryCommandHandler> = {
+  pr: runPullRequestBoundaryCommand,
+  comments: runCommentsBoundaryCommand,
+  ci: runContinuousIntegrationBoundaryCommand,
+  'setup-skills': runSetupSkillsBoundaryCommand,
+  'setup-git-hooks': runSetupGitHooksBoundaryCommand,
+};
+
 const runBoundaryCommand = async (
   parsed: ParsedArguments,
   options: CliOptions,
 ): Promise<CliResult | undefined> => {
-  if (parsed.command === 'pr') {
-    const github = options.github ?? (await import('./github.js'));
-    const root = await resolveProjectRoot(options.cwd);
-    return success(await github.pullRequestUrl(root, parsed.flags.has('open')));
-  }
-
-  if (parsed.command === 'comments') {
-    const github = options.github ?? (await import('./github.js'));
-    const root = await resolveProjectRoot(options.cwd);
-    return success(await github.unresolvedReviewComments(root));
-  }
-
-  if (parsed.command === 'ci') {
-    const github = options.github ?? (await import('./github.js'));
-    const root = await resolveProjectRoot(options.cwd);
-    return success(await github.continuousIntegrationStatus(root));
-  }
-
-  if (parsed.command === 'setup-skills') {
-    const root = await resolveProjectRoot(options.cwd);
-    return success(await setupSkills(root, normalizeSkillTarget(parsed)));
-  }
-
-  if (parsed.command === 'setup-git-hooks') {
-    const root = await resolveProjectRoot(options.cwd);
-    return success(await (options.setupGitHooks ?? setupGitHooks)(root));
-  }
-
-  return undefined;
+  const handler = parsed.command ? boundaryCommandHandlers[parsed.command] : undefined;
+  return handler ? await handler(parsed, options) : undefined;
 };
 
 const openStore = async (options: CliOptions): Promise<TaskStore> => {
@@ -267,12 +459,14 @@ export const runTasksCli = async (argv: string[], options: CliOptions = {}): Pro
   try {
     const parsed = parseArguments(argv);
     if (!parsed.command) throw new ScrumlordError('missing_command', 'A command is required.');
+    validatePositionals(parsed);
 
     const boundaryResult = await runBoundaryCommand(parsed, options);
     if (boundaryResult) return boundaryResult;
     if (!storeCommands.has(parsed.command)) {
       throw new ScrumlordError('unknown_command', `Unknown command: ${parsed.command}`);
     }
+    validateStoreCommandInput(parsed);
 
     const store = await openStore(options);
     try {

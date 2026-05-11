@@ -78,14 +78,33 @@ Scrumlord can keep branch-bound tasks synchronized with Git and GitHub state:
 
 The synchronization rules are intentionally small: a `ready` task on the current branch becomes `in-progress` when work begins, an open pull request moves it to `in-review`, and a pull request merged into `main` as the `origin/main` integration branch marks it `completed`.
 
+### Errors And Recovery
+
+Expected failures return JSON on stderr with a stable error code:
+
+- `project_root_not_found`: Run `tasks` from inside a Git repository or npm workspace.
+- `invalid_workspace_package_json`: Fix the nearest `package.json` that Scrumlord tried to inspect.
+- `gh_not_found`: Install the GitHub CLI before using `tasks pr`, `tasks pr status`, `tasks comments`, or `tasks ci`.
+- `gh_not_authenticated`: Run `gh auth login` or fix the current GitHub CLI authentication.
+- `github_repository_not_found`: Configure the repository remote so `gh repo view` can resolve it.
+- `pull_request_not_found`: Open a pull request for the current branch or continue with non-GitHub task commands.
+- `ci_status_invalid`: Update `gh` or inspect `gh pr checks --json bucket,completedAt,link,name,state,workflow`; Scrumlord expected a JSON array.
+- `git_branch_not_found`: Leave detached HEAD or set task branch metadata manually with `tasks update <task-id> --branch <branch>`.
+- `invalid_date`, `invalid_date_range`, `invalid_priority`, and `invalid_status`: Fix the supplied task field.
+- `database_directory_failed`, `database_open_failed`, and `migration_failed`: Check `tmp/tasks.db`, filesystem permissions, and whether another process is holding the database.
+- `lefthook_install_failed`: Fix Lefthook installation output and rerun `tasks setup-git-hooks`.
+
 ### Pull Request Commands
 
 These commands resolve the current branch’s open pull request with the GitHub CLI. If `gh` is not installed, the command fails with a JSON error.
 
 - `tasks pr`: Print the pull request URL. This is the same as `tasks pr --url`.
 - `tasks pr --open`: Print the URL and open it in the system browser.
+- `tasks pr status`: Print a full readiness report for the current pull request, including unresolved review comment IDs and URLs, pending CI checks, failed CI checks, and `readyToMerge`.
 - `tasks comments`: Print unresolved pull request review comments.
 - `tasks ci`: Print pull request check status from `gh pr checks`.
+
+`tasks pr status` sets `readyToMerge` to `true` only when every review thread is resolved and every reported check is green. Pending, failed, cancelled, errored, or unknown check states keep `readyToMerge` false and appear in the JSON report with any available check URL.
 
 ### Agent Skill Setup
 

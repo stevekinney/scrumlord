@@ -38,5 +38,13 @@ describe('setupSkills', () => {
     expect(cursorSkill).toContain('tasks next');
     expect(cursorSkill).toContain('--status in-progress --branch');
     expect(cursorSkill).toContain('tasks sync-git-status --quiet');
+    expect(cursorSkill).toContain('Do not store worktree paths');
+    expect(cursorSkill).toContain('project_root_not_found');
+    expect(cursorSkill).toContain('gh_not_found');
+    expect(cursorSkill).toContain('pull_request_not_found');
+    expect(cursorSkill).toContain('tasks pr status');
+    expect(cursorSkill).toContain('readyToMerge');
+    expect(cursorSkill).toContain('tasks comments');
+    expect(cursorSkill).toContain('tasks ci');
   });
 });

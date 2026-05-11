@@ -251,6 +251,16 @@ describe('syncGitStatus', () => {
     expect(result.updated).toEqual([{ id: 'ready', from: 'ready', to: 'in-progress' }]);
   });
 
+  it('treats malformed gh JSON as unavailable during hook synchronization', async () => {
+    const result = await syncGitStatus(store([task('ready')]), {
+      runner: gitRunner({ exitCode: 0, stdout: 'not-json' }),
+    });
+
+    expect(result.ghAvailable).toBe(false);
+    expect(result.pullRequest).toBeNull();
+    expect(result.updated).toEqual([{ id: 'ready', from: 'ready', to: 'in-progress' }]);
+  });
+
   it('treats a missing gh executable as unavailable during hook synchronization', async () => {
     const result = await syncGitStatus(store([task('ready')]), {
       runner: throwingGitHubRunner,

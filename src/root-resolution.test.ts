@@ -55,6 +55,21 @@ describe('resolveProjectRoot', () => {
     expect(resolvedRoot).toBe(root);
   });
 
+  it('falls back to the npm workspace root when Git cannot be executed', async () => {
+    const root = await temporaryDirectory();
+    const nested = join(root, 'packages', 'example', 'src');
+    await mkdir(nested, { recursive: true });
+    await Bun.write(join(root, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
+    const originalPath = Bun.env.PATH;
+    Bun.env.PATH = '';
+
+    try {
+      expect(await resolveProjectRoot(nested)).toBe(root);
+    } finally {
+      Bun.env.PATH = originalPath;
+    }
+  });
+
   it('fails without creating a database when no project root exists', async () => {
     const root = await temporaryDirectory();
     const result = await runTasksCli(['available'], { cwd: root });
@@ -66,6 +81,22 @@ describe('resolveProjectRoot', () => {
         message:
           'Could not find a Git repository root or npm workspace root from the current directory.',
       },
+    });
+    expect(existsSync(join(root, 'tmp', 'tasks.db'))).toBe(false);
+  });
+
+  it('fails without creating a database when a workspace package manifest is invalid', async () => {
+    const root = await temporaryDirectory();
+    const nested = join(root, 'packages', 'example');
+    await mkdir(nested, { recursive: true });
+    await Bun.write(join(root, 'package.json'), '{ "workspaces": [');
+
+    const result = await runTasksCli(['available'], { cwd: nested });
+
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stderr).error).toEqual({
+      code: 'invalid_workspace_package_json',
+      message: `Could not parse workspace package.json: ${join(root, 'package.json')}`,
     });
     expect(existsSync(join(root, 'tmp', 'tasks.db'))).toBe(false);
   });

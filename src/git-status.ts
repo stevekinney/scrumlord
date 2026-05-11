@@ -97,7 +97,12 @@ const currentPullRequest = async (
 
   if (result.exitCode !== 0) return { ghAvailable: false, pullRequest: null };
 
-  const parsed: unknown = JSON.parse(result.stdout);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    return { ghAvailable: false, pullRequest: null };
+  }
   const pullRequest = Array.isArray(parsed) ? parsed.find(isPullRequestState) : undefined;
   return { ghAvailable: true, pullRequest: pullRequest ?? null };
 };

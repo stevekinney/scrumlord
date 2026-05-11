@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { Database } from 'bun:sqlite';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTaskStore } from './database';
@@ -29,6 +29,21 @@ afterEach(async () => {
 });
 
 describe('createTaskStore', () => {
+  it('reports a helpful migration error when an existing database is corrupt', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    await mkdir(join(root, 'tmp'), { recursive: true });
+    await Bun.write(join(root, 'tmp', 'tasks.db'), 'not a sqlite database');
+
+    try {
+      await createTaskStore({ cwd: root });
+      throw new Error('Expected createTaskStore to fail.');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ScrumlordError);
+      expect(error).toHaveProperty('code', 'migration_failed');
+    }
+  });
+
   it('runs migrations, persists tasks, and exposes graph queries', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
@@ -119,9 +134,20 @@ describe('createTaskStore', () => {
     expect(() => store.addBlocker(blocker.id, blocked.id)).toThrow(ScrumlordError);
     expect(() => store.update('missing', { title: 'Nope' })).toThrow(ScrumlordError);
     expect(() => store.create({ title: '   ' })).toThrow(ScrumlordError);
+    expect(() => store.create({ id: 'blocked', title: 'Duplicate id' })).toThrow(ScrumlordError);
     expect(() => store.create({ title: 'Bad date', startDate: 'not-a-date' })).toThrow(
       ScrumlordError,
     );
+    expect(() =>
+      store.create({
+        title: 'Bad date order',
+        startDate: '2026-05-12',
+        dueDate: '2026-05-11',
+      }),
+    ).toThrow(ScrumlordError);
+    expect(() =>
+      store.update(blocked.id, { startDate: '2026-05-12', dueDate: '2026-05-11' }),
+    ).toThrow(ScrumlordError);
     expect(() => store.addTag(parent.id, '   ')).toThrow(ScrumlordError);
     expect(() => store.withAllTags()).toThrow(ScrumlordError);
     expect(() => store.withPriority(9)).toThrow(ScrumlordError);

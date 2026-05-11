@@ -29,6 +29,7 @@ await Bun.build({
   naming: '[name].js',
   sourcemap: 'linked',
   minify: false,
+  loader: { '.md': 'text' },
   external,
 });
 
