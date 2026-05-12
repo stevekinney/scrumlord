@@ -20,6 +20,7 @@ import {
   parseOptionalText,
   parsePriority,
   parseStatus,
+  validateReadyTaskDependencyEdges,
   requireProgressMessage,
   requireTitle,
 } from './validation.js';
@@ -219,13 +220,16 @@ export const createTaskBindings = (
   const dueDate = nullableDateInput(input.dueDate, 'dueDate');
   const provider = parseOptionalAgentProvider(input.provider) ?? null;
   const session = parseOptionalText(input.session) ?? null;
+  const status = parseStatus(input.status ?? 'ready');
+  const description = input.description ?? '';
   validateDateOrder(startDate, dueDate);
   validateSessionFields(provider, session);
+  validateReadyTaskDependencyEdges(status, description, input.blockedBy?.length ?? 0);
   return {
     id,
     title: requireTitle(input.title),
-    status: parseStatus(input.status ?? 'ready'),
-    description: input.description ?? '',
+    status,
+    description,
     priority: parsePriority(input.priority ?? 1),
     createdAt: now,
     startDate,
@@ -250,13 +254,16 @@ export const updateTaskBindings = (
   const provider = updatedProvider(input, current);
   const session = updatedSession(input, current);
   const branch = updatedBranch(input, current);
+  const status = updatedStatusForBranch(input, current, branch);
+  const description = input.description ?? current.description;
   validateDateOrder(startDate, dueDate);
   validateSessionFields(provider, session);
+  validateReadyTaskDependencyEdges(status, description, current.blockedBy.length);
   return {
     id,
     title: updatedTitle(input, current),
-    status: updatedStatusForBranch(input, current, branch),
-    description: input.description ?? current.description,
+    status,
+    description,
     priority: updatedPriority(input, current),
     startDate,
     dueDate,

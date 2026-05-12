@@ -45,7 +45,11 @@ import type { CliOptions } from './cli-types.js';
 import type { CreateTaskInput, Task, TaskStore, UpdateTaskInput } from './types.js';
 import { parseAgentProvider, parsePriority, parseStatus } from './validation.js';
 
-type StoreCommandHandler = (store: TaskStore, parsed: ParsedArguments) => unknown;
+type StoreCommandHandler = (
+  store: TaskStore,
+  parsed: ParsedArguments,
+  options: CliOptions,
+) => unknown;
 type StoreCommandInputValidator = (parsed: ParsedArguments, options: CliOptions) => void;
 type TaskPlanFilter = 'planned' | 'unplanned';
 
@@ -221,8 +225,12 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
       parsed,
       tasksWithPriority(store, parsePriority(Number(required(parsed.positionals, 'priority')))),
     ),
-  session: async (store, parsed) =>
-    resolveTaskSession(store, await taskIdFromArguments(store, parsed)),
+  session: async (store, parsed, options) =>
+    resolveTaskSession(
+      store,
+      await taskIdFromArguments(store, parsed),
+      options.environment ? { environment: options.environment } : {},
+    ),
   progress: async (store, parsed) => taskProgress(store, await taskIdFromArguments(store, parsed)),
   'current-task': async (store) => await currentBranchTask(store),
   next: (store) => next(store),
@@ -349,9 +357,10 @@ export const validateStoreCommandInput = (parsed: ParsedArguments, options: CliO
 export const runTaskStoreCommand = async (
   store: TaskStore,
   parsed: ParsedArguments,
+  options: CliOptions,
 ): Promise<unknown> => {
   const handler = storeCommandHandlers[parsed.command ?? ''];
   if (!handler)
     throw new ScrumlordError('unknown_command', `Unknown command: ${parsed.command ?? ''}`);
-  return await handler(store, parsed);
+  return await handler(store, parsed, options);
 };

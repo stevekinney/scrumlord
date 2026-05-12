@@ -79,6 +79,31 @@ export const parseOptionalText = (value: string | null | undefined): string | nu
   return trimmed || null;
 };
 
+const dependencyLanguagePatterns = [
+  /\bgated\s+(?:on|by)\b/i,
+  /\bblocked\s+(?:by|until|on)\b/i,
+  /\bdepends?\s+on\b/i,
+  /\bdependent\s+on\b/i,
+  /\bprerequisite\b/i,
+  /\bonce\b[^.?!]{1,120}\bexists\b/i,
+] as const;
+
+export const hasDependencyLanguage = (description: string): boolean => {
+  return dependencyLanguagePatterns.some((pattern) => pattern.test(description));
+};
+
+export const validateReadyTaskDependencyEdges = (
+  status: TaskStatus,
+  description: string,
+  blockerCount: number,
+): void => {
+  if (status !== 'ready' || blockerCount > 0 || !hasDependencyLanguage(description)) return;
+  throw new ScrumlordError(
+    'dependency_edge_required',
+    'Ready tasks with dependency language must have an explicit blocker. Pass --blocked-by, add a blocker before marking the task ready, or keep the task in draft.',
+  );
+};
+
 export const requireTitle = (title: string): string => {
   const trimmed = title.trim();
   if (!trimmed) throw new ScrumlordError('invalid_title', 'Task title is required.');

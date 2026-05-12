@@ -158,6 +158,7 @@ Expected failures return JSON on stderr with a stable error code:
 - `ci_status_invalid`: Update `gh` or inspect `gh pr checks --json bucket,completedAt,link,name,state,workflow`; Scrumlord expected a JSON array.
 - `git_branch_not_found`: Leave detached HEAD or set task branch metadata manually with `tasks set-branch [task-id] <branch>`.
 - `invalid_date`, `invalid_date_range`, `invalid_priority`, and `invalid_status`: Fix the supplied task field.
+- `dependency_edge_required`: Add an explicit blocker edge before marking a task `ready`, or keep the task in `draft`.
 - `database_directory_failed`, `database_open_failed`, and `migration_failed`: Check `tmp/tasks.db`, filesystem permissions, and whether another process is holding the database.
 - `lefthook_install_failed`: Fix Lefthook installation output and rerun `tasks setup-git-hooks`.
 - `scrumlord_cli_required`: Pass `--cli` to `tasks start` or set `SCRUMLORD_CLI`.

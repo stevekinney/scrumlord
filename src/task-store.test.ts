@@ -307,6 +307,52 @@ describe('createTaskStore', () => {
     store.close();
   });
 
+  it('requires explicit blocker edges before dependency-gated tasks become ready', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const store = await createTaskStore({
+      cwd: root,
+      now: () => new Date('2026-05-11T12:00:00.000Z'),
+    });
+
+    const dependencyDescription = 'Add /.well-known/mcp.json route once live MCP server exists.';
+
+    expect(() =>
+      store.create({
+        id: 'catalog',
+        title: 'Add MCP catalog discovery metadata',
+        description: dependencyDescription,
+      }),
+    ).toThrow(ScrumlordError);
+
+    const server = store.create({
+      id: 'server',
+      title: 'Implement MCP server',
+      status: 'in-progress',
+    });
+    const catalog = store.create({
+      id: 'catalog',
+      title: 'Add MCP catalog discovery metadata',
+      status: 'draft',
+      description: dependencyDescription,
+    });
+
+    expect(() => store.update(catalog.id, { status: 'ready' })).toThrow(ScrumlordError);
+
+    store.addBlocker(catalog.id, server.id);
+    expect(store.update(catalog.id, { status: 'ready' })).toMatchObject({
+      id: 'catalog',
+      blockedBy: ['server'],
+      status: 'ready',
+    });
+    expect(taskIds(store.available())).toEqual([]);
+
+    store.update(server.id, { status: 'completed' });
+    expect(store.next()?.id).toBe('catalog');
+
+    store.close();
+  });
+
   it('moves draft and ready tasks to in-progress when assigning a branch', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);

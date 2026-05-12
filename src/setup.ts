@@ -191,7 +191,7 @@ const setupStatusHooks = (
 ): SetupStatus['hooks'] => ({
   lefthookConfigurationExists:
     rootFileExists(projectRoot, 'lefthook.yml') || rootFileExists(projectRoot, 'lefthook.yaml'),
-  agentHookWrapperExists: existsSync(agentHookPaths.wrapperPath(homeDirectory)),
+  agentHookWrapperExists: existsSync(agentHookPaths.legacyWrapperPath(homeDirectory)),
   claudeSettingsExists: existsSync(agentHookPaths.claudeSettingsPath(homeDirectory)),
   codexConfigurationExists: existsSync(agentHookPaths.codexConfigurationPath(homeDirectory)),
   codexHooksExists: existsSync(agentHookPaths.codexHooksPath(homeDirectory)),

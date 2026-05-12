@@ -38,39 +38,41 @@ const expectRejection = async (
   }
 };
 
+const claudeCommand = 'command -v tasks >/dev/null 2>&1 && tasks agent-hook claude || true';
+const codexCommand = 'command -v tasks >/dev/null 2>&1 && tasks agent-hook codex || true';
+
 describe('setupAgentHooks', () => {
-  it('writes Bun-based global Claude and Codex hook configuration', async () => {
+  it('registers tasks agent-hook commands directly with no wrapper', async () => {
     const root = await temporaryDirectory();
     const home = await temporaryDirectory();
 
     const result = await setupAgentHooks(root, { homeDirectory: home });
 
-    expect(result.wrapperPath).toBe(join(home, '.scrumlord/hooks/scrumlord-agent-hook.ts'));
     expect(result.claude.changed).toBe(true);
     expect(result.codex.changed).toBe(true);
 
-    const wrapper = await Bun.file(result.wrapperPath).text();
-    expect(wrapper).toContain("Bun.which('tasks')");
-    expect(wrapper).toContain('payloadCwdFromInput');
-    expect(wrapper).toContain('process.cwd()');
-    expect(wrapper).not.toContain(root);
-    expect(wrapper).toContain('SCRUMLORD_DEBUG');
-    expect(wrapper).toContain('UserPromptSubmit');
-    expect(wrapper).toContain('forwardStdout');
-
     const claude = await Bun.file(join(home, '.claude/settings.json')).json();
-    expect(JSON.stringify(claude)).toContain('PostToolUse');
-    expect(JSON.stringify(claude)).toContain('ExitPlanMode');
-    expect(JSON.stringify(claude)).toContain('Bash');
-    expect(JSON.stringify(claude)).toContain('UserPromptSubmit');
-    expect(JSON.stringify(claude)).toContain('bun run');
+    const serializedClaude = JSON.stringify(claude);
+    expect(serializedClaude).toContain(claudeCommand);
+    expect(serializedClaude).not.toContain('bun run');
+    expect(serializedClaude).not.toContain('scrumlord-agent-hook.ts');
+    expect(serializedClaude).toContain('PostToolUse');
+    expect(serializedClaude).toContain('ExitPlanMode');
+    expect(serializedClaude).toContain('Bash');
+    expect(serializedClaude).toContain('UserPromptSubmit');
+    expect(serializedClaude).toContain('Stop');
+    expect(serializedClaude).toContain('SessionStart');
 
     const codexConfiguration = await Bun.file(join(home, '.codex/config.toml')).text();
     expect(codexConfiguration).toContain('[features]');
     expect(codexConfiguration).toContain('codex_hooks = true');
+
     const codexHooks = await Bun.file(join(home, '.codex/hooks.json')).json();
-    expect(JSON.stringify(codexHooks)).toContain('Stop');
-    expect(JSON.stringify(codexHooks)).toContain('UserPromptSubmit');
+    const serializedCodex = JSON.stringify(codexHooks);
+    expect(serializedCodex).toContain(codexCommand);
+    expect(serializedCodex).not.toContain('bun run');
+    expect(serializedCodex).toContain('Stop');
+    expect(serializedCodex).toContain('UserPromptSubmit');
 
     const secondRun = await setupAgentHooks(root, { homeDirectory: home });
     expect(secondRun.claude.changed).toBe(false);
@@ -84,6 +86,42 @@ describe('setupAgentHooks', () => {
       changed: false,
       skipped: true,
     });
+  });
+
+  it('migrates legacy wrapper-based hook commands in place', async () => {
+    const root = await temporaryDirectory();
+    const home = await temporaryDirectory();
+    await mkdir(join(home, '.claude'), { recursive: true });
+    const legacyWrapper = join(home, '.scrumlord/hooks/scrumlord-agent-hook.ts');
+    const legacyClaudeCommand = `bun run "${legacyWrapper}" claude`;
+    await Bun.write(
+      join(home, '.claude/settings.json'),
+      `${JSON.stringify(
+        {
+          hooks: {
+            UserPromptSubmit: [
+              { hooks: [{ type: 'command', command: legacyClaudeCommand, timeout: 10 }] },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const result = await setupAgentHooks(root, { homeDirectory: home });
+    expect(result.claude.changed).toBe(true);
+
+    const claude = await Bun.file(join(home, '.claude/settings.json')).json();
+    const serialized = JSON.stringify(claude);
+    expect(serialized).toContain(claudeCommand);
+    // Legacy command must be gone; migration replaces, not duplicates.
+    expect(serialized).not.toContain(legacyClaudeCommand);
+    expect(serialized).not.toContain('scrumlord-agent-hook.ts');
+
+    // Idempotent: second run should not change anything.
+    const secondRun = await setupAgentHooks(root, { homeDirectory: home });
+    expect(secondRun.claude.changed).toBe(false);
   });
 
   it('updates existing Codex feature configuration shapes', async () => {

@@ -552,7 +552,7 @@ const topics: HelpTopic[] = [
     summary: 'Install global agent lifecycle hooks.',
     usage: 'tasks setup-agent-hooks',
     description:
-      'Writes global Claude and Codex hook configuration plus a Bun wrapper under ~/.scrumlord/hooks. Hooks synchronize task plans, sessions, branches, and pull request lifecycle state, and inject the inferred current branch task on user prompts.',
+      'Writes global Claude and Codex hook configuration that calls `tasks agent-hook` directly. Hooks synchronize task plans, sessions, branches, and pull request lifecycle state, and inject the inferred current branch task on user prompts. Idempotent; migrates legacy `bun run scrumlord-agent-hook.ts` entries on each run.',
     examples: ['tasks setup-agent-hooks'],
   },
   {

@@ -68,7 +68,7 @@ const runStoreCommand = async (
     return await github.tasksOverview(store);
   }
 
-  return await runTaskStoreCommand(store, parsed);
+  return await runTaskStoreCommand(store, parsed, options);
 };
 
 const normalizeSkillTarget = (parsed: ParsedArguments): SkillTarget | '--all' => {
@@ -143,18 +143,66 @@ const runSetupAgentHooksBoundaryCommand: BoundaryCommandHandler = async (_parsed
   return success(await (options.setupAgentHooks ?? setupAgentHooks)(root, hookOptions));
 };
 
-const runAgentHookBoundaryCommand: BoundaryCommandHandler = async (parsed, options) => {
-  let root: string;
-  try {
-    root = await resolveProjectRoot(options.cwd);
-  } catch {
-    return { exitCode: 0, stdout: '', stderr: '' };
+const projectRootKeys = new Set([
+  'cwd',
+  'currentWorkingDirectory',
+  'projectRoot',
+  'repositoryRoot',
+  'workspaceRoot',
+]);
+
+const findStringByKey = (value: unknown, keys: Set<string>): string | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  for (const [key, child] of Object.entries(value)) {
+    if (keys.has(key) && typeof child === 'string' && child.trim()) return child;
   }
+  for (const child of Object.values(value)) {
+    const match = findStringByKey(child, keys);
+    if (match) return match;
+  }
+  return null;
+};
+
+const projectRootFromPayload = (raw: string): string | null => {
+  try {
+    return findStringByKey(JSON.parse(raw), projectRootKeys);
+  } catch {
+    return null;
+  }
+};
+
+const resolveAgentHookRoot = async (
+  options: CliOptions,
+  payload: string,
+): Promise<string | null> => {
+  try {
+    return await resolveProjectRoot(options.cwd);
+  } catch {
+    // Fall through to payload-derived cwd: hooks are often invoked from a
+    // directory unrelated to the project (e.g. ~/.claude), but the harness
+    // includes the conversation's cwd in the payload.
+  }
+  const payloadCwd = projectRootFromPayload(payload);
+  if (!payloadCwd) return null;
+  try {
+    return await resolveProjectRoot(payloadCwd);
+  } catch {
+    return null;
+  }
+};
+
+const runAgentHookBoundaryCommand: BoundaryCommandHandler = async (parsed, options) => {
+  const payload = await (options.readStdin?.() ?? Bun.stdin.text());
+  const root = await resolveAgentHookRoot(options, payload);
+  if (!root) return { exitCode: 0, stdout: '', stderr: '' };
   if (!existsSync(join(root, 'tmp', 'tasks.db'))) return { exitCode: 0, stdout: '', stderr: '' };
 
   const store = await openStore({ ...options, cwd: root });
   try {
-    return await runAgentHookCommand(store, parsed, options);
+    return await runAgentHookCommand(store, parsed, {
+      ...options,
+      readStdin: async () => payload,
+    });
   } finally {
     store.close();
   }

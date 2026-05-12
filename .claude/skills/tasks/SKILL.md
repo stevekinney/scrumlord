@@ -32,6 +32,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 
 - Before creating tasks from a roadmap, specification, or checklist, first build a candidate graph: task title, description source, normalized priority, tags, parent task, and blockers.
 - Do not create a flat list unless the items are genuinely independent. If one task unlocks or must precede another, create both tasks and then run `tasks add-blocker <blocked-task-id> <blocker-task-id>`.
+- Treat dependency language as graph data. Phrases such as "gated on", "blocked by", "depends on", "prerequisite", or "once ... exists" require an explicit blocker edge before the task can be marked `ready`.
 - Create parent or prerequisite tasks before dependent tasks so you have stable task IDs for `tasks add-blocker` and `tasks set-parent`.
 - For large imports, do not fire many `tasks create` commands in parallel. Validate the priority scale and required flags first, then create tasks serially or in small batches so one malformed command cannot cancel the whole batch.
 - After creating tasks, verify the graph with `tasks list`, `tasks blocked`, `tasks available`, `tasks blocked-by [task-id]`, and `tasks blocking [task-id]` as appropriate.

@@ -71,6 +71,26 @@ describe('tasks next and remaining', () => {
     });
   });
 
+  it('rejects ready tasks with dependency language but no blocker edge', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+
+    const result = await runTasksCli(
+      [
+        'create',
+        '--title',
+        'Add MCP catalog discovery metadata',
+        '--description',
+        'Add /.well-known/mcp.json route once live MCP server exists.',
+      ],
+      { cwd: root },
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr).error.code).toBe('dependency_edge_required');
+  });
+
   it('returns the remaining task count as a JSON integer', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);

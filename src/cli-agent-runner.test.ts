@@ -419,7 +419,6 @@ describe('runTasksCli boundary commands', () => {
       cwd: root,
       homeDirectory: root,
       setupAgentHooks: async () => ({
-        wrapperPath: join(root, '.scrumlord/hooks/scrumlord-agent-hook.ts'),
         claude: {
           settingsPath: join(root, '.claude/settings.json'),
           changed: true,
@@ -433,8 +432,8 @@ describe('runTasksCli boundary commands', () => {
         },
       }),
     });
-    expect(JSON.parse(setupAgentHooksResult.stdout).wrapperPath).toBe(
-      join(root, '.scrumlord/hooks/scrumlord-agent-hook.ts'),
+    expect(JSON.parse(setupAgentHooksResult.stdout).claude.settingsPath).toBe(
+      join(root, '.claude/settings.json'),
     );
 
     const setupSubagentsResult = await runTasksCli(['setup-subagents', 'codex', '--global'], {

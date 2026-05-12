@@ -64,6 +64,7 @@ describe('setupSubagents', () => {
     expect(codex).toContain('tasks setup status');
     expect(codex).toContain('tasks add-blocker');
     expect(codex).toContain('build a candidate graph');
+    expect(codex).toContain('Treat dependency language as graph data');
     expect(codex).toContain('Scrumlord priorities are only');
     expect(codex).toContain('do not fire many `tasks create` commands in parallel');
     expect(codex).toContain('Never edit `tmp/tasks.db` directly.');

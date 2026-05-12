@@ -41,6 +41,7 @@ describe('setupSkills', () => {
     expect(cursorSkill).toContain('tasks remaining');
     expect(cursorSkill).toContain('Scrumlord priorities are only `1`, `2`, and `3`');
     expect(cursorSkill).toContain('build a candidate graph');
+    expect(cursorSkill).toContain('Treat dependency language as graph data');
     expect(cursorSkill).toContain('do not fire many `tasks create` commands in parallel');
     expect(cursorSkill).toContain('If no dependency edges exist, say that explicitly');
     expect(cursorSkill).toContain('Setting a branch moves a `draft` or `ready` task');
