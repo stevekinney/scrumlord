@@ -50,7 +50,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 - Use `tasks resume` to resume the current branch task's recorded Claude or Codex session from the derived worktree.
 - Before changing status manually, run `tasks sync-git-status` if GitHub might already know the current pull request state.
 - If `tasks setup-git-hooks` has been run in a repository with Lefthook, `tasks sync-git-status --quiet` handles lifecycle transitions from Git and GitHub state.
-- If `tasks setup-agent-hooks` has been run, local Bun hooks try to keep plan, session, branch, and pull request lifecycle state synchronized, and they inject the inferred current branch task into agent context on user prompts. Hooks exit quietly when `tmp/tasks.db` or `tasks` is unavailable unless `SCRUMLORD_DEBUG` is truthy.
+- If `tasks setup-agent-hooks` has been run, global Claude and Codex hooks try to keep plan, session, branch, and pull request lifecycle state synchronized, and they inject the inferred current branch task into agent context on user prompts. Hooks exit quietly when the project is not initialized for Scrumlord or `tasks` is unavailable unless `SCRUMLORD_DEBUG` is truthy.
 - Before merging, run `tasks pr status`. Only treat the pull request as merge-ready when `readyToMerge` is `true`.
 
 ## GitHub Review Workflow

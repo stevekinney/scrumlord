@@ -58,7 +58,7 @@ tasks add-tag testing
 - `tasks setup --codex` or `tasks setup --claude`: Run setup for one provider and then launch that CLI from the project root with setup context and task-management instructions.
 - `tasks setup status`: Return read-only setup state as JSON, including `tasksExecutable`, `projectRoot`, `databaseExists`, provider CLI paths, subagent paths, skill paths, and hook configuration presence.
 - `tasks setup-subagents [codex|claude|--all] [--local|--global]`: Install the `scrumlord-task-manager` subagent. With no provider argument, only installed providers are configured. Project-local scope is the default.
-- `tasks setup-agent-hooks`: Write local Bun-based Claude and Codex hook configuration. User-prompt hooks infer the current branch task and inject compact task context automatically. Hooks exit quietly when `tmp/tasks.db` is missing or the `tasks` executable is unavailable unless `SCRUMLORD_DEBUG` is truthy.
+- `tasks setup-agent-hooks`: Write global Claude and Codex hook configuration plus a shared Bun wrapper under `~/.scrumlord/hooks/`. User-prompt hooks infer the current branch task and inject compact task context automatically. Hooks exit quietly when the project is not initialized for Scrumlord or the `tasks` executable is unavailable unless `SCRUMLORD_DEBUG` is truthy.
 
 ### Help And Color
 
@@ -127,7 +127,7 @@ All flags use kebab case. Tags are trimmed and lowercased before storage. `branc
 - `tasks session [task-id]`: Return the task session report as JSON.
 - `tasks current-task`: Show the task for the current branch when you need to inspect the inferred ID directly.
 - `tasks add-progress [task-id] --message <markdown>`: Record what changed, what was learned, or why work is blocked. Recording progress moves `draft` or `ready` tasks to `in-progress`. Agent start prompts ask agents to use this after planning, major implementation steps, blockers, and handoffs.
-- `tasks setup-agent-hooks`: Install local Claude and Codex hook configuration plus a Bun wrapper under `tmp/`. The wrapper checks for `tmp/tasks.db` and a `tasks` executable before invoking `tasks agent-hook`, and forwards `UserPromptSubmit` hook output so the inferred current task is injected into the agent context.
+- `tasks setup-agent-hooks`: Install global Claude and Codex hook configuration plus a shared Bun wrapper under `~/.scrumlord/hooks/`. The wrapper uses the hook payload working directory when available, falls back to the current process directory, invokes `tasks agent-hook`, and forwards `UserPromptSubmit` hook output so the inferred current task is injected into the agent context.
 - `tasks setup-subagents`: Install project-local task-manager subagents for installed providers.
 - `tasks agent-hook <claude|codex>`: Internal hook entrypoint that reads hook JSON from stdin. It records session IDs when available, writes plan content on plan-exit hooks, updates branch metadata after relevant Git commands, injects current task context on `UserPromptSubmit`, and runs Git status synchronization after pull request or merge commands.
 

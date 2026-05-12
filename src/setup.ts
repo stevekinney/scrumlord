@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline/promises';
 import { createTheme, type ColorMode } from './color.js';
 import { createTaskStore } from './database-open.js';
 import { ScrumlordError } from './errors.js';
-import { setupAgentHooks, type SetupAgentHooksResult } from './agent-hooks.js';
+import { agentHookPaths, setupAgentHooks, type SetupAgentHooksResult } from './agent-hooks.js';
 import { buildSetupInvocation, getAgentProvider, type AgentInvocation } from './agent-providers.js';
 import { setupGitHooks, type SetupGitHooksResult } from './git-hooks.js';
 import { resolveProjectRoot } from './root-resolution.js';
@@ -43,7 +43,7 @@ export type SetupStatus = {
   hooks: {
     lefthookConfigurationExists: boolean;
     agentHookWrapperExists: boolean;
-    claudeSettingsLocalExists: boolean;
+    claudeSettingsExists: boolean;
     codexConfigurationExists: boolean;
     codexHooksExists: boolean;
   };
@@ -185,13 +185,16 @@ const rootFileExists = (projectRoot: string | null, ...segments: string[]): bool
   return projectRoot ? existsSync(join(projectRoot, ...segments)) : false;
 };
 
-const setupStatusHooks = (projectRoot: string | null): SetupStatus['hooks'] => ({
+const setupStatusHooks = (
+  projectRoot: string | null,
+  homeDirectory: string,
+): SetupStatus['hooks'] => ({
   lefthookConfigurationExists:
     rootFileExists(projectRoot, 'lefthook.yml') || rootFileExists(projectRoot, 'lefthook.yaml'),
-  agentHookWrapperExists: rootFileExists(projectRoot, 'tmp', 'scrumlord-agent-hook.ts'),
-  claudeSettingsLocalExists: rootFileExists(projectRoot, '.claude', 'settings.local.json'),
-  codexConfigurationExists: rootFileExists(projectRoot, '.codex', 'config.toml'),
-  codexHooksExists: rootFileExists(projectRoot, '.codex', 'hooks.json'),
+  agentHookWrapperExists: existsSync(agentHookPaths.wrapperPath(homeDirectory)),
+  claudeSettingsExists: existsSync(agentHookPaths.claudeSettingsPath(homeDirectory)),
+  codexConfigurationExists: existsSync(agentHookPaths.codexConfigurationPath(homeDirectory)),
+  codexHooksExists: existsSync(agentHookPaths.codexHooksPath(homeDirectory)),
 });
 
 const setupStatusProviders = (
@@ -227,7 +230,7 @@ export const setupStatus = async (options: SetupStatusOptions = {}): Promise<Set
     databaseExists: rootFileExists(projectRoot, 'tmp', 'tasks.db'),
     providers: setupStatusProviders(projectRoot, homeDirectory, which),
     skillPaths: setupStatusSkills(projectRoot, homeDirectory),
-    hooks: setupStatusHooks(projectRoot),
+    hooks: setupStatusHooks(projectRoot, homeDirectory),
     warnings,
   };
 };
@@ -273,7 +276,10 @@ const setupAgentHooksForProviders = async (
   options: SetupProjectOptions,
 ): Promise<SetupAgentHooksResult | null> => {
   if (providers.length === 0) return null;
-  return await (options.setupAgentHooks ?? setupAgentHooks)(projectRoot, { providers });
+  return await (options.setupAgentHooks ?? setupAgentHooks)(projectRoot, {
+    providers,
+    ...(options.homeDirectory === undefined ? {} : { homeDirectory: options.homeDirectory }),
+  });
 };
 
 /** Initializes Scrumlord setup surfaces for the selected providers. */

@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { ScrumlordError } from './errors.js';
 import type { AgentProvider } from './types.js';
@@ -20,6 +21,7 @@ export type SetupAgentHooksResult = {
 
 export type SetupAgentHooksOptions = {
   providers?: readonly AgentProvider[];
+  homeDirectory?: string;
 };
 
 type JsonObject = Record<string, unknown>;
@@ -78,11 +80,9 @@ const ensureHookEntry = (
   return true;
 };
 
-const wrapperScript = (projectRoot: string): string => `#!/usr/bin/env bun
+const wrapperScript = (): string => `#!/usr/bin/env bun
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 
-const projectRoot = ${JSON.stringify(projectRoot)};
 const provider = process.argv[2] ?? '';
 const debug = Boolean(Bun.env.SCRUMLORD_DEBUG);
 const skip = (reason) => {
@@ -91,29 +91,49 @@ const skip = (reason) => {
 };
 
 if (!provider) skip('missing provider');
-if (!existsSync(join(projectRoot, 'tmp', 'tasks.db'))) skip('tmp/tasks.db does not exist');
 
 const tasks = Bun.which('tasks');
 if (!tasks) skip('tasks executable is not available');
 
 const input = await Bun.stdin.text();
-const hookEventNameFromInput = (raw) => {
-  try {
-    const payload = JSON.parse(raw);
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
-    for (const key of ['hook_event_name', 'hookEventName', 'event', 'eventName']) {
-      const value = payload[key];
-      if (typeof value === 'string' && value.trim()) return value;
-    }
-  } catch {
-    return null;
+const findStringByKey = (value, keys) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  for (const [key, child] of Object.entries(value)) {
+    if (keys.has(key) && typeof child === 'string' && child.trim()) return child;
+  }
+  for (const child of Object.values(value)) {
+    const match = findStringByKey(child, keys);
+    if (match) return match;
   }
   return null;
 };
+const payloadCwdFromInput = (raw) => {
+  try {
+    const payload = JSON.parse(raw);
+    return findStringByKey(
+      payload,
+      new Set(['cwd', 'currentWorkingDirectory', 'projectRoot', 'repositoryRoot', 'workspaceRoot']),
+    );
+  } catch {
+    return null;
+  }
+};
+const hookEventNameFromInput = (raw) => {
+  try {
+    const payload = JSON.parse(raw);
+    return findStringByKey(
+      payload,
+      new Set(['hook_event_name', 'hookEventName', 'event', 'eventName']),
+    );
+  } catch {
+    return null;
+  }
+};
 const forwardStdout = hookEventNameFromInput(input) === 'UserPromptSubmit';
+const payloadCwd = payloadCwdFromInput(input);
+const cwd = payloadCwd && existsSync(payloadCwd) ? payloadCwd : process.cwd();
 const subprocess = Bun.spawn([tasks, 'agent-hook', provider], {
-  cwd: projectRoot,
-  env: { ...Bun.env, SCRUMLORD_HOOK_PROJECT_ROOT: projectRoot },
+  cwd,
   stdin: 'pipe',
   stdout: debug || forwardStdout ? 'inherit' : 'pipe',
   stderr: debug ? 'inherit' : 'pipe',
@@ -124,9 +144,34 @@ await subprocess.exited;
 process.exit(0);
 `;
 
-const ensureWrapper = async (projectRoot: string): Promise<{ path: string; changed: boolean }> => {
-  const path = join(projectRoot, 'tmp', 'scrumlord-agent-hook.ts');
-  const contents = wrapperScript(projectRoot);
+const agentHookWrapperPath = (homeDirectory: string): string => {
+  return join(homeDirectory, '.scrumlord', 'hooks', 'scrumlord-agent-hook.ts');
+};
+
+const claudeSettingsPath = (homeDirectory: string): string => {
+  return join(homeDirectory, '.claude', 'settings.json');
+};
+
+const codexConfigurationPath = (homeDirectory: string): string => {
+  return join(homeDirectory, '.codex', 'config.toml');
+};
+
+const codexHooksPath = (homeDirectory: string): string => {
+  return join(homeDirectory, '.codex', 'hooks.json');
+};
+
+export const agentHookPaths = {
+  wrapperPath: agentHookWrapperPath,
+  claudeSettingsPath,
+  codexConfigurationPath,
+  codexHooksPath,
+} as const;
+
+const ensureWrapper = async (
+  homeDirectory: string,
+): Promise<{ path: string; changed: boolean }> => {
+  const path = agentHookWrapperPath(homeDirectory);
+  const contents = wrapperScript();
   if (existsSync(path) && (await Bun.file(path).text()) === contents) {
     return { path, changed: false };
   }
@@ -135,17 +180,17 @@ const ensureWrapper = async (projectRoot: string): Promise<{ path: string; chang
   return { path, changed: true };
 };
 
-const commandFor = (wrapperPath: string, provider: string): string => {
-  return `bun run ${JSON.stringify(wrapperPath)} ${provider}`;
+const commandFor = (hookWrapperPath: string, provider: string): string => {
+  return `bun run ${JSON.stringify(hookWrapperPath)} ${provider}`;
 };
 
 const setupClaudeHooks = async (
-  projectRoot: string,
-  wrapperPath: string,
+  homeDirectory: string,
+  hookWrapperPath: string,
 ): Promise<SetupAgentHooksResult['claude']> => {
-  const settingsPath = join(projectRoot, '.claude', 'settings.local.json');
+  const settingsPath = claudeSettingsPath(homeDirectory);
   const configuration = await readJsonObject(settingsPath);
-  const command = commandFor(wrapperPath, 'claude');
+  const command = commandFor(hookWrapperPath, 'claude');
   const changed = [
     ensureHookEntry(configuration, 'SessionStart', 'startup|resume', command),
     ensureHookEntry(configuration, 'UserPromptSubmit', null, command),
@@ -168,11 +213,11 @@ const ensureCodexHooksFeature = (configuration: string): string => {
 };
 
 const setupCodexHooks = async (
-  projectRoot: string,
-  wrapperPath: string,
+  homeDirectory: string,
+  hookWrapperPath: string,
 ): Promise<SetupAgentHooksResult['codex']> => {
-  const configurationPath = join(projectRoot, '.codex', 'config.toml');
-  const hooksPath = join(projectRoot, '.codex', 'hooks.json');
+  const configurationPath = codexConfigurationPath(homeDirectory);
+  const hooksPath = codexHooksPath(homeDirectory);
   mkdirSync(dirname(configurationPath), { recursive: true });
 
   const existingConfiguration = existsSync(configurationPath)
@@ -183,7 +228,7 @@ const setupCodexHooks = async (
   if (configurationChanged) await Bun.write(configurationPath, nextConfiguration);
 
   const hooks = await readJsonObject(hooksPath);
-  const command = commandFor(wrapperPath, 'codex');
+  const command = commandFor(hookWrapperPath, 'codex');
   const hooksChanged = [
     ensureHookEntry(hooks, 'SessionStart', 'startup|resume', command),
     ensureHookEntry(hooks, 'UserPromptSubmit', null, command),
@@ -200,25 +245,26 @@ const setupCodexHooks = async (
   };
 };
 
-/** Writes local Bun-based Claude and Codex hooks for Scrumlord task synchronization. */
+/** Writes global Bun-based Claude and Codex hooks for Scrumlord task synchronization. */
 export const setupAgentHooks = async (
-  projectRoot: string,
+  _projectRoot: string,
   options: SetupAgentHooksOptions = {},
 ): Promise<SetupAgentHooksResult> => {
-  const wrapper = await ensureWrapper(projectRoot);
+  const homeDirectory = options.homeDirectory ?? homedir();
+  const wrapper = await ensureWrapper(homeDirectory);
   const providers = new Set(options.providers ?? ['claude', 'codex']);
   const claude = providers.has('claude')
-    ? await setupClaudeHooks(projectRoot, wrapper.path)
+    ? await setupClaudeHooks(homeDirectory, wrapper.path)
     : {
-        settingsPath: join(projectRoot, '.claude', 'settings.local.json'),
+        settingsPath: claudeSettingsPath(homeDirectory),
         changed: false,
         skipped: true,
       };
   const codex = providers.has('codex')
-    ? await setupCodexHooks(projectRoot, wrapper.path)
+    ? await setupCodexHooks(homeDirectory, wrapper.path)
     : {
-        configurationPath: join(projectRoot, '.codex', 'config.toml'),
-        hooksPath: join(projectRoot, '.codex', 'hooks.json'),
+        configurationPath: codexConfigurationPath(homeDirectory),
+        hooksPath: codexHooksPath(homeDirectory),
         changed: false,
         skipped: true,
       };

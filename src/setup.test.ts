@@ -56,8 +56,8 @@ describe('setup status and selection', () => {
   it('reports setup state without creating a database', async () => {
     const root = await workspaceRoot();
     const home = await temporaryDirectory();
-    await mkdir(join(root, '.codex'), { recursive: true });
-    await Bun.write(join(root, '.codex/config.toml'), '[features]\n');
+    await mkdir(join(home, '.codex'), { recursive: true });
+    await Bun.write(join(home, '.codex/config.toml'), '[features]\n');
     await Bun.write(join(root, 'lefthook.yml'), 'pre-commit:\n');
 
     const status = await setupStatus({
@@ -77,6 +77,7 @@ describe('setup status and selection', () => {
     expect(status.skillPaths.cursor.localPath).toBe(join(root, '.cursor/rules/tasks.md'));
     expect(status.hooks.lefthookConfigurationExists).toBe(true);
     expect(status.hooks.codexConfigurationExists).toBe(true);
+    expect(status.hooks.agentHookWrapperExists).toBe(false);
     expect(existsSync(join(root, 'tmp/tasks.db'))).toBe(false);
     expect(status.warnings).toEqual([]);
   });

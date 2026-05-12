@@ -138,7 +138,9 @@ const runSetupGitHooksBoundaryCommand: BoundaryCommandHandler = async (_parsed, 
 
 const runSetupAgentHooksBoundaryCommand: BoundaryCommandHandler = async (_parsed, options) => {
   const root = await resolveProjectRoot(options.cwd);
-  return success(await (options.setupAgentHooks ?? setupAgentHooks)(root));
+  const hookOptions =
+    options.homeDirectory === undefined ? {} : { homeDirectory: options.homeDirectory };
+  return success(await (options.setupAgentHooks ?? setupAgentHooks)(root, hookOptions));
 };
 
 const runAgentHookBoundaryCommand: BoundaryCommandHandler = async (parsed, options) => {
