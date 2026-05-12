@@ -1,0 +1,48 @@
+import type { AgentInvocation } from './agent-providers.js';
+import type { ColorMode } from './color.js';
+import type { PullRequestCheck, PullRequestStatusReport, ReviewComment } from './github.js';
+import type { InitializeProjectOptions } from './init.js';
+import type { SetupAgentHooksOptions, SetupAgentHooksResult } from './agent-hooks.js';
+import type { SetupGitHooksResult } from './git-hooks.js';
+import type { SetupProjectOptions, SetupProjectResult } from './setup.js';
+import type { SetupSubagentsOptions, SetupSubagentsResult } from './subagents.js';
+import type { PullRequestOverviewItem } from './tasks-overview.js';
+import type { TaskStore } from './types.js';
+
+export type CliResult = {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+};
+
+export type CliOptions = {
+  cwd?: string;
+  colorMode?: ColorMode;
+  environment?: Record<string, string | undefined>;
+  createStore?: (cwd: string) => Promise<TaskStore>;
+  initializeProject?: (options: InitializeProjectOptions) => Promise<unknown>;
+  readStdin?: () => Promise<string>;
+  runAgentInvocation?: (invocation: AgentInvocation) => Promise<number>;
+  which?: (executable: string) => string | null;
+  homeDirectory?: string;
+  setupProject?: (options: SetupProjectOptions) => Promise<SetupProjectResult>;
+  setupSubagents?: (
+    projectRoot: string,
+    options?: SetupSubagentsOptions,
+  ) => Promise<SetupSubagentsResult>;
+  setupAgentHooks?: (
+    projectRoot: string,
+    options?: SetupAgentHooksOptions,
+  ) => Promise<SetupAgentHooksResult>;
+  setupGitHooks?: (projectRoot: string) => Promise<SetupGitHooksResult>;
+  syncGitStatus?: (store: TaskStore) => Promise<unknown>;
+  github?: {
+    repositoryName(projectRoot: string): Promise<string>;
+    repositoryUrl(projectRoot: string): Promise<string>;
+    pullRequestUrl(projectRoot: string, open: boolean): Promise<{ url: string }>;
+    pullRequestStatus(projectRoot: string): Promise<PullRequestStatusReport>;
+    tasksOverview(store: TaskStore): Promise<PullRequestOverviewItem[]>;
+    unresolvedReviewComments(projectRoot: string): Promise<ReviewComment[]>;
+    continuousIntegrationStatus(projectRoot: string): Promise<PullRequestCheck[]>;
+  };
+};

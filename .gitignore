@@ -99,4 +99,10 @@ repomix-output.xml
 .env
 .env.local
 .env.*.local
+
+# Local agent hook configuration
+.claude/settings.local.json
+.codex/config.toml
+.codex/hooks.json
+
 tmp/

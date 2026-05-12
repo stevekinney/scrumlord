@@ -42,6 +42,32 @@ describe('resolveProjectRoot', () => {
     expect(resolvedRoot).toBe(await realpath(root));
   });
 
+  it('uses the primary Git worktree root when commands run from a linked worktree', async () => {
+    const temporaryRoot = await temporaryDirectory();
+    const root = join(temporaryRoot, 'main');
+    const linkedWorktree = join(temporaryRoot, 'linked-worktree');
+    await mkdir(root, { recursive: true });
+    await run(['git', 'init'], root);
+    await run(['git', 'config', 'user.email', 'scrumlord@example.com'], root);
+    await run(['git', 'config', 'user.name', 'Scrumlord Test'], root);
+    await Bun.write(join(root, 'README.md'), '# Test project\n');
+    await run(['git', 'add', 'README.md'], root);
+    await run(['git', 'commit', '-m', 'Initial commit'], root);
+    await run(['git', 'worktree', 'add', '-b', 'feature/tasks', linkedWorktree], root);
+
+    await runTasksCli(['create', '--title', 'Primary worktree task'], { cwd: root });
+
+    const resolvedRoot = await resolveProjectRoot(linkedWorktree);
+    const nextResult = await runTasksCli(['next'], { cwd: linkedWorktree });
+
+    expect(resolvedRoot).toBe(await realpath(root));
+    expect(nextResult.exitCode).toBe(0);
+    expect(nextResult.stderr).toBe('');
+    expect(JSON.parse(nextResult.stdout)).toMatchObject({ title: 'Primary worktree task' });
+    expect(existsSync(join(root, 'tmp', 'tasks.db'))).toBe(true);
+    expect(existsSync(join(linkedWorktree, 'tmp', 'tasks.db'))).toBe(false);
+  });
+
   it('falls back to the npm workspace root', async () => {
     const root = await temporaryDirectory();
     const nested = join(root, 'packages', 'example', 'src');

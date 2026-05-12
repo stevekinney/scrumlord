@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runTasksCli } from './cli-runner';
+import { emptyProgressStoreMethods } from './test-progress-store-methods';
 import type { Task, TaskReference, TaskStore } from './types';
 
 const temporaryDirectories: string[] = [];
@@ -13,7 +14,7 @@ const temporaryDirectory = async (): Promise<string> => {
   return directory;
 };
 
-const task = (id: string): Task => ({
+const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   id,
   title: id,
   status: 'ready',
@@ -23,6 +24,9 @@ const task = (id: string): Task => ({
   startDate: null,
   dueDate: null,
   branch: null,
+  plan: null,
+  provider: null,
+  session: null,
   tags: [],
   parent: null,
   subtasks: [],
@@ -31,11 +35,34 @@ const task = (id: string): Task => ({
   lastModifiedAt: '2026-05-11T00:00:00.000Z',
   archived: false,
   deleted: false,
+  ...overrides,
 });
 
 const referenceId = (reference: TaskReference): string => {
   return typeof reference === 'string' ? reference : reference.id;
 };
+
+const stripAnsi = (value: string): string => {
+  const escape = String.fromCharCode(27);
+  return value.replaceAll(new RegExp(`${escape}\\[[0-9;]*m`, 'g'), '');
+};
+
+const optionalCall = (condition: boolean, value: string): string[] => {
+  return condition ? [value] : [];
+};
+
+const updateCallDescriptions = (
+  id: string,
+  input: Parameters<TaskStore['update']>[1],
+): string[] => [
+  `update:${id}:${input.title ?? ''}:${input.priority ?? ''}:${input.branch ?? ''}`,
+  ...optionalCall(input.status !== undefined, `updateStatus:${id}:${input.status ?? ''}`),
+  ...optionalCall('branch' in input && input.branch === null, `clearBranch:${id}`),
+  ...optionalCall(
+    'provider' in input || 'session' in input,
+    `updateSession:${id}:${input.provider ?? ''}:${input.session ?? ''}`,
+  ),
+];
 
 const fakeStore = (calls: string[]): TaskStore => ({
   projectRoot: '/project',
@@ -45,7 +72,7 @@ const fakeStore = (calls: string[]): TaskStore => ({
     return task('created');
   },
   update(id, input) {
-    calls.push(`update:${id}:${input.title ?? ''}:${input.priority ?? ''}:${input.branch ?? ''}`);
+    calls.push(...updateCallDescriptions(id, input));
     return task(id);
   },
   delete(id) {
@@ -63,6 +90,10 @@ const fakeStore = (calls: string[]): TaskStore => ({
   getTask(id) {
     calls.push(`get:${id}`);
     return task(id);
+  },
+  list(options) {
+    calls.push(`list:${options?.includeInactive ? 'all' : 'active'}`);
+    return [task('list')];
   },
   available() {
     calls.push('available');
@@ -92,6 +123,10 @@ const fakeStore = (calls: string[]): TaskStore => ({
     calls.push(`withBranch:${branch}`);
     return [task('with-branch')];
   },
+  withSession(provider, session) {
+    calls.push(`withSession:${provider}:${session}`);
+    return [task('with-session')];
+  },
   blockedBy(id) {
     calls.push(`blockedBy:${referenceId(id)}`);
     return [task('blocked-by')];
@@ -107,6 +142,10 @@ const fakeStore = (calls: string[]): TaskStore => ({
   next() {
     calls.push('next');
     return task('next');
+  },
+  remaining() {
+    calls.push('remaining');
+    return 3;
   },
   cleanup(days) {
     calls.push(`cleanup:${days}`);
@@ -136,6 +175,26 @@ const fakeStore = (calls: string[]): TaskStore => ({
     calls.push(`removeBlocker:${id}:${referenceId(blockedBy)}`);
     return task(id);
   },
+  setPlan(id, plan) {
+    calls.push(`setPlan:${id}:${plan ?? ''}`);
+    return task(id);
+  },
+  setSession(id, provider, session) {
+    calls.push(`setSession:${id}:${provider}:${session ?? ''}`);
+    return task(id);
+  },
+  taskSession(id) {
+    calls.push(`taskSession:${id}`);
+    const item = task(id);
+    return {
+      taskId: item.id,
+      provider: item.provider,
+      session: item.session,
+      branch: item.branch,
+      plan: item.plan,
+    };
+  },
+  ...emptyProgressStoreMethods,
   close() {
     calls.push('close');
   },
@@ -162,6 +221,8 @@ describe('runTasksCli', () => {
     const options = { createStore: async () => fakeStore(calls) };
     const commands = [
       ['available'],
+      ['list'],
+      ['list', '--all'],
       ['blocked'],
       ['completed'],
       ['get', 'task-id'],
@@ -173,7 +234,9 @@ describe('runTasksCli', () => {
       ['blocking', 'task-id'],
       ['priority', '3'],
       ['with-priority', '2'],
+      ['session', 'task-id'],
       ['next'],
+      ['remaining'],
       [
         'create',
         '--title',
@@ -187,6 +250,12 @@ describe('runTasksCli', () => {
         'a,b',
         '--branch',
         'feature/task-graph',
+        '--plan',
+        'tmp/tasks/created/PLAN.md',
+        '--provider',
+        'codex',
+        '--session',
+        'codex-session',
       ],
       [
         'update',
@@ -211,7 +280,20 @@ describe('runTasksCli', () => {
         'parent-id',
         '--branch',
         'feature/task-graph',
+        '--plan',
+        'tmp/tasks/task-id/PLAN.md',
+        '--provider',
+        'claude',
+        '--session',
+        'claude-session',
       ],
+      ['set-status', 'task-id', 'completed'],
+      ['set-branch', 'task-id', 'feature/task-graph'],
+      ['clear-branch', 'task-id'],
+      ['set-plan', 'task-id', 'tmp/tasks/task-id/PLAN.md'],
+      ['clear-plan', 'task-id'],
+      ['set-session', 'task-id', 'codex', 'codex-session'],
+      ['clear-session', 'task-id'],
       ['delete', 'task-id'],
       ['archive', 'task-id'],
       ['restore', 'task-id'],
@@ -237,6 +319,15 @@ describe('runTasksCli', () => {
 
     expect(calls).toContain('create:New Task:draft:3:feature/task-graph');
     expect(calls).toContain('update:task-id:Renamed:2:feature/task-graph');
+    expect(calls).toContain('updateStatus:task-id:completed');
+    expect(calls).toContain('update:task-id:::feature/task-graph');
+    expect(calls).toContain('clearBranch:task-id');
+    expect(calls).toContain('setPlan:task-id:tmp/tasks/task-id/PLAN.md');
+    expect(calls).toContain('setPlan:task-id:');
+    expect(calls).toContain('setSession:task-id:codex:codex-session');
+    expect(calls).toContain('updateSession:task-id::');
+    expect(calls).toContain('list:active');
+    expect(calls).toContain('list:all');
     expect(calls).toContain('withBranch:feature/task-graph');
     expect(calls.filter((call) => call === 'close')).toHaveLength(commands.length);
   });
@@ -255,59 +346,67 @@ describe('runTasksCli', () => {
     expect(calls).toEqual(['syncGitStatus', 'close']);
   });
 
-  it('handles setup and pull request boundary commands', async () => {
-    const root = await workspaceRoot();
-    const github = {
-      async pullRequestUrl(projectRoot: string, open: boolean) {
-        return { projectRoot, open, url: 'https://github.test/pull/1' };
-      },
-      async pullRequestStatus(projectRoot: string) {
-        return { projectRoot, readyToMerge: true };
-      },
-      async unresolvedReviewComments(projectRoot: string) {
-        return [{ projectRoot, body: 'Please fix this.' }];
-      },
-      async continuousIntegrationStatus(projectRoot: string) {
-        return [{ projectRoot, state: 'SUCCESS' }];
-      },
-    };
+  it('renders help for the main CLI and subcommands', async () => {
+    const mainHelp = await runTasksCli(['--help'], { colorMode: 'always' });
+    expect(mainHelp.exitCode).toBe(0);
+    expect(mainHelp.stderr).toBe('');
+    expect(mainHelp.stdout).toContain('\u001b[');
+    expect(stripAnsi(mainHelp.stdout)).toContain('tasks <command> [options]');
+    expect(mainHelp.stdout).toContain('setup-git-hooks');
+    expect(mainHelp.stdout).toContain('setup-subagents');
 
-    const pullRequestResult = await runTasksCli(['pr', '--open'], { cwd: root, github });
-    expect(JSON.parse(pullRequestResult.stdout)).toEqual({
-      projectRoot: root,
-      open: true,
-      url: 'https://github.test/pull/1',
-    });
-    const pullRequestStatusResult = await runTasksCli(['pr', 'status'], { cwd: root, github });
-    expect(JSON.parse(pullRequestStatusResult.stdout)).toEqual({
-      projectRoot: root,
-      readyToMerge: true,
-    });
-    const commentsResult = await runTasksCli(['comments'], { cwd: root, github });
-    expect(JSON.parse(commentsResult.stdout)).toEqual([
-      { projectRoot: root, body: 'Please fix this.' },
-    ]);
-    const continuousIntegrationResult = await runTasksCli(['ci'], { cwd: root, github });
-    expect(JSON.parse(continuousIntegrationResult.stdout)).toEqual([
-      { projectRoot: root, state: 'SUCCESS' },
-    ]);
+    const createHelp = await runTasksCli(['create', '--help'], { colorMode: 'never' });
+    expect(createHelp.stdout).toContain('tasks create --title <title> [options]');
+    expect(createHelp.stdout).toContain('--title');
+    expect(createHelp.stdout).not.toContain('\u001b[');
 
-    const initResult = await runTasksCli(['init'], {
-      cwd: root,
-      initializeProject: async (options) => ({ initialized: true, cwd: options.cwd }),
-    });
-    expect(JSON.parse(initResult.stdout)).toEqual({ initialized: true, cwd: root });
+    const availableHelp = await runTasksCli(['help', 'available'], { colorMode: 'never' });
+    expect(availableHelp.stdout).toContain('tasks available');
+    expect(availableHelp.stdout).toContain('--planned');
 
-    const setupResult = await runTasksCli(['setup-skills', '--all'], { cwd: root });
-    expect(JSON.parse(setupResult.stdout).map((entry: { target: string }) => entry.target)).toEqual(
-      ['codex', 'claude', 'cursor'],
-    );
+    const listHelp = await runTasksCli(['list', '--help'], { colorMode: 'never' });
+    expect(listHelp.stdout).toContain('tasks list [--all]');
+    expect(listHelp.stdout).toContain('--unplanned');
 
-    const setupGitHooksResult = await runTasksCli(['setup-git-hooks'], {
-      cwd: root,
-      setupGitHooks: async (projectRoot: string) => ({ projectRoot, changed: true }),
+    const repositoryHelp = await runTasksCli(['repository', '--help'], { colorMode: 'never' });
+    expect(repositoryHelp.stdout).toContain('tasks repository [--url]');
+    expect(repositoryHelp.stdout).toContain('full GitHub repository URL');
+
+    const overviewHelp = await runTasksCli(['overview', '--help'], { colorMode: 'never' });
+    expect(overviewHelp.stdout).toContain('tasks overview');
+    expect(overviewHelp.stdout).toContain('unresolved review comment counts');
+
+    const setStatusHelp = await runTasksCli(['set-status', '--help'], { colorMode: 'never' });
+    expect(setStatusHelp.stdout).toContain('tasks set-status [task-id] <status>');
+    expect(setStatusHelp.stdout).toContain('draft, ready, in-progress, in-review, or completed');
+
+    const pullRequestStatusHelp = await runTasksCli(['pr', 'status', '--help'], {
+      colorMode: 'never',
     });
-    expect(JSON.parse(setupGitHooksResult.stdout)).toEqual({ projectRoot: root, changed: true });
+    expect(pullRequestStatusHelp.stdout).toContain('tasks pr status');
+    expect(pullRequestStatusHelp.stdout).toContain('readyToMerge');
+
+    const setupStatusHelp = await runTasksCli(['setup', 'status', '--help'], {
+      colorMode: 'never',
+    });
+    expect(setupStatusHelp.stdout).toContain('tasks setup status');
+    expect(setupStatusHelp.stdout).toContain('tasksExecutable');
+
+    const setupSubagentsHelp = await runTasksCli(['setup-subagents', '--help'], {
+      colorMode: 'never',
+    });
+    expect(setupSubagentsHelp.stdout).toContain('tasks setup-subagents');
+  });
+
+  it('returns a JSON error for unknown help topics', async () => {
+    const result = await runTasksCli(['help', 'unknown'], { colorMode: 'never' });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr).error).toEqual({
+      code: 'unknown_help_topic',
+      message: 'Unknown help topic: unknown.',
+    });
   });
 
   it('returns JSON errors without creating stores for invalid input', async () => {
@@ -340,11 +439,48 @@ describe('runTasksCli', () => {
     );
     expect(JSON.parse(invalidStatusResult.stderr).error.code).toBe('invalid_status');
 
+    const invalidSetStatusResult = await runTasksCli(['set-status', 'task-id', 'later'], {
+      createStore,
+    });
+    expect(JSON.parse(invalidSetStatusResult.stderr).error.code).toBe('invalid_status');
+
+    const invalidSetSessionResult = await runTasksCli(
+      ['set-session', 'task-id', 'vim', 'session-id'],
+      { createStore },
+    );
+    expect(JSON.parse(invalidSetSessionResult.stderr).error.code).toBe('invalid_provider');
+
     const invalidSkillRoot = await workspaceRoot();
     const invalidSkillResult = await runTasksCli(['setup-skills', 'vim'], {
       cwd: invalidSkillRoot,
     });
     expect(JSON.parse(invalidSkillResult.stderr).error.code).toBe('invalid_skill_target');
+
+    const invalidSubagentResult = await runTasksCli(['setup-subagents', 'vim'], {
+      cwd: invalidSkillRoot,
+    });
+    expect(JSON.parse(invalidSubagentResult.stderr).error.code).toBe('invalid_provider');
+
+    const invalidSetupCommandResult = await runTasksCli(['setup', 'wizard'], {
+      cwd: invalidSkillRoot,
+    });
+    expect(JSON.parse(invalidSetupCommandResult.stderr).error).toEqual({
+      code: 'unknown_command',
+      message: 'Unknown setup command: setup wizard.',
+    });
+
+    const setupProviderConflict = await runTasksCli(['setup', '--codex', '--claude'], {
+      cwd: invalidSkillRoot,
+    });
+    expect(JSON.parse(setupProviderConflict.stderr).error.code).toBe('setup_provider_conflict');
+
+    const setupSubagentScopeConflict = await runTasksCli(
+      ['setup-subagents', '--local', '--global'],
+      {
+        cwd: invalidSkillRoot,
+      },
+    );
+    expect(JSON.parse(setupSubagentScopeConflict.stderr).error.code).toBe('setup_scope_conflict');
     expect(createStoreCalls).toBe(0);
   });
 
@@ -368,7 +504,7 @@ describe('runTasksCli', () => {
     });
     expect(JSON.parse(unexpectedArgumentResult.stderr).error).toEqual({
       code: 'unexpected_argument',
-      message: 'get expects exactly 1 argument.',
+      message: 'get expects at most 1 argument.',
     });
 
     const missingVariadicArgumentResult = await runTasksCli(['with-all-tags'], { createStore });
@@ -381,6 +517,15 @@ describe('runTasksCli', () => {
     expect(JSON.parse(invalidCleanupResult.stderr).error).toEqual({
       code: 'invalid_cleanup_days',
       message: 'Cleanup days must be a non-negative integer.',
+    });
+
+    const conflictingPlanFiltersResult = await runTasksCli(
+      ['available', '--planned', '--unplanned'],
+      { createStore },
+    );
+    expect(JSON.parse(conflictingPlanFiltersResult.stderr).error).toEqual({
+      code: 'plan_filter_conflict',
+      message: 'Use either --planned or --unplanned, not both.',
     });
   });
 

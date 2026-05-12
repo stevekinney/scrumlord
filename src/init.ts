@@ -1,4 +1,4 @@
-import { createTaskStore } from './database.js';
+import { createTaskStore } from './database-open.js';
 import { setupGitHooks, type SetupGitHooksResult } from './git-hooks.js';
 import { setupSkills, type SkillTarget } from './skills.js';
 

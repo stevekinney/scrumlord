@@ -1,7 +1,7 @@
 import { $ } from 'bun';
 import pkg from '../package.json' with { type: 'json' };
 
-const entrypoints = ['./src/index.ts', './src/cli.ts'];
+const entrypoints = ['./src/index.ts', './src/cli.ts', './src/mcp-cli.ts'];
 const external = Array.from(
   new Set([
     ...Object.keys(
@@ -34,5 +34,19 @@ await Bun.build({
 });
 
 await $`bun run tsc --declaration --emitDeclarationOnly --project tsconfig.build.json`;
+
+const library = await import(new URL('../dist/index.js', import.meta.url).href);
+for (const name of [
+  'createTaskStore',
+  'createScrumlordMcpServer',
+  'next',
+  'remaining',
+  'runScrumlordMcpServer',
+  'ScrumlordError',
+] as const) {
+  if (typeof library[name] === 'undefined') {
+    throw new Error(`Built library entrypoint is missing ${name}.`);
+  }
+}
 
 console.log('Build complete.');

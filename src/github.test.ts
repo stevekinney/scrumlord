@@ -1,125 +1,55 @@
-import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import type { CommandResult, CommandRunner } from './command-runner';
+import { describe, expect, it } from 'bun:test';
 import {
+  checksForPullRequest,
   continuousIntegrationStatus,
+  currentPullRequest,
+  openPullRequests,
   pullRequestStatus,
   pullRequestUrl,
+  repositoryName,
+  repositoryUrl,
+  reviewCommentsForPullRequest,
   unresolvedReviewComments,
 } from './github';
-
-const temporaryDirectories: string[] = [];
-
-const temporaryDirectory = async (): Promise<string> => {
-  const directory = await mkdtemp(join(tmpdir(), 'scrumlord-gh-direct-'));
-  temporaryDirectories.push(directory);
-  return directory;
-};
-
-const workspaceRoot = async (): Promise<string> => {
-  const root = await temporaryDirectory();
-  await mkdir(join(root, 'packages', 'example'), { recursive: true });
-  await Bun.write(join(root, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
-  return root;
-};
-
-afterEach(async () => {
-  await Promise.all(
-    temporaryDirectories
-      .splice(0)
-      .map((directory) => rm(directory, { force: true, recursive: true })),
-  );
-});
-
-const expectGitHubError = async (operation: Promise<unknown>, code: string): Promise<void> => {
-  try {
-    await operation;
-    throw new Error(`Expected ${code}.`);
-  } catch (error) {
-    const errorCode =
-      error instanceof Error && 'code' in error && typeof error.code === 'string' && error.code;
-    expect(errorCode).toBe(code);
-  }
-};
-
-const commandResult = ({
-  exitCode = 0,
-  stdout = '',
-  stderr = '',
-}: Partial<CommandResult> = {}): CommandResult => ({ exitCode, stdout, stderr });
-
-const failedCommand = (stderr = 'failed'): CommandResult => commandResult({ exitCode: 1, stderr });
-
-type GitHubRunnerResponses = {
-  ghVersion?: CommandResult;
-  authentication?: CommandResult;
-  branch?: CommandResult;
-  repository?: CommandResult;
-  pullRequestList?: CommandResult;
-  reviewComments?: CommandResult;
-  checks?: CommandResult;
-  open?: CommandResult;
-};
-
-const pullRequestList = commandResult({
-  stdout:
-    '[{"number":42,"url":"https://github.test/owner/repository/pull/42","headRefName":"feature/task-graph"}]',
-});
-
-const defaultReviewComments = commandResult({
-  stdout: '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}',
-});
-
-const defaultChecks = commandResult({
-  stdout:
-    '[{"bucket":"pass","completedAt":"2026-05-11T12:00:00Z","link":"https://github.test/checks/build","name":"build","state":"SUCCESS","workflow":"Validate"}]',
-});
-
-const commandMatchers = [
-  { key: 'gh-version', signature: ['gh', '--version'] },
-  { key: 'gh-authentication', signature: ['gh', 'auth'] },
-  { key: 'git-branch', signature: ['git', 'branch'] },
-  { key: 'gh-repository', signature: ['gh', 'repo'] },
-  { key: 'pull-request-list', signature: ['gh', 'pr', 'list'] },
-  { key: 'review-comments', signature: ['gh', 'api'] },
-  { key: 'checks', signature: ['gh', 'pr', 'checks'] },
-  { key: 'open', signature: ['open'] },
-];
-
-const commandKey = (command: string[]): string => {
-  return (
-    commandMatchers.find(({ signature }) =>
-      signature.every((value, index) => command[index] === value),
-    )?.key ?? 'unknown'
-  );
-};
-
-const responseFor = (
-  key: string,
-  command: string[],
-  responses: GitHubRunnerResponses,
-): CommandResult => {
-  const handlers: Record<string, () => CommandResult> = {
-    'gh-version': () => responses.ghVersion ?? commandResult({ stdout: 'gh version 2.72.0\n' }),
-    'gh-authentication': () => responses.authentication ?? commandResult(),
-    'git-branch': () => responses.branch ?? commandResult({ stdout: 'feature/task-graph\n' }),
-    'gh-repository': () => responses.repository ?? commandResult({ stdout: 'owner/repository\n' }),
-    'pull-request-list': () => responses.pullRequestList ?? pullRequestList,
-    'review-comments': () => responses.reviewComments ?? defaultReviewComments,
-    checks: () => responses.checks ?? defaultChecks,
-    open: () => responses.open ?? commandResult(),
-    unknown: () => failedCommand(`Unexpected command: ${command.join(' ')}`),
-  };
-  return handlers[key]?.() ?? handlers['unknown']();
-};
-
-const runnerWith = (responses: GitHubRunnerResponses = {}): CommandRunner => {
-  return async (command) => responseFor(commandKey(command), command, responses);
-};
+import {
+  checksForPullRequest as libraryChecksForPullRequest,
+  continuousIntegrationStatus as libraryContinuousIntegrationStatus,
+  currentPullRequest as libraryCurrentPullRequest,
+  openPullRequests as libraryOpenPullRequests,
+  pullRequestStatus as libraryPullRequestStatus,
+  pullRequestUrl as libraryPullRequestUrl,
+  repositoryName as libraryRepositoryName,
+  repositoryUrl as libraryRepositoryUrl,
+  reviewCommentsForPullRequest as libraryReviewCommentsForPullRequest,
+  tasksOverview as libraryTasksOverview,
+  unresolvedReviewComments as libraryUnresolvedReviewComments,
+} from './index';
+import { tasksOverview } from './tasks-overview';
+import {
+  checkRunsRestBody,
+  commandResult,
+  expectGitHubError,
+  failedCommand,
+  includedResponse,
+  runnerWith,
+  workspaceRoot,
+} from './github-test-helpers';
 
 describe('GitHub helper functions', () => {
+  it('exports pull request, overview, comments, and check methods from the package root', () => {
+    expect(libraryCurrentPullRequest).toBe(currentPullRequest);
+    expect(libraryPullRequestUrl).toBe(pullRequestUrl);
+    expect(libraryRepositoryName).toBe(repositoryName);
+    expect(libraryRepositoryUrl).toBe(repositoryUrl);
+    expect(libraryPullRequestStatus).toBe(pullRequestStatus);
+    expect(libraryOpenPullRequests).toBe(openPullRequests);
+    expect(libraryReviewCommentsForPullRequest).toBe(reviewCommentsForPullRequest);
+    expect(libraryUnresolvedReviewComments).toBe(unresolvedReviewComments);
+    expect(libraryChecksForPullRequest).toBe(checksForPullRequest);
+    expect(libraryContinuousIntegrationStatus).toBe(continuousIntegrationStatus);
+    expect(libraryTasksOverview).toBe(tasksOverview);
+  });
+
   it('builds a detailed pull request status report directly from gh data', async () => {
     const root = await workspaceRoot();
     const runner = runnerWith({
@@ -127,13 +57,48 @@ describe('GitHub helper functions', () => {
         stdout:
           '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false,"comments":{"nodes":[{"id":"PRRC_kwDOExample","path":"src/github.ts","line":123,"body":"Please summarize failed checks.","author":{"login":"reviewer"},"url":"https://github.test/comment"},{"body":"missing id"}]}},{"isResolved":false,"comments":{}},{"isResolved":true,"comments":{"nodes":[{"id":"resolved-comment"}]}}]}}}}}',
       }),
-      checks: commandResult({
-        stdout:
-          '[{"bucket":"pending","completedAt":null,"link":"https://github.test/checks/test","name":"test","state":"IN PROGRESS","workflow":"Validate"},{"bucket":"fail","completedAt":"2026-05-11T12:00:00Z","link":"https://github.test/checks/lint","name":"lint","state":"FAILURE","workflow":"Validate"},{"bucket":"mystery","completedAt":null,"link":null,"name":"unknown","state":"MYSTERY","workflow":null},{"bucket":"pass","completedAt":"2026-05-11T12:02:00Z","link":"https://github.test/checks/build","name":"build","state":"SUCCESS","workflow":"Validate"},{"state":"SUCCESS"}]',
+      checkRuns: includedResponse({
+        body: checkRunsRestBody([
+          {
+            name: 'test',
+            status: 'in_progress',
+            conclusion: null,
+            html_url: 'https://github.test/checks/test',
+            completed_at: null,
+            check_suite: { app: { name: 'Validate' } },
+          },
+          {
+            name: 'lint',
+            status: 'completed',
+            conclusion: 'failure',
+            html_url: 'https://github.test/checks/lint',
+            completed_at: '2026-05-11T12:00:00Z',
+            check_suite: { app: { name: 'Validate' } },
+          },
+          {
+            name: 'unknown',
+            status: 'mystery',
+            conclusion: null,
+            html_url: null,
+            completed_at: null,
+            check_suite: {},
+          },
+          {
+            name: 'build',
+            status: 'completed',
+            conclusion: 'success',
+            html_url: 'https://github.test/checks/build',
+            completed_at: '2026-05-11T12:02:00Z',
+            check_suite: { app: { name: 'Validate' } },
+          },
+          { status: 'completed', conclusion: 'success' },
+        ]),
       }),
     });
     const options = { runner };
 
+    expect(await repositoryName(root, options)).toBe('owner/repository');
+    expect(await repositoryUrl(root, options)).toBe('https://github.com/owner/repository');
     expect(await pullRequestUrl(root, true, options)).toEqual({
       url: 'https://github.test/owner/repository/pull/42',
     });
@@ -150,23 +115,23 @@ describe('GitHub helper functions', () => {
     expect(await continuousIntegrationStatus(root, options)).toEqual([
       {
         name: 'test',
-        state: 'IN PROGRESS',
-        bucket: 'pending',
+        state: 'in_progress',
+        bucket: 'in_progress',
         workflow: 'Validate',
         url: 'https://github.test/checks/test',
         completedAt: null,
       },
       {
         name: 'lint',
-        state: 'FAILURE',
-        bucket: 'fail',
+        state: 'failure',
+        bucket: 'failure',
         workflow: 'Validate',
         url: 'https://github.test/checks/lint',
         completedAt: '2026-05-11T12:00:00Z',
       },
       {
         name: 'unknown',
-        state: 'MYSTERY',
+        state: 'mystery',
         bucket: 'mystery',
         workflow: null,
         url: null,
@@ -174,8 +139,8 @@ describe('GitHub helper functions', () => {
       },
       {
         name: 'build',
-        state: 'SUCCESS',
-        bucket: 'pass',
+        state: 'success',
+        bucket: 'success',
         workflow: 'Validate',
         url: 'https://github.test/checks/build',
         completedAt: '2026-05-11T12:02:00Z',
@@ -192,13 +157,13 @@ describe('GitHub helper functions', () => {
     expect(report.continuousIntegration.failed).toEqual([
       {
         name: 'lint',
-        state: 'FAILURE',
-        bucket: 'fail',
+        state: 'failure',
+        bucket: 'failure',
         workflow: 'Validate',
         url: 'https://github.test/checks/lint',
         completedAt: '2026-05-11T12:00:00Z',
         conclusion: 'failed',
-        synopsis: 'Validate: lint failed with state FAILURE.',
+        synopsis: 'Validate: lint failed with state failure.',
       },
     ]);
     expect(report.continuousIntegration.checks.at(-1)).toMatchObject({
@@ -250,13 +215,13 @@ describe('GitHub helper functions', () => {
     );
     await expectGitHubError(
       pullRequestUrl(root, false, {
-        runner: runnerWith({ pullRequestList: commandResult({ stdout: 'not-json' }) }),
+        runner: runnerWith({ pullRequestList: includedResponse({ body: 'not-json' }) }),
       }),
       'github_json_parse_failed',
     );
     await expectGitHubError(
       pullRequestUrl(root, false, {
-        runner: runnerWith({ pullRequestList: commandResult({ stdout: '[]' }) }),
+        runner: runnerWith({ pullRequestList: includedResponse({ body: '[]' }) }),
       }),
       'pull_request_not_found',
     );
@@ -279,13 +244,13 @@ describe('GitHub helper functions', () => {
     );
     await expectGitHubError(
       continuousIntegrationStatus(root, {
-        runner: runnerWith({ checks: failedCommand('checks failed') }),
+        runner: runnerWith({ checkRuns: failedCommand('checks failed') }),
       }),
       'ci_status_failed',
     );
     await expectGitHubError(
       continuousIntegrationStatus(root, {
-        runner: runnerWith({ checks: commandResult({ stdout: '{"checks":[]}' }) }),
+        runner: runnerWith({ checkRuns: includedResponse({ body: '{"checks":[]}' }) }),
       }),
       'ci_status_invalid',
     );

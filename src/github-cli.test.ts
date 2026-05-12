@@ -155,7 +155,7 @@ exit 1
 if [ "$1" = "--version" ]; then exit 0; fi
 if [ "$1" = "auth" ]; then exit 0; fi
 if [ "$1" = "repo" ]; then echo "owner/repository"; exit 0; fi
-if [ "$1" = "pr" ] && [ "$2" = "list" ]; then echo "[]"; exit 0; fi
+if [ "$1" = "api" ]; then printf 'HTTP/2 200 OK\r\netag: "pulls"\r\n\r\n[]\n'; exit 0; fi
 exit 1
 `,
     );
@@ -180,7 +180,7 @@ exit 1
 if [ "$1" = "--version" ]; then exit 0; fi
 if [ "$1" = "auth" ]; then exit 0; fi
 if [ "$1" = "repo" ]; then echo "owner/repository"; exit 0; fi
-if [ "$1" = "pr" ] && [ "$2" = "list" ]; then echo "not-json"; exit 0; fi
+if [ "$1" = "api" ]; then printf 'HTTP/2 200 OK\r\netag: "pulls"\r\n\r\nnot-json\n'; exit 0; fi
 exit 1
 `,
     );
@@ -202,8 +202,8 @@ exit 1
 if [ "$1" = "--version" ]; then exit 0; fi
 if [ "$1" = "auth" ]; then exit 0; fi
 if [ "$1" = "repo" ]; then echo "owner/repository"; exit 0; fi
-if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
-  echo '[{"number":1,"url":"https://github.test/pull/1","headRefName":"feature/task-graph"}]'
+if [ "$1" = "api" ]; then
+  printf 'HTTP/2 200 OK\r\netag: "pulls"\r\n\r\n[{"number":1,"html_url":"https://github.test/pull/1","head":{"ref":"feature/task-graph","sha":"abc123"},"title":"Task graph"}]\n'
   exit 0
 fi
 exit 1
@@ -228,17 +228,25 @@ exit 1
 if [ "$1" = "--version" ]; then exit 0; fi
 if [ "$1" = "auth" ]; then exit 0; fi
 if [ "$1" = "repo" ]; then echo "owner/repository"; exit 0; fi
-if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
-  echo '[{"number":42,"url":"https://github.test/owner/repository/pull/42","headRefName":"feature/task-graph"}]'
-  exit 0
-fi
 if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
   echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":true,"comments":{"nodes":[{"id":"resolved-comment","url":"https://github.test/resolved"}]}}]}}}}}'
   exit 0
 fi
-if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
-  echo '[{"bucket":"pass","completedAt":"2026-05-11T12:00:00Z","link":"https://github.test/checks/build","name":"build","state":"SUCCESS","workflow":"Validate"},{"bucket":"skipping","completedAt":"2026-05-11T12:01:00Z","link":"https://github.test/checks/optional","name":"optional","state":"SKIPPED","workflow":"Validate"}]'
-  exit 0
+if [ "$1" = "api" ]; then
+  case "$*" in
+    *'/check-runs'*)
+      printf 'HTTP/2 200 OK\r\netag: "checks"\r\n\r\n{"check_runs":[{"name":"build","status":"completed","conclusion":"success","html_url":"https://github.test/checks/build","completed_at":"2026-05-11T12:00:00Z","check_suite":{"app":{"name":"Validate"}}},{"name":"optional","status":"completed","conclusion":"skipped","html_url":"https://github.test/checks/optional","completed_at":"2026-05-11T12:01:00Z","check_suite":{"app":{"name":"Validate"}}}]}\n'
+      exit 0
+      ;;
+    *'/statuses'*)
+      printf 'HTTP/2 200 OK\r\netag: "statuses"\r\n\r\n[]\n'
+      exit 0
+      ;;
+    *)
+      printf 'HTTP/2 200 OK\r\netag: "pulls"\r\n\r\n[{"number":42,"html_url":"https://github.test/owner/repository/pull/42","head":{"ref":"feature/task-graph","sha":"abc123"},"title":"Task graph"}]\n'
+      exit 0
+      ;;
+  esac
 fi
 exit 1
 `,
@@ -276,17 +284,25 @@ exit 1
 if [ "$1" = "--version" ]; then exit 0; fi
 if [ "$1" = "auth" ]; then exit 0; fi
 if [ "$1" = "repo" ]; then echo "owner/repository"; exit 0; fi
-if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
-  echo '[{"number":42,"url":"https://github.test/owner/repository/pull/42","headRefName":"feature/task-graph"}]'
-  exit 0
-fi
 if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
   echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false,"comments":{"nodes":[{"id":"PRRC_kwDOExample","path":"src/github.ts","line":123,"body":"Please summarize failed checks.","author":{"login":"reviewer"},"url":"https://github.test/comment"}]}},{"isResolved":false,"comments":{"nodes":[{"body":"missing id"}]}}]}}}}}'
   exit 0
 fi
-if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
-  echo '[{"bucket":"pending","completedAt":null,"link":"https://github.test/checks/test","name":"test","state":"IN_PROGRESS","workflow":"Validate"},{"bucket":"fail","completedAt":"2026-05-11T12:00:00Z","link":"https://github.test/checks/lint","name":"lint","state":"FAILURE","workflow":"Validate"},{"bucket":"mystery","completedAt":null,"link":null,"name":"unknown","state":"MYSTERY","workflow":null},{"bucket":"pass","completedAt":"2026-05-11T12:02:00Z","link":"https://github.test/checks/build","name":"build","state":"SUCCESS","workflow":"Validate"},{"state":"SUCCESS"}]'
-  exit 0
+if [ "$1" = "api" ]; then
+  case "$*" in
+    *'/check-runs'*)
+      printf 'HTTP/2 200 OK\r\netag: "checks"\r\n\r\n{"check_runs":[{"name":"test","status":"in_progress","conclusion":null,"html_url":"https://github.test/checks/test","completed_at":null,"check_suite":{"app":{"name":"Validate"}}},{"name":"lint","status":"completed","conclusion":"failure","html_url":"https://github.test/checks/lint","completed_at":"2026-05-11T12:00:00Z","check_suite":{"app":{"name":"Validate"}}},{"name":"unknown","status":"mystery","conclusion":null,"html_url":null,"completed_at":null,"check_suite":{}},{"name":"build","status":"completed","conclusion":"success","html_url":"https://github.test/checks/build","completed_at":"2026-05-11T12:02:00Z","check_suite":{"app":{"name":"Validate"}}},{"status":"completed","conclusion":"success"}]}\n'
+      exit 0
+      ;;
+    *'/statuses'*)
+      printf 'HTTP/2 200 OK\r\netag: "statuses"\r\n\r\n[]\n'
+      exit 0
+      ;;
+    *)
+      printf 'HTTP/2 200 OK\r\netag: "pulls"\r\n\r\n[{"number":42,"html_url":"https://github.test/owner/repository/pull/42","head":{"ref":"feature/task-graph","sha":"abc123"},"title":"Task graph"}]\n'
+      exit 0
+      ;;
+  esac
 fi
 exit 1
 `,
@@ -318,13 +334,13 @@ exit 1
     expect(report.continuousIntegration.failed).toEqual([
       {
         name: 'lint',
-        state: 'FAILURE',
-        bucket: 'fail',
+        state: 'failure',
+        bucket: 'failure',
         workflow: 'Validate',
         url: 'https://github.test/checks/lint',
         completedAt: '2026-05-11T12:00:00Z',
         conclusion: 'failed',
-        synopsis: 'Validate: lint failed with state FAILURE.',
+        synopsis: 'Validate: lint failed with state failure.',
       },
     ]);
   });
@@ -340,17 +356,25 @@ exit 1
 if [ "$1" = "--version" ]; then exit 0; fi
 if [ "$1" = "auth" ]; then exit 0; fi
 if [ "$1" = "repo" ]; then echo "owner/repository"; exit 0; fi
-if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
-  echo '[{"number":42,"url":"https://github.test/owner/repository/pull/42","headRefName":"feature/task-graph"}]'
-  exit 0
-fi
 if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
   echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
   exit 0
 fi
-if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
-  echo '{"checks":[]}'
-  exit 0
+if [ "$1" = "api" ]; then
+  case "$*" in
+    *'/check-runs'*)
+      printf 'HTTP/2 200 OK\r\netag: "checks"\r\n\r\n{"checks":[]}\n'
+      exit 0
+      ;;
+    *'/statuses'*)
+      printf 'HTTP/2 200 OK\r\netag: "statuses"\r\n\r\n[]\n'
+      exit 0
+      ;;
+    *)
+      printf 'HTTP/2 200 OK\r\netag: "pulls"\r\n\r\n[{"number":42,"html_url":"https://github.test/owner/repository/pull/42","head":{"ref":"feature/task-graph","sha":"abc123"},"title":"Task graph"}]\n'
+      exit 0
+      ;;
+  esac
 fi
 exit 1
 `,
@@ -361,7 +385,7 @@ exit 1
     expect(result.exitCode).toBe(1);
     expect(JSON.parse(result.stderr).error).toEqual({
       code: 'ci_status_invalid',
-      message: 'Expected gh pr checks to return a JSON array.',
+      message: 'Expected GitHub check runs to return a check_runs array.',
     });
   });
 

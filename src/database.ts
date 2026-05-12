@@ -1,58 +1,40 @@
 import { Database } from 'bun:sqlite';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  availableTasksSql,
+  blockedTasksSql,
+  createTaskProgressBindings,
+  createTaskBindings,
+  hasBlockerPath,
+  hasParentPath,
+  hydrateTaskProgress,
+  hydrateTask,
+  indexedBindings,
+  nextTaskSql,
+  normalizeTagSet,
+  placeholders,
+  remainingTasksSql,
+  updateTaskBindings,
+  type QueryBindings,
+  type TaskProgressRow,
+  type TaskRow,
+} from './database-support.js';
 import { ScrumlordError } from './errors.js';
-import { resolveProjectRoot } from './root-resolution.js';
-import { runMigrations } from './schema.js';
 import type {
+  AddTaskProgressInput,
+  AgentProvider,
   CreateTaskInput,
+  PersistedTaskSession,
   Task,
   TaskIdentifier,
+  TaskProgress,
   TaskPriority,
   TaskReference,
-  TaskStatus,
   TaskStore,
   UpdateTaskInput,
 } from './types.js';
-import {
-  normalizeTag,
-  parseDateInput,
-  parseOptionalText,
-  parsePriority,
-  parseStatus,
-  requireTitle,
-  taskIdFrom,
-} from './validation.js';
+import { normalizeTag, parsePriority, taskIdFrom } from './validation.js';
 
-type TaskRow = {
-  id: string;
-  title: string;
-  status: TaskStatus;
-  description: string;
-  priority: TaskPriority;
-  created_at: string;
-  start_date: string | null;
-  due_date: string | null;
-  branch: string | null;
-  last_modified_at: string;
-  archived: number;
-  deleted: number;
-  parent_id: string | null;
-};
-
-type TaskDatabaseOptions = { cwd?: string; now?: () => Date };
-
-type QueryBindings = Record<string, string | number | null>;
-
-const booleanToInteger = (value: boolean): number => (value ? 1 : 0);
-
-const validateDateOrder = (startDate: string | null, dueDate: string | null): void => {
-  if (startDate && dueDate && dueDate < startDate) {
-    throw new ScrumlordError('invalid_date_range', 'Due date cannot be before start date.');
-  }
-};
-
-class SqliteTaskStore implements TaskStore {
+export class SqliteTaskStore implements TaskStore {
   readonly #database: Database;
   readonly #now: () => Date;
 
@@ -69,38 +51,20 @@ class SqliteTaskStore implements TaskStore {
   create(input: CreateTaskInput): Task {
     const id = input.id ?? crypto.randomUUID();
     const now = this.#now().toISOString();
-    const status = input.status ?? 'ready';
-    const priority = parsePriority(input.priority ?? 1);
-    const parsedStartDate = parseDateInput(input.startDate, 'startDate');
-    const parsedDueDate = parseDateInput(input.dueDate, 'dueDate');
-    const startDate = parsedStartDate === undefined ? null : parsedStartDate;
-    const dueDate = parsedDueDate === undefined ? null : parsedDueDate;
-    const branch = parseOptionalText(input.branch) ?? null;
-    validateDateOrder(startDate, dueDate);
     if (this.getTask(id))
       throw new ScrumlordError('duplicate_task_id', `Task already exists: ${id}`);
 
+    const bindings = createTaskBindings(this.projectRoot, input, id, now);
     const transaction = this.#database.transaction(() => {
       this.#database
         .query<unknown, QueryBindings>(
           `INSERT INTO tasks (
-            id, title, status, description, priority, created_at, start_date, due_date, branch, last_modified_at
+            id, title, status, description, priority, created_at, start_date, due_date, branch, plan, provider, session, last_modified_at
           ) VALUES (
-            $id, $title, $status, $description, $priority, $createdAt, $startDate, $dueDate, $branch, $lastModifiedAt
+            $id, $title, $status, $description, $priority, $createdAt, $startDate, $dueDate, $branch, $plan, $provider, $session, $lastModifiedAt
           )`,
         )
-        .run({
-          id,
-          title: requireTitle(input.title),
-          status: parseStatus(status),
-          description: input.description ?? '',
-          priority,
-          createdAt: now,
-          startDate,
-          dueDate,
-          branch,
-          lastModifiedAt: now,
-        });
+        .run(bindings);
 
       for (const tag of input.tags ?? []) this.insertTag(id, tag);
       if (input.parent) this.assignParent(id, taskIdFrom(input.parent));
@@ -114,15 +78,8 @@ class SqliteTaskStore implements TaskStore {
   update(id: TaskIdentifier, input: UpdateTaskInput): Task {
     this.ensureTaskExists(id);
     const current = this.requireTask(id);
-    const startDate =
-      'startDate' in input
-        ? (parseDateInput(input.startDate, 'startDate') ?? null)
-        : current.startDate;
-    const dueDate =
-      'dueDate' in input ? (parseDateInput(input.dueDate, 'dueDate') ?? null) : current.dueDate;
-    const branch = 'branch' in input ? (parseOptionalText(input.branch) ?? null) : current.branch;
     const now = this.#now().toISOString();
-    validateDateOrder(startDate, dueDate);
+    const bindings = updateTaskBindings(this.projectRoot, id, input, current, now);
 
     const transaction = this.#database.transaction(() => {
       this.#database
@@ -135,24 +92,15 @@ class SqliteTaskStore implements TaskStore {
             start_date = $startDate,
             due_date = $dueDate,
             branch = $branch,
+            plan = $plan,
+            provider = $provider,
+            session = $session,
             archived = $archived,
             deleted = $deleted,
             last_modified_at = $lastModifiedAt
           WHERE id = $id`,
         )
-        .run({
-          id,
-          title: input.title === undefined ? current.title : requireTitle(input.title),
-          status: input.status === undefined ? current.status : parseStatus(input.status),
-          description: input.description ?? current.description,
-          priority: input.priority === undefined ? current.priority : parsePriority(input.priority),
-          startDate,
-          dueDate,
-          branch,
-          archived: booleanToInteger(input.archived ?? current.archived),
-          deleted: booleanToInteger(input.deleted ?? current.deleted),
-          lastModifiedAt: now,
-        });
+        .run(bindings);
 
       if ('parent' in input) {
         if (input.parent === null) this.clearParentRow(id);
@@ -183,39 +131,22 @@ class SqliteTaskStore implements TaskStore {
     return row ? this.hydrate(row) : null;
   }
 
-  available(): Task[] {
-    const now = this.#now().toISOString();
+  list(options: { includeInactive?: boolean } = {}): Task[] {
+    if (options.includeInactive) {
+      return this.selectTasks('SELECT * FROM tasks ORDER BY priority DESC, created_at ASC, id ASC');
+    }
     return this.selectTasks(
-      `SELECT * FROM tasks
-       WHERE status = 'ready'
-         AND deleted = 0
-         AND archived = 0
-         AND (start_date IS NULL OR start_date <= $now)
-         AND NOT EXISTS (
-           SELECT 1 FROM task_dependencies
-           JOIN tasks AS blocker ON blocker.id = task_dependencies.blocked_by_task_id
-           WHERE task_dependencies.task_id = tasks.id
-             AND blocker.status != 'completed'
-             AND blocker.deleted = 0
-             AND blocker.archived = 0
-         )
-       ORDER BY priority DESC, created_at ASC, id ASC`,
-      { now },
+      'SELECT * FROM tasks WHERE deleted = 0 AND archived = 0 ORDER BY priority DESC, created_at ASC, id ASC',
     );
   }
 
+  available(): Task[] {
+    const now = this.#now().toISOString();
+    return this.selectTasks(availableTasksSql, { now });
+  }
+
   blocked(): Task[] {
-    return this.selectTasks(
-      `SELECT DISTINCT tasks.* FROM tasks
-       JOIN task_dependencies ON task_dependencies.task_id = tasks.id
-       JOIN tasks AS blocker ON blocker.id = task_dependencies.blocked_by_task_id
-       WHERE tasks.deleted = 0
-         AND tasks.archived = 0
-         AND blocker.status != 'completed'
-         AND blocker.deleted = 0
-         AND blocker.archived = 0
-       ORDER BY tasks.priority DESC, tasks.created_at ASC, tasks.id ASC`,
-    );
+    return this.selectTasks(blockedTasksSql);
   }
 
   completed(): Task[] {
@@ -235,28 +166,28 @@ class SqliteTaskStore implements TaskStore {
   }
 
   withAllTags(...tags: string[]): Task[] {
-    const normalizedTags = this.normalizeTagSet(tags);
+    const normalizedTags = normalizeTagSet(tags);
     return this.selectTasks(
       `SELECT tasks.* FROM tasks
        JOIN task_tags ON task_tags.task_id = tasks.id
-       WHERE task_tags.tag IN (${this.placeholders(normalizedTags)})
+       WHERE task_tags.tag IN (${placeholders(normalizedTags)})
          AND tasks.deleted = 0
        GROUP BY tasks.id
        HAVING count(DISTINCT task_tags.tag) = $tagCount
        ORDER BY tasks.priority DESC, tasks.created_at ASC, tasks.id ASC`,
-      this.indexedBindings(normalizedTags, { tagCount: normalizedTags.length }),
+      indexedBindings(normalizedTags, { tagCount: normalizedTags.length }),
     );
   }
 
   withAnyTag(...tags: string[]): Task[] {
-    const normalizedTags = this.normalizeTagSet(tags);
+    const normalizedTags = normalizeTagSet(tags);
     return this.selectTasks(
       `SELECT DISTINCT tasks.* FROM tasks
        JOIN task_tags ON task_tags.task_id = tasks.id
-       WHERE task_tags.tag IN (${this.placeholders(normalizedTags)})
+       WHERE task_tags.tag IN (${placeholders(normalizedTags)})
          AND tasks.deleted = 0
        ORDER BY tasks.priority DESC, tasks.created_at ASC, tasks.id ASC`,
-      this.indexedBindings(normalizedTags),
+      indexedBindings(normalizedTags),
     );
   }
 
@@ -287,7 +218,7 @@ class SqliteTaskStore implements TaskStore {
     );
   }
 
-  withPriority(priority: number): Task[] {
+  withPriority(priority: TaskPriority): Task[] {
     return this.selectTasks(
       'SELECT * FROM tasks WHERE priority = $priority AND deleted = 0 ORDER BY created_at ASC, id ASC',
       { priority: parsePriority(priority) },
@@ -295,7 +226,13 @@ class SqliteTaskStore implements TaskStore {
   }
 
   next(): Task | null {
-    return this.available()[0] ?? null;
+    const now = this.#now().toISOString();
+    return this.selectTasks(nextTaskSql, { now })[0] ?? null;
+  }
+
+  remaining(): number {
+    const row = this.#database.query<{ count: number }, []>(remainingTasksSql).get();
+    return row?.count ?? 0;
   }
 
   cleanup(days: number): { deleted: number } {
@@ -367,6 +304,78 @@ class SqliteTaskStore implements TaskStore {
     return this.requireTask(id);
   }
 
+  setPlan(id: TaskIdentifier, plan: string | null): Task {
+    return this.update(id, { plan });
+  }
+
+  setSession(id: TaskIdentifier, provider: AgentProvider, session: string | null): Task {
+    return this.update(id, { provider, session });
+  }
+
+  withSession(provider: AgentProvider, session: string): Task[] {
+    return this.selectTasks(
+      `SELECT * FROM tasks
+       WHERE provider = $provider AND session = $session AND deleted = 0
+       ORDER BY last_modified_at DESC, id ASC`,
+      { provider, session },
+    );
+  }
+
+  taskSession(id: TaskIdentifier): PersistedTaskSession {
+    const task = this.requireTask(id);
+    return {
+      taskId: task.id,
+      provider: task.provider,
+      session: task.session,
+      branch: task.branch,
+      plan: task.plan,
+    };
+  }
+
+  progress(id: TaskIdentifier): TaskProgress[] {
+    this.ensureTaskExists(id);
+    return this.#database
+      .query<
+        TaskProgressRow,
+        QueryBindings
+      >('SELECT * FROM task_progress WHERE task_id = $id ORDER BY created_at ASC, id ASC')
+      .all({ id })
+      .map(hydrateTaskProgress);
+  }
+
+  addProgress(id: TaskIdentifier, input: AddTaskProgressInput): TaskProgress {
+    const task = this.requireTask(id);
+    const progressId = input.id ?? crypto.randomUUID();
+    const now = this.#now().toISOString();
+    const bindings = createTaskProgressBindings(input, task, progressId, now);
+
+    const transaction = this.#database.transaction(() => {
+      this.#database
+        .query<unknown, QueryBindings>(
+          `INSERT INTO task_progress (
+            id, task_id, message, created_at, provider, session
+          ) VALUES (
+            $id, $taskId, $message, $createdAt, $provider, $session
+          )`,
+        )
+        .run(bindings);
+      if (task.status === 'draft' || task.status === 'ready') {
+        this.#database
+          .query(
+            `UPDATE tasks
+             SET status = 'in-progress', last_modified_at = $lastModifiedAt
+             WHERE id = $id`,
+          )
+          .run({ id, lastModifiedAt: now });
+      } else {
+        this.touchAt(id, now);
+      }
+    });
+
+    transaction();
+    return this.requireProgress(progressId);
+  }
+
   close(): void {
     this.#database.close(false);
   }
@@ -379,18 +388,8 @@ class SqliteTaskStore implements TaskStore {
   }
 
   private hydrate(row: TaskRow): Task {
-    return {
-      id: row.id,
-      title: row.title,
-      status: row.status,
-      description: row.description,
-      priority: row.priority,
-      createdAt: row.created_at,
-      startDate: row.start_date,
-      dueDate: row.due_date,
-      branch: row.branch,
+    return hydrateTask(row, {
       tags: this.values('SELECT tag FROM task_tags WHERE task_id = $id ORDER BY tag ASC', row.id),
-      parent: row.parent_id,
       subtasks: this.values(
         'SELECT id FROM tasks WHERE parent_id = $id ORDER BY created_at ASC, id ASC',
         row.id,
@@ -403,10 +402,7 @@ class SqliteTaskStore implements TaskStore {
         'SELECT task_id AS id FROM task_dependencies WHERE blocked_by_task_id = $id ORDER BY task_id ASC',
         row.id,
       ),
-      lastModifiedAt: row.last_modified_at,
-      archived: row.archived === 1,
-      deleted: row.deleted === 1,
-    };
+    });
   }
 
   private values(sql: string, id: string): string[] {
@@ -420,6 +416,14 @@ class SqliteTaskStore implements TaskStore {
     const task = this.getTask(id);
     if (!task) throw new ScrumlordError('task_not_found', `Task not found: ${id}`);
     return task;
+  }
+
+  private requireProgress(id: string): TaskProgress {
+    const row = this.#database
+      .query<TaskProgressRow, QueryBindings>('SELECT * FROM task_progress WHERE id = $id')
+      .get({ id });
+    if (!row) throw new ScrumlordError('progress_not_found', `Progress not found: ${id}`);
+    return hydrateTaskProgress(row);
   }
 
   private ensureTaskExists(id: TaskIdentifier): void {
@@ -436,7 +440,7 @@ class SqliteTaskStore implements TaskStore {
     if (id === parent)
       throw new ScrumlordError('invalid_parent', 'A task cannot be its own parent.');
     this.ensureTaskExists(parent);
-    if (this.hasParentPath(parent, id)) {
+    if (hasParentPath(this.#database, parent, id)) {
       throw new ScrumlordError('parent_cycle', 'Parent relationships cannot create a cycle.');
     }
     this.#database
@@ -454,7 +458,7 @@ class SqliteTaskStore implements TaskStore {
     if (id === blockedBy)
       throw new ScrumlordError('invalid_dependency', 'A task cannot block itself.');
     this.ensureTaskExists(blockedBy);
-    if (this.hasBlockerPath(blockedBy, id)) {
+    if (hasBlockerPath(this.#database, blockedBy, id)) {
       throw new ScrumlordError('dependency_cycle', 'Task dependencies cannot create a cycle.');
     }
     this.#database
@@ -464,95 +468,13 @@ class SqliteTaskStore implements TaskStore {
       .run({ id, blockedBy });
   }
 
-  private hasParentPath(start: string, target: string): boolean {
-    return Boolean(
-      this.#database
-        .query<{ id: string }, QueryBindings>(
-          `WITH RECURSIVE parents(id) AS (
-            SELECT parent_id FROM tasks WHERE id = $start AND parent_id IS NOT NULL
-            UNION
-            SELECT tasks.parent_id FROM tasks JOIN parents ON tasks.id = parents.id
-            WHERE tasks.parent_id IS NOT NULL
-          )
-          SELECT id FROM parents WHERE id = $target LIMIT 1`,
-        )
-        .get({ start, target }),
-    );
-  }
-
-  private hasBlockerPath(start: string, target: string): boolean {
-    return Boolean(
-      this.#database
-        .query<{ id: string }, QueryBindings>(
-          `WITH RECURSIVE blockers(id) AS (
-            SELECT blocked_by_task_id FROM task_dependencies WHERE task_id = $start
-            UNION
-            SELECT task_dependencies.blocked_by_task_id
-            FROM task_dependencies JOIN blockers ON task_dependencies.task_id = blockers.id
-          )
-          SELECT id FROM blockers WHERE id = $target LIMIT 1`,
-        )
-        .get({ start, target }),
-    );
-  }
-
   private touch(id: TaskIdentifier): void {
+    this.touchAt(id, this.#now().toISOString());
+  }
+
+  private touchAt(id: TaskIdentifier, lastModifiedAt: string): void {
     this.#database
       .query('UPDATE tasks SET last_modified_at = $lastModifiedAt WHERE id = $id')
-      .run({ id, lastModifiedAt: this.#now().toISOString() });
-  }
-
-  private normalizeTagSet(tags: string[]): string[] {
-    const normalized = Array.from(new Set(tags.map((tag) => normalizeTag(tag))));
-    if (normalized.length === 0)
-      throw new ScrumlordError('invalid_tags', 'At least one tag is required.');
-    return normalized;
-  }
-
-  private placeholders(values: string[]): string {
-    return values.map((_value, index) => `$value${index}`).join(', ');
-  }
-
-  private indexedBindings(values: string[], extra: QueryBindings = {}): QueryBindings {
-    return values.reduce<QueryBindings>((bindings, value, index) => {
-      bindings[`value${index}`] = value;
-      return bindings;
-    }, extra);
+      .run({ id, lastModifiedAt });
   }
 }
-
-export const createTaskStore = async (options: TaskDatabaseOptions = {}): Promise<TaskStore> => {
-  const now = options.now ?? (() => new Date());
-  const projectRoot = await resolveProjectRoot(options.cwd);
-  const databaseDirectory = join(projectRoot, 'tmp');
-  try {
-    mkdirSync(databaseDirectory, { recursive: true });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new ScrumlordError(
-      'database_directory_failed',
-      `Could not create task database directory ${databaseDirectory}: ${message}`,
-    );
-  }
-
-  const databasePath = join(databaseDirectory, 'tasks.db');
-  let database: Database;
-  try {
-    database = new Database(databasePath, { create: true, readwrite: true, strict: true });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new ScrumlordError(
-      'database_open_failed',
-      `Could not open task database ${databasePath}: ${message}`,
-    );
-  }
-
-  try {
-    runMigrations(database, now);
-  } catch (error) {
-    database.close(false);
-    const message = error instanceof Error ? error.message : String(error);
-    throw new ScrumlordError('migration_failed', `Could not run task migrations: ${message}`);
-  }
-  return new SqliteTaskStore(projectRoot, databasePath, database, now);
-};

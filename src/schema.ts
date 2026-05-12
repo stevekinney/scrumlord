@@ -49,6 +49,32 @@ const migrations = [
       CREATE INDEX tasks_branch_index ON tasks(branch);
     `,
   },
+  {
+    version: 3,
+    name: 'add_task_agent_session_fields',
+    sql: `
+      ALTER TABLE tasks ADD COLUMN plan TEXT;
+      ALTER TABLE tasks ADD COLUMN provider TEXT CHECK (provider IS NULL OR provider IN ('claude', 'codex'));
+      ALTER TABLE tasks ADD COLUMN session TEXT;
+      CREATE INDEX tasks_provider_session_index ON tasks(provider, session);
+    `,
+  },
+  {
+    version: 4,
+    name: 'add_task_progress',
+    sql: `
+      CREATE TABLE task_progress (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        message TEXT NOT NULL CHECK (length(trim(message)) > 0),
+        created_at TEXT NOT NULL,
+        provider TEXT CHECK (provider IS NULL OR provider IN ('claude', 'codex')),
+        session TEXT
+      );
+
+      CREATE INDEX task_progress_task_created_index ON task_progress(task_id, created_at, id);
+    `,
+  },
 ] as const;
 
 /** Applies all pending database migrations in version order. */

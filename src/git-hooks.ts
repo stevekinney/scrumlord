@@ -11,7 +11,7 @@ export type SetupGitHooksResult = {
   install: CommandResult | null;
 };
 
-type SetupGitHooksOptions = {
+export type SetupGitHooksOptions = {
   runner?: CommandRunner;
   install?: boolean;
 };

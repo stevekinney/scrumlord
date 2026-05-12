@@ -1,35 +1,36 @@
 import { runCommand, type CommandResult, type CommandRunner } from './command-runner.js';
 import { ScrumlordError } from './errors.js';
+import {
+  checkRunsFrom,
+  commitStatusesFrom,
+  reportForCheck,
+  type PullRequestCheck,
+  type PullRequestCheckReport,
+} from './github-checks.js';
+import { runGitHubRestGet } from './github-rest.js';
+export {
+  reportForCheck,
+  type PullRequestCheck,
+  type PullRequestCheckConclusion,
+  type PullRequestCheckReport,
+} from './github-checks.js';
+export { parseIncludedGitHubApiResponse, type IncludedGitHubApiResponse } from './github-rest.js';
 
-type PullRequest = {
+export type PullRequest = {
   number: number;
   url: string;
   headRefName: string;
+  headSha: string | null;
+  title: string | null;
 };
 
-type ReviewComment = {
+export type ReviewComment = {
   id: string;
   url: string | null;
   path: string | null;
   line: number | null;
   body: string;
   author: string | null;
-};
-
-type PullRequestCheck = {
-  name: string;
-  state: string;
-  bucket: string | null;
-  workflow: string | null;
-  url: string | null;
-  completedAt: string | null;
-};
-
-type PullRequestCheckConclusion = 'successful' | 'pending' | 'failed';
-
-type PullRequestCheckReport = PullRequestCheck & {
-  conclusion: PullRequestCheckConclusion;
-  synopsis: string;
 };
 
 export type PullRequestStatusReport = {
@@ -50,7 +51,7 @@ export type PullRequestStatusReport = {
   readyToMerge: boolean;
 };
 
-type GitHubOptions = {
+export type GitHubOptions = {
   runner?: CommandRunner;
 };
 
@@ -58,13 +59,37 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return Boolean(value) && typeof value === 'object';
 };
 
-const isPullRequest = (value: unknown): value is PullRequest => {
-  return (
-    isRecord(value) &&
-    typeof value['number'] === 'number' &&
-    typeof value['url'] === 'string' &&
-    typeof value['headRefName'] === 'string'
-  );
+const stringOrNull = (value: unknown): string | null => {
+  return typeof value === 'string' ? value : null;
+};
+
+const pullRequestUrlFrom = (record: Record<string, unknown>): string | null => {
+  return stringOrNull(record['url']) ?? stringOrNull(record['html_url']);
+};
+
+const pullRequestHeadRefNameFrom = (
+  record: Record<string, unknown>,
+  head: Record<string, unknown> | undefined,
+): string | null => {
+  return stringOrNull(record['headRefName']) ?? stringOrNull(head?.['ref']);
+};
+
+const pullRequestFrom = (value: unknown): PullRequest | undefined => {
+  if (!isRecord(value) || typeof value['number'] !== 'number') return undefined;
+  const head = nestedRecord(value, 'head');
+  const url = pullRequestUrlFrom(value);
+  const headRefName = pullRequestHeadRefNameFrom(value, head);
+  if (!url || !headRefName) {
+    return undefined;
+  }
+
+  return {
+    number: value['number'],
+    url,
+    headRefName,
+    headSha: stringOrNull(value['headSha']) ?? stringOrNull(head?.['sha']),
+    title: stringOrNull(value['title']),
+  };
 };
 
 const nestedRecord = (
@@ -73,10 +98,6 @@ const nestedRecord = (
 ): Record<string, unknown> | undefined => {
   const value = record?.[key];
   return isRecord(value) ? value : undefined;
-};
-
-const stringOrNull = (value: unknown): string | null => {
-  return typeof value === 'string' ? value : null;
 };
 
 const numberOrNull = (value: unknown): number | null => {
@@ -115,92 +136,6 @@ const unresolvedCommentsFrom = (response: unknown): ReviewComment[] => {
   });
 };
 
-const checkFrom = (value: unknown): PullRequestCheck | undefined => {
-  if (!isRecord(value) || typeof value['name'] !== 'string') return undefined;
-  return {
-    name: value['name'],
-    state: typeof value['state'] === 'string' ? value['state'] : 'UNKNOWN',
-    bucket: stringOrNull(value['bucket']),
-    workflow: stringOrNull(value['workflow']),
-    url: stringOrNull(value['link']),
-    completedAt: stringOrNull(value['completedAt']),
-  };
-};
-
-const checksFrom = (response: unknown): PullRequestCheck[] => {
-  if (!Array.isArray(response)) {
-    throw new ScrumlordError('ci_status_invalid', 'Expected gh pr checks to return a JSON array.');
-  }
-  return response.flatMap((value) => {
-    const check = checkFrom(value);
-    return check ? [check] : [];
-  });
-};
-
-const normalizeState = (value: string | null): string => {
-  return (value ?? '')
-    .trim()
-    .toLowerCase()
-    .replaceAll(/[\s-]+/g, '_');
-};
-
-const successfulStates = new Set([
-  'pass',
-  'passed',
-  'success',
-  'successful',
-  'skipped',
-  'skipping',
-  'neutral',
-]);
-
-const pendingStates = new Set([
-  'pending',
-  'queued',
-  'in_progress',
-  'waiting',
-  'requested',
-  'expected',
-]);
-
-const failedStates = new Set([
-  'fail',
-  'failed',
-  'failure',
-  'error',
-  'cancel',
-  'cancelled',
-  'canceled',
-  'timed_out',
-  'action_required',
-]);
-
-const classifyCheck = (check: PullRequestCheck): PullRequestCheckConclusion => {
-  const bucket = normalizeState(check.bucket);
-  const state = normalizeState(check.state);
-
-  if (failedStates.has(bucket) || failedStates.has(state)) return 'failed';
-  if (pendingStates.has(bucket) || pendingStates.has(state)) return 'pending';
-  if (successfulStates.has(bucket) || successfulStates.has(state)) return 'successful';
-  return 'pending';
-};
-
-const checkSynopsis = (check: PullRequestCheck, conclusion: PullRequestCheckConclusion): string => {
-  const workflow = check.workflow ? `${check.workflow}: ` : '';
-  if (conclusion === 'failed') return `${workflow}${check.name} failed with state ${check.state}.`;
-  if (conclusion === 'pending') return `Waiting on ${workflow}${check.name} (${check.state}).`;
-  return `${workflow}${check.name} passed.`;
-};
-
-const reportForCheck = (check: PullRequestCheck): PullRequestCheckReport => {
-  const conclusion = classifyCheck(check);
-  return {
-    ...check,
-    conclusion,
-    synopsis: checkSynopsis(check, conclusion),
-  };
-};
-
 const execute = async (
   command: string[],
   cwd: string,
@@ -209,7 +144,7 @@ const execute = async (
   return await (options?.runner ?? runCommand)(command, cwd);
 };
 
-const requireGh = async (cwd: string, options?: GitHubOptions): Promise<void> => {
+export const requireGh = async (cwd: string, options?: GitHubOptions): Promise<void> => {
   const result = await execute(['gh', '--version'], cwd, options);
   if (result.exitCode !== 0) {
     throw new ScrumlordError('gh_not_found', 'The GitHub CLI (`gh`) is required for this command.');
@@ -232,7 +167,7 @@ const currentBranch = async (cwd: string, options?: GitHubOptions): Promise<stri
   return branch;
 };
 
-const repositoryName = async (cwd: string, options?: GitHubOptions): Promise<string> => {
+export const repositoryName = async (cwd: string, options?: GitHubOptions): Promise<string> => {
   const result = await execute(
     ['gh', 'repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'],
     cwd,
@@ -248,6 +183,45 @@ const repositoryName = async (cwd: string, options?: GitHubOptions): Promise<str
   return repository;
 };
 
+export const repositoryUrl = async (cwd: string, options?: GitHubOptions): Promise<string> => {
+  const repository = await repositoryName(cwd, options);
+  return `https://github.com/${repository}`;
+};
+
+const repositoryParts = (repository: string): { owner: string; name: string } => {
+  const [owner, name] = repository.split('/');
+  if (!owner || !name)
+    throw new ScrumlordError('invalid_repository', `Invalid GitHub repository: ${repository}`);
+  return { owner, name };
+};
+
+export const openPullRequests = async (
+  projectRoot: string,
+  repository: string,
+  options?: GitHubOptions,
+): Promise<PullRequest[]> => {
+  const { owner, name } = repositoryParts(repository);
+  const parsedPullRequests = await runGitHubRestGet(
+    projectRoot,
+    `repos/${owner}/${name}/pulls`,
+    { per_page: '100', state: 'open' },
+    options,
+    'pull_request_lookup_failed',
+    true,
+  );
+  if (!Array.isArray(parsedPullRequests)) {
+    throw new ScrumlordError(
+      'pull_request_lookup_invalid',
+      'Expected GitHub pull request list to return a JSON array.',
+    );
+  }
+
+  return parsedPullRequests.flatMap((value) => {
+    const pullRequest = pullRequestFrom(value);
+    return pullRequest ? [pullRequest] : [];
+  });
+};
+
 const parseGhJson = (stdout: string, context: string): unknown => {
   try {
     return JSON.parse(stdout);
@@ -256,15 +230,13 @@ const parseGhJson = (stdout: string, context: string): unknown => {
   }
 };
 
-const reviewCommentsForPullRequest = async (
+export const reviewCommentsForPullRequest = async (
   projectRoot: string,
   repository: string,
   pullRequest: PullRequest,
   options?: GitHubOptions,
 ): Promise<ReviewComment[]> => {
-  const [owner, name] = repository.split('/');
-  if (!owner || !name)
-    throw new ScrumlordError('invalid_repository', `Invalid GitHub repository: ${repository}`);
+  const { owner, name } = repositoryParts(repository);
   const query = `
       query($owner: String!, $name: String!, $number: Int!) {
         repository(owner: $owner, name: $name) {
@@ -310,25 +282,70 @@ const reviewCommentsForPullRequest = async (
   return unresolvedCommentsFrom(parseGhJson(result.stdout, 'gh api graphql'));
 };
 
-const checksForPullRequest = async (
+export const checksForPullRequest = async (
   projectRoot: string,
   pullRequest: PullRequest,
   options?: GitHubOptions,
 ): Promise<PullRequestCheck[]> => {
-  const result = await execute(
-    [
-      'gh',
-      'pr',
-      'checks',
-      String(pullRequest.number),
-      '--json',
-      'bucket,completedAt,link,name,state,workflow',
-    ],
+  const repository = await repositoryName(projectRoot, options);
+  return await checksForPullRequestInRepository(projectRoot, repository, pullRequest, options);
+};
+
+export const checksForPullRequestInRepository = async (
+  projectRoot: string,
+  repository: string,
+  pullRequest: PullRequest,
+  options?: GitHubOptions,
+): Promise<PullRequestCheck[]> => {
+  const { owner, name } = repositoryParts(repository);
+  const pullRequestWithHeadSha = pullRequest.headSha
+    ? pullRequest
+    : await pullRequestDetails(projectRoot, repository, pullRequest.number, options);
+  const headSha = pullRequestWithHeadSha.headSha;
+  if (!headSha) {
+    throw new ScrumlordError('ci_status_failed', 'Could not resolve pull request head SHA.');
+  }
+  const [checkRuns, commitStatuses] = await Promise.all([
+    runGitHubRestGet(
+      projectRoot,
+      `repos/${owner}/${name}/commits/${headSha}/check-runs`,
+      { filter: 'latest', per_page: '100' },
+      options,
+      'ci_status_failed',
+      true,
+    ),
+    runGitHubRestGet(
+      projectRoot,
+      `repos/${owner}/${name}/commits/${headSha}/statuses`,
+      { per_page: '100' },
+      options,
+      'ci_status_failed',
+      true,
+    ),
+  ]);
+  return checkRunsFrom(checkRuns).concat(commitStatusesFrom(commitStatuses));
+};
+
+const pullRequestDetails = async (
+  projectRoot: string,
+  repository: string,
+  number: number,
+  options?: GitHubOptions,
+): Promise<PullRequest> => {
+  const { owner, name } = repositoryParts(repository);
+  const parsedPullRequest = await runGitHubRestGet(
     projectRoot,
+    `repos/${owner}/${name}/pulls/${number}`,
+    {},
     options,
+    'pull_request_lookup_failed',
+    true,
   );
-  if (result.exitCode !== 0) throw new ScrumlordError('ci_status_failed', result.stderr.trim());
-  return checksFrom(parseGhJson(result.stdout, 'gh pr checks'));
+  const pullRequest = pullRequestFrom(parsedPullRequest);
+  if (!pullRequest) {
+    throw new ScrumlordError('pull_request_lookup_invalid', 'Expected GitHub pull request object.');
+  }
+  return pullRequest;
 };
 
 export const currentPullRequest = async (
@@ -338,33 +355,20 @@ export const currentPullRequest = async (
   await requireGh(projectRoot, options);
   const branch = await currentBranch(projectRoot, options);
   const repository = await repositoryName(projectRoot, options);
-  const result = await execute(
-    [
-      'gh',
-      'pr',
-      'list',
-      '--repo',
-      repository,
-      '--head',
-      branch,
-      '--state',
-      'open',
-      '--json',
-      'number,url,headRefName',
-      '--limit',
-      '1',
-    ],
+  const { owner, name } = repositoryParts(repository);
+  const parsedPullRequests = await runGitHubRestGet(
     projectRoot,
+    `repos/${owner}/${name}/pulls`,
+    { head: `${owner}:${branch}`, per_page: '1', state: 'open' },
     options,
+    'pull_request_lookup_failed',
+    true,
   );
-
-  if (result.exitCode !== 0) {
-    throw new ScrumlordError('pull_request_lookup_failed', result.stderr.trim());
-  }
-
-  const parsedPullRequests = parseGhJson(result.stdout, 'gh pr list');
   const pullRequest = Array.isArray(parsedPullRequests)
-    ? parsedPullRequests.find(isPullRequest)
+    ? parsedPullRequests.flatMap((value) => {
+        const parsedPullRequest = pullRequestFrom(value);
+        return parsedPullRequest ? [parsedPullRequest] : [];
+      })[0]
     : undefined;
   if (!pullRequest) {
     throw new ScrumlordError(
@@ -396,7 +400,7 @@ export const pullRequestUrl = async (
 export const unresolvedReviewComments = async (
   projectRoot: string,
   options?: GitHubOptions,
-): Promise<unknown> => {
+): Promise<ReviewComment[]> => {
   const pullRequest = await currentPullRequest(projectRoot, options);
   const repository = await repositoryName(projectRoot, options);
   return await reviewCommentsForPullRequest(projectRoot, repository, pullRequest, options);
@@ -405,7 +409,7 @@ export const unresolvedReviewComments = async (
 export const continuousIntegrationStatus = async (
   projectRoot: string,
   options?: GitHubOptions,
-): Promise<unknown> => {
+): Promise<PullRequestCheck[]> => {
   const pullRequest = await currentPullRequest(projectRoot, options);
   return await checksForPullRequest(projectRoot, pullRequest, options);
 };
@@ -418,7 +422,7 @@ export const pullRequestStatus = async (
   const repository = await repositoryName(projectRoot, options);
   const [reviewComments, checks] = await Promise.all([
     reviewCommentsForPullRequest(projectRoot, repository, pullRequest, options),
-    checksForPullRequest(projectRoot, pullRequest, options),
+    checksForPullRequestInRepository(projectRoot, repository, pullRequest, options),
   ]);
   const checkReports = checks.map(reportForCheck);
   const pending = checkReports.filter((check) => check.conclusion === 'pending');

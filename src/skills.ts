@@ -4,7 +4,7 @@ import skillBody from './skills/tasks.md';
 
 export type SkillTarget = 'codex' | 'claude' | 'cursor';
 
-type WrittenSkill = {
+export type WrittenSkill = {
   target: SkillTarget;
   path: string;
 };

@@ -14,6 +14,9 @@ const task = (id: string, status: TaskStatus = 'ready', overrides: Partial<Task>
   startDate: null,
   dueDate: null,
   branch: 'feature/task-graph',
+  plan: null,
+  provider: null,
+  session: null,
   tags: [],
   parent: null,
   subtasks: [],
@@ -41,6 +44,9 @@ const store = (
   withBranch(branch: string) {
     return tasks.filter((item) => item.branch === branch);
   },
+  withSession() {
+    return unexpectedStoreMethod();
+  },
   update(id: string, input: UpdateTaskInput) {
     updates.push({ id, input });
     return task(id, input.status ?? 'ready');
@@ -58,6 +64,9 @@ const store = (
     return unexpectedStoreMethod();
   },
   available() {
+    return unexpectedStoreMethod();
+  },
+  list() {
     return unexpectedStoreMethod();
   },
   blocked() {
@@ -87,6 +96,9 @@ const store = (
   next() {
     return unexpectedStoreMethod();
   },
+  remaining() {
+    return unexpectedStoreMethod();
+  },
   cleanup() {
     return unexpectedStoreMethod();
   },
@@ -106,6 +118,21 @@ const store = (
     return unexpectedStoreMethod();
   },
   removeBlocker() {
+    return unexpectedStoreMethod();
+  },
+  setPlan() {
+    return unexpectedStoreMethod();
+  },
+  setSession() {
+    return unexpectedStoreMethod();
+  },
+  taskSession() {
+    return unexpectedStoreMethod();
+  },
+  progress() {
+    return unexpectedStoreMethod();
+  },
+  addProgress() {
     return unexpectedStoreMethod();
   },
   close() {},
@@ -181,11 +208,12 @@ describe('worktreeForBranch', () => {
 });
 
 describe('syncGitStatus', () => {
-  it('moves ready branch tasks to in-progress when work begins', async () => {
+  it('moves draft and ready branch tasks to in-progress when work begins', async () => {
     const updates: { id: string; input: UpdateTaskInput }[] = [];
     const result = await syncGitStatus(
       store(
         [
+          task('draft', 'draft'),
           task('ready'),
           task('already-started', 'in-progress'),
           task('archived', 'ready', { archived: true }),
@@ -203,15 +231,29 @@ describe('syncGitStatus', () => {
       worktree: '/worktrees/task-graph',
       ghAvailable: false,
       pullRequest: null,
-      updated: [{ id: 'ready', from: 'ready', to: 'in-progress' }],
+      updated: [
+        { id: 'draft', from: 'draft', to: 'in-progress' },
+        { id: 'ready', from: 'ready', to: 'in-progress' },
+      ],
     });
-    expect(updates).toEqual([{ id: 'ready', input: { status: 'in-progress' } }]);
+    expect(updates).toEqual([
+      { id: 'draft', input: { status: 'in-progress' } },
+      { id: 'ready', input: { status: 'in-progress' } },
+    ]);
   });
 
   it('moves branch tasks into review when a pull request is open', async () => {
     const updates: { id: string; input: UpdateTaskInput }[] = [];
     const result = await syncGitStatus(
-      store([task('ready'), task('review', 'in-review')], updates),
+      store(
+        [
+          task('draft', 'draft'),
+          task('ready'),
+          task('started', 'in-progress'),
+          task('review', 'in-review'),
+        ],
+        updates,
+      ),
       {
         runner: gitRunner({
           exitCode: 0,
@@ -222,8 +264,16 @@ describe('syncGitStatus', () => {
     );
 
     expect(result.pullRequest).toMatchObject({ number: 12, state: 'OPEN' });
-    expect(result.updated).toEqual([{ id: 'ready', from: 'ready', to: 'in-review' }]);
-    expect(updates).toEqual([{ id: 'ready', input: { status: 'in-review' } }]);
+    expect(result.updated).toEqual([
+      { id: 'draft', from: 'draft', to: 'in-review' },
+      { id: 'ready', from: 'ready', to: 'in-review' },
+      { id: 'started', from: 'in-progress', to: 'in-review' },
+    ]);
+    expect(updates).toEqual([
+      { id: 'draft', input: { status: 'in-review' } },
+      { id: 'ready', input: { status: 'in-review' } },
+      { id: 'started', input: { status: 'in-review' } },
+    ]);
   });
 
   it('marks branch tasks completed after their pull request merges into main', async () => {

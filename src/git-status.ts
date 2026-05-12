@@ -3,7 +3,7 @@ import { runCommand } from './command-runner.js';
 import { ScrumlordError } from './errors.js';
 import type { Task, TaskStatus, TaskStore, UpdateTaskInput } from './types.js';
 
-type PullRequestState = {
+export type SynchronizedPullRequestState = {
   number: number;
   state: 'OPEN' | 'CLOSED' | 'MERGED';
   baseRefName: string;
@@ -15,7 +15,7 @@ export type SyncGitStatusResult = {
   branch: string;
   worktree: string;
   ghAvailable: boolean;
-  pullRequest: PullRequestState | null;
+  pullRequest: SynchronizedPullRequestState | null;
   updated: {
     id: string;
     from: TaskStatus;
@@ -23,7 +23,7 @@ export type SyncGitStatusResult = {
   }[];
 };
 
-type SyncGitStatusOptions = {
+export type SyncGitStatusOptions = {
   runner?: CommandRunner;
 };
 
@@ -31,7 +31,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return Boolean(value) && typeof value === 'object';
 };
 
-const isPullRequestState = (value: unknown): value is PullRequestState => {
+const isPullRequestState = (value: unknown): value is SynchronizedPullRequestState => {
   return (
     isRecord(value) &&
     typeof value['number'] === 'number' &&
@@ -42,7 +42,10 @@ const isPullRequestState = (value: unknown): value is PullRequestState => {
   );
 };
 
-const currentBranch = async (projectRoot: string, runner: CommandRunner): Promise<string> => {
+export const currentGitBranch = async (
+  projectRoot: string,
+  runner: CommandRunner = runCommand,
+): Promise<string> => {
   const result = await runner(['git', 'branch', '--show-current'], projectRoot);
   const branch = result.stdout.trim();
   if (result.exitCode !== 0 || !branch) {
@@ -72,7 +75,7 @@ const currentPullRequest = async (
   projectRoot: string,
   branch: string,
   runner: CommandRunner,
-): Promise<{ ghAvailable: boolean; pullRequest: PullRequestState | null }> => {
+): Promise<{ ghAvailable: boolean; pullRequest: SynchronizedPullRequestState | null }> => {
   let result: CommandResult;
   try {
     result = await runner(
@@ -107,11 +110,26 @@ const currentPullRequest = async (
   return { ghAvailable: true, pullRequest: pullRequest ?? null };
 };
 
-const statusFor = (task: Task, pullRequest: PullRequestState | null): TaskStatus | null => {
-  if (task.deleted || task.archived || task.status === 'completed') return null;
-  if (pullRequest?.mergedAt && pullRequest.baseRefName === 'main') return 'completed';
+const isInactiveTask = (task: Task): boolean => {
+  return task.deleted || task.archived || task.status === 'completed';
+};
+
+const isStartableTask = (task: Task): boolean => {
+  return task.status === 'draft' || task.status === 'ready';
+};
+
+const isMergedIntoMain = (pullRequest: SynchronizedPullRequestState | null): boolean => {
+  return Boolean(pullRequest?.mergedAt && pullRequest.baseRefName === 'main');
+};
+
+const statusFor = (
+  task: Task,
+  pullRequest: SynchronizedPullRequestState | null,
+): TaskStatus | null => {
+  if (isInactiveTask(task)) return null;
+  if (isMergedIntoMain(pullRequest)) return 'completed';
   if (pullRequest?.state === 'OPEN') return 'in-review';
-  if (task.status === 'ready') return 'in-progress';
+  if (isStartableTask(task)) return 'in-progress';
   return null;
 };
 
@@ -121,7 +139,7 @@ export const syncGitStatus = async (
   options: SyncGitStatusOptions = {},
 ): Promise<SyncGitStatusResult> => {
   const runner = options.runner ?? runCommand;
-  const branch = await currentBranch(store.projectRoot, runner);
+  const branch = await currentGitBranch(store.projectRoot, runner);
   const worktree = await worktreeForBranch(store.projectRoot, branch, runner);
   const { ghAvailable, pullRequest } = await currentPullRequest(store.projectRoot, branch, runner);
   const updated: SyncGitStatusResult['updated'] = [];
