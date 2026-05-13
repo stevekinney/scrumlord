@@ -14,6 +14,13 @@ export type AgentInvocation = {
   command: string[];
   cwd: string;
   environment: Record<string, string>;
+  /**
+   * Optional prompt body to write to the agent's stdin. When present, the
+   * spawner pipes this string into the process and closes stdin. Used by
+   * the pipeline to keep large prompts out of argv (where they would hit
+   * argv-length limits on Linux and leak into `ps` output).
+   */
+  stdin?: string;
 };
 
 export type AgentCliProvider = {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+/* eslint-disable max-lines */
 /**
  * Smoke harness for `runPipeline`.
  *
@@ -43,6 +44,12 @@ type Scenario = {
   expectedStderrSubstrings: readonly string[];
   /** Optional store-state assertions run after the pipeline returns. */
   storeAssertions?: (store: TaskStore) => Promise<void> | void;
+  /**
+   * Optional post-run assertion against scenario-supplied artifacts (captured
+   * agent invocations, transcript files, etc.). The scenario builds the
+   * artifact in its `run` and the harness invokes this with the same object.
+   */
+  customAssertions?: (artifacts: ScenarioOutcome) => Promise<void> | void;
 };
 
 type ScenarioContext = {
@@ -52,6 +59,8 @@ type ScenarioContext = {
 
 type ScenarioOutcome = {
   summary: PipelineSummary;
+  /** Captured agent invocations, when the scenario uses `captureInvocationSpawnAgent`. */
+  invocations?: AgentInvocation[];
 };
 
 const ok = (stdout = ''): CommandResult => ({ exitCode: 0, stdout, stderr: '' });
@@ -217,7 +226,7 @@ const recordingSpawnAgent = (
     invocations.push(invocation);
     const exitCode = exitCodes[call] ?? 0;
     call += 1;
-    return { exitCode, stuck: null, killed: null };
+    return { exitCode, stuck: null, killed: null, tail: '', promise: null };
   };
   return { spawn, invocations };
 };
@@ -225,7 +234,39 @@ const recordingSpawnAgent = (
 const stuckStderrSpawnAgent = (): SpawnAgent => {
   return async (_invocation, _caps, controls) => {
     controls.stderr('STUCK: stuck on flaky test\n');
-    return { exitCode: 1, stuck: 'stuck on flaky test', killed: null };
+    return {
+      exitCode: 1,
+      stuck: 'stuck on flaky test',
+      killed: null,
+      tail: 'STUCK: stuck on flaky test',
+      promise: null,
+    };
+  };
+};
+
+/** Records the invocation so the scenario can assert on argv/stdin shape. */
+const captureInvocationSpawnAgent = (): {
+  spawn: SpawnAgent;
+  invocations: AgentInvocation[];
+} => {
+  const invocations: AgentInvocation[] = [];
+  const spawn: SpawnAgent = async (invocation) => {
+    invocations.push(invocation);
+    return { exitCode: 0, stuck: null, killed: null, tail: '', promise: null };
+  };
+  return { spawn, invocations };
+};
+
+/** Surfaces a `<promise>` tag in the captured tail. */
+const promiseTagSpawnAgent = (): SpawnAgent => {
+  return async () => {
+    return {
+      exitCode: 0,
+      stuck: null,
+      killed: null,
+      tail: 'doing work…\n<promise>PR feedback addressed and CI passing</promise>\n',
+      promise: 'PR feedback addressed and CI passing',
+    };
   };
 };
 
@@ -264,6 +305,7 @@ const scenarios: readonly Scenario[] = [
       const summary = await runPipeline(store, {
         provider: 'claude',
         mode: 'drain',
+        skipPreflight: true,
         runner: mockRunner({ mode: 'happy', currentBranch, prState: 'open' }),
         spawnAgent: recordingSpawnAgent([0]).spawn,
         stderr: appendStderr,
@@ -306,6 +348,7 @@ const scenarios: readonly Scenario[] = [
       const summary = await runPipeline(store, {
         provider: 'claude',
         mode: 'drain',
+        skipPreflight: true,
         runner: mockRunner({ mode: 'no-tasks' }),
         spawnAgent: recordingSpawnAgent([]).spawn,
         stderr: appendStderr,
@@ -331,6 +374,7 @@ const scenarios: readonly Scenario[] = [
       const summary = await runPipeline(store, {
         provider: 'claude',
         mode: 'drain',
+        skipPreflight: true,
         runner: mockRunner({ mode: 'happy' }),
         spawnAgent: stuckStderrSpawnAgent(),
         stderr: appendStderr,
@@ -356,6 +400,101 @@ const scenarios: readonly Scenario[] = [
     storeAssertions: (store) => {
       const shipped = store.completed();
       assert(shipped.length === 0, 'stuck task must not be marked completed');
+    },
+  },
+  {
+    name: 'prompt-stdin',
+    introducedInWorkstream: 'B-1',
+    assertsBehaviorFrom: 'B-1',
+    description: "pipeline writes the prompt body to the agent's stdin, not argv (#8)",
+    expectedExitCode: 0,
+    expectedStderrSubstrings: [],
+    run: async ({ store, appendStderr }) => {
+      seedReadyTask(store, 'stdin task');
+      const capture = captureInvocationSpawnAgent();
+      const currentBranch = (): string => {
+        const branched = store.list().find((task) => task.branch);
+        return branched?.branch ?? 'feature/main';
+      };
+      const summary = await runPipeline(store, {
+        provider: 'claude',
+        mode: 'drain',
+        skipPreflight: true,
+        runner: mockRunner({ mode: 'happy', currentBranch, prState: 'merged' }),
+        spawnAgent: capture.spawn,
+        stderr: appendStderr,
+        now: () => Date.parse('2026-05-13T15:00:00Z'),
+        runId: 'smoke-stdin',
+        repository: 'owner/repo',
+        hostname: 'smoke-host',
+        colorMode: 'off',
+        max: 1,
+        constants: {
+          CHECK_POLL_INTERVAL_MS: 1,
+          CHECK_POLL_MAX_ATTEMPTS: 1,
+          REVIEW_BOT_WAIT_MS: 1,
+          REVIEW_BOT_MAX_ATTEMPTS: 1,
+          ADDRESS_PR_MAX_ROUNDS: 1,
+          AGENT_IDLE_MS: 60_001,
+          AGENT_MAX_MS: 60_001,
+          LOCK_STALE_MS: 60_001,
+        },
+      });
+      return { summary, invocations: capture.invocations };
+    },
+    customAssertions: ({ invocations }) => {
+      assert(invocations !== undefined, 'invocations not captured');
+      assert(
+        invocations.length >= 1,
+        `expected at least one invocation, got ${invocations.length}`,
+      );
+      const claudeInvocation = invocations[0]!;
+      assert(claudeInvocation.stdin !== undefined, 'expected claude invocation to use stdin');
+      assert(claudeInvocation.stdin.length > 0, 'expected non-empty stdin body');
+      const argv = claudeInvocation.command.join(' ');
+      // The body should not appear on argv. Use a stable substring from the
+      // pipeline prompt to confirm.
+      assert(!argv.includes(claudeInvocation.stdin), `body leaked into argv: ${argv}`);
+    },
+  },
+  {
+    name: 'promise-tag',
+    introducedInWorkstream: 'B-1',
+    assertsBehaviorFrom: 'B-1',
+    description: 'agent <promise> tag is surfaced as a pipeline log line (#23)',
+    expectedExitCode: 0,
+    expectedStderrSubstrings: ['agent reports: PR feedback addressed and CI passing'],
+    run: async ({ store, appendStderr }) => {
+      seedReadyTask(store, 'promise task');
+      const currentBranch = (): string => {
+        const branched = store.list().find((task) => task.branch);
+        return branched?.branch ?? 'feature/main';
+      };
+      const summary = await runPipeline(store, {
+        provider: 'claude',
+        mode: 'drain',
+        skipPreflight: true,
+        runner: mockRunner({ mode: 'happy', currentBranch, prState: 'merged' }),
+        spawnAgent: promiseTagSpawnAgent(),
+        stderr: appendStderr,
+        now: () => Date.parse('2026-05-13T15:00:00Z'),
+        runId: 'smoke-promise',
+        repository: 'owner/repo',
+        hostname: 'smoke-host',
+        colorMode: 'off',
+        max: 1,
+        constants: {
+          CHECK_POLL_INTERVAL_MS: 1,
+          CHECK_POLL_MAX_ATTEMPTS: 1,
+          REVIEW_BOT_WAIT_MS: 1,
+          REVIEW_BOT_MAX_ATTEMPTS: 1,
+          ADDRESS_PR_MAX_ROUNDS: 1,
+          AGENT_IDLE_MS: 60_001,
+          AGENT_MAX_MS: 60_001,
+          LOCK_STALE_MS: 60_001,
+        },
+      });
+      return { summary };
     },
   },
 ] as const;
@@ -395,6 +534,7 @@ const initializeGit = async (directory: string): Promise<void> => {
   }
 };
 
+// eslint-disable-next-line complexity
 const runScenario = async (scenario: Scenario): Promise<{ pass: boolean; reason?: string }> => {
   const projectRoot = await mkdtemp(join(tmpdir(), 'scrumlord-smoke-'));
   await initializeGit(projectRoot);
@@ -403,11 +543,12 @@ const runScenario = async (scenario: Scenario): Promise<{ pass: boolean; reason?
   const appendStderr = (line: string): void => {
     stderrLines.push(line);
   };
+  let outcome: ScenarioOutcome | null = null;
   try {
     let actualExitCode: number;
     try {
-      const { summary } = await scenario.run({ store, appendStderr });
-      actualExitCode = summary.exitCode;
+      outcome = await scenario.run({ store, appendStderr });
+      actualExitCode = outcome.summary.exitCode;
     } catch (error) {
       return {
         pass: false,
@@ -438,6 +579,16 @@ const runScenario = async (scenario: Scenario): Promise<{ pass: boolean; reason?
         return {
           pass: false,
           reason: `store assertion failed: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    }
+    if (scenario.customAssertions && outcome) {
+      try {
+        await scenario.customAssertions(outcome);
+      } catch (error) {
+        return {
+          pass: false,
+          reason: `custom assertion failed: ${error instanceof Error ? error.message : String(error)}`,
         };
       }
     }

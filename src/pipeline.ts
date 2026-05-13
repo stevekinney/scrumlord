@@ -118,20 +118,48 @@ export type PipelineOptions = {
   repository?: string;
   /** Color mode for human-readable status output. Defaults to 'auto'. */
   colorMode?: ColorMode;
+  /**
+   * Skip the CLI reachability preflight check. Used by tests and the smoke
+   * harness that inject `spawnAgent` and have no real CLI to invoke. The
+   * `SCRUMLORD_PIPELINE_PREFLIGHT=off` env var has the same effect.
+   */
+  skipPreflight?: boolean;
 };
 
 export type SpawnAgentResult = {
   exitCode: number;
-  /** Non-empty when the agent emitted a `STUCK: …` line on stderr. */
+  /**
+   * Non-empty when the agent emitted a `^STUCK: …` line. stderr is matched
+   * from process start (legacy preserved). stdout is matched only after the
+   * agent emits `AGENT_OUTPUT_BEGIN`, so the pipeline does not trip on
+   * prompt-echo or instructions that contain the literal word.
+   */
   stuck: string | null;
   /** True when the parent killed the child due to idle or hard timeout. */
   killed: 'idle' | 'hard' | null;
+  /**
+   * Last ~50 lines of the merged stdout/stderr transcript. Useful for
+   * post-mortem and for extracting the `<promise>` tag the agent may emit
+   * when it considers itself done.
+   */
+  tail: string;
+  /** Contents of the most recent `<promise>...</promise>` tag in the tail, if any. */
+  promise: string | null;
 };
 
 export type SpawnAgent = (
   invocation: AgentInvocation,
   caps: { idleMs: number; maxMs: number },
-  controls: { stderr: (line: string) => void; signal: AbortSignal },
+  controls: {
+    stderr: (line: string) => void;
+    signal: AbortSignal;
+    /**
+     * Optional path to write the full merged stdout/stderr transcript to.
+     * Written incrementally so a long-running agent does not buffer in
+     * memory. Capped to ~5MB by ring-buffering the older content.
+     */
+    transcriptPath?: string;
+  },
 ) => Promise<SpawnAgentResult>;
 
 export type SignalRegistrar = (handler: (signal: NodeJS.Signals) => void) => () => void;
@@ -346,21 +374,133 @@ const formatDuration = (milliseconds: number): string => {
   return `${minutes}m${seconds.toString().padStart(2, '0')}s`;
 };
 
+/* ---------- Agent preflight ---------- */
+
+/**
+ * Cheap smoke test that the agent CLI is on PATH and able to round-trip a
+ * trivial prompt. Runs after `acquirePipelineLock` so two concurrent pipeline
+ * invocations do not race on this. Failure throws `agent_preflight_failed`
+ * before any task state is mutated; the lock is released by the caller's
+ * `try`/`finally` so a second invocation can immediately acquire it.
+ *
+ * Skipped when `SCRUMLORD_PIPELINE_PREFLIGHT=off`.
+ */
+export const verifyAgentReachable = async (
+  provider: AgentProvider,
+  options: {
+    /** Defaults to `Bun.spawn`. Injectable for tests. */
+    spawn?: typeof Bun.spawn;
+    /** Defaults to `Bun.env`. */
+    environment?: Record<string, string | undefined>;
+    /** Timeout in milliseconds for the smoke test. Default 10s. */
+    timeoutMs?: number;
+  } = {},
+): Promise<void> => {
+  const env = options.environment ?? Bun.env;
+  if (env['SCRUMLORD_PIPELINE_PREFLIGHT'] === 'off') return;
+  const spawn = options.spawn ?? Bun.spawn;
+  const timeoutMs = options.timeoutMs ?? 10_000;
+  const command =
+    provider === 'claude' ? ['claude', '-p', '--output-format', 'text'] : ['codex', 'exec', '-'];
+  let child;
+  try {
+    child = spawn(command, { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new ScrumlordError(
+      'agent_preflight_failed',
+      `Could not invoke ${provider} CLI (${command[0]}). ${message}`,
+    );
+  }
+  if (child.stdin) {
+    void child.stdin.write('reply OK');
+    void child.stdin.end();
+  }
+  const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs).unref();
+  const exitCode = await child.exited;
+  clearTimeout(timer);
+  if (exitCode !== 0) {
+    throw new ScrumlordError(
+      'agent_preflight_failed',
+      `${provider} CLI smoke test exited ${exitCode}. Confirm the CLI is installed, on PATH, and authenticated.`,
+    );
+  }
+};
+
 /* ---------- Agent spawn ---------- */
 
-const defaultSpawnAgent: SpawnAgent = async (invocation, caps, controls) => {
+/**
+ * Sentinel emitted by the agent on stdout before any agent-authored output.
+ * The pipeline ignores stdout STUCK matches before this appears so prompt
+ * echo cannot trip the protocol. stderr STUCK matching runs from process
+ * start regardless (preserves legacy behavior).
+ */
+export const AGENT_OUTPUT_BEGIN_SENTINEL = 'AGENT_OUTPUT_BEGIN';
+
+/** Maximum bytes retained in the on-disk transcript before older content is dropped. */
+const TRANSCRIPT_BYTE_CAP = 5 * 1024 * 1024;
+/** Number of trailing lines persisted to the `<task-id>.tail` file. */
+const TRANSCRIPT_TAIL_LINES = 50;
+const STUCK_REGEX = /^STUCK:\s+(.+)$/m;
+const PROMISE_REGEX = /<promise>([\s\S]*?)<\/promise>/;
+
+export const defaultSpawnAgent: SpawnAgent = async (invocation, caps, controls) => {
   const child = Bun.spawn(invocation.command, {
     cwd: invocation.cwd,
     env: { ...Bun.env, ...invocation.environment },
-    stdin: 'ignore',
+    stdin: invocation.stdin === undefined ? 'ignore' : 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
   });
+  if (invocation.stdin !== undefined && child.stdin) {
+    void child.stdin.write(invocation.stdin);
+    void child.stdin.end();
+  }
   let lastActivity = Date.now();
   let stuck: string | null = null;
   let killed: 'idle' | 'hard' | null = null;
   const start = Date.now();
   const decoder = new TextDecoder();
+
+  // Ring buffer of the last ~TRANSCRIPT_TAIL_LINES of merged output for the
+  // post-mortem tail file and `<promise>` extraction. We keep ~2x lines to
+  // give the regex enough context to find a promise that straddles a chunk.
+  const tailLines: string[] = [];
+  let tailCarry = '';
+  const appendToTail = (chunk: string): void => {
+    tailCarry += chunk;
+    const newlineIndex = tailCarry.lastIndexOf('\n');
+    if (newlineIndex < 0) return;
+    const complete = tailCarry.slice(0, newlineIndex).split('\n');
+    tailCarry = tailCarry.slice(newlineIndex + 1);
+    tailLines.push(...complete);
+    const excess = tailLines.length - TRANSCRIPT_TAIL_LINES * 2;
+    if (excess > 0) tailLines.splice(0, excess);
+  };
+
+  // Transcript file with a streaming size cap. When the cap is hit, the file
+  // is truncated and a marker line is written so the operator knows older
+  // bytes were dropped. The cap is enforced lazily on each write.
+  let transcriptBytes = 0;
+  const transcriptWriter = controls.transcriptPath
+    ? Bun.file(controls.transcriptPath).writer()
+    : null;
+  const appendToTranscript = (chunk: string): void => {
+    if (!transcriptWriter) return;
+    const buf = new TextEncoder().encode(chunk);
+    if (transcriptBytes + buf.byteLength > TRANSCRIPT_BYTE_CAP) {
+      void transcriptWriter.write(
+        new TextEncoder().encode(
+          `\n…transcript truncated at ${TRANSCRIPT_BYTE_CAP} bytes; older output dropped…\n`,
+        ),
+      );
+      void transcriptWriter.flush();
+      transcriptBytes = TRANSCRIPT_BYTE_CAP;
+      return;
+    }
+    void transcriptWriter.write(buf);
+    transcriptBytes += buf.byteLength;
+  };
 
   const checkTimeouts = setInterval(() => {
     const now = Date.now();
@@ -399,11 +539,31 @@ const defaultSpawnAgent: SpawnAgent = async (invocation, caps, controls) => {
   };
   controls.signal.addEventListener('abort', onAbort);
 
+  let stdoutSentinelSeen = false;
+  let stdoutPostSentinelBuffer = '';
   const drainStdout = (async () => {
+    let preSentinel = '';
     for await (const chunk of child.stdout) {
       lastActivity = Date.now();
       const text = decoder.decode(chunk, { stream: true });
       controls.stderr(text);
+      appendToTranscript(text);
+      appendToTail(text);
+      if (!stdoutSentinelSeen) {
+        preSentinel += text;
+        const index = preSentinel.indexOf(AGENT_OUTPUT_BEGIN_SENTINEL);
+        if (index >= 0) {
+          stdoutSentinelSeen = true;
+          stdoutPostSentinelBuffer = preSentinel.slice(index + AGENT_OUTPUT_BEGIN_SENTINEL.length);
+          preSentinel = '';
+        }
+      } else {
+        stdoutPostSentinelBuffer += text;
+      }
+      if (stdoutSentinelSeen && stuck === null) {
+        const match = STUCK_REGEX.exec(stdoutPostSentinelBuffer);
+        if (match) stuck = match[1]!.trim();
+      }
     }
   })();
   const drainStderr = (async () => {
@@ -412,9 +572,13 @@ const defaultSpawnAgent: SpawnAgent = async (invocation, caps, controls) => {
       lastActivity = Date.now();
       const text = decoder.decode(chunk, { stream: true });
       controls.stderr(text);
+      appendToTranscript(text);
+      appendToTail(text);
       buffer += text;
-      const match = /STUCK:\s*(.+)$/m.exec(buffer);
-      if (match) stuck = match[1]!.trim();
+      if (stuck === null) {
+        const match = STUCK_REGEX.exec(buffer);
+        if (match) stuck = match[1]!.trim();
+      }
     }
   })();
 
@@ -431,7 +595,18 @@ const defaultSpawnAgent: SpawnAgent = async (invocation, caps, controls) => {
   }
 
   const exitCode = await child.exited;
-  return { exitCode, stuck, killed };
+
+  // Flush any trailing carry into the tail buffer.
+  if (tailCarry.length > 0) {
+    tailLines.push(tailCarry);
+    tailCarry = '';
+  }
+  const tail = tailLines.slice(-TRANSCRIPT_TAIL_LINES).join('\n');
+  const promiseMatch = PROMISE_REGEX.exec(tail);
+  const promise = promiseMatch ? promiseMatch[1]!.trim() : null;
+  if (transcriptWriter) await transcriptWriter.end();
+
+  return { exitCode, stuck, killed, tail, promise };
 };
 
 /* ---------- Per-task driver ---------- */
@@ -595,13 +770,18 @@ export const runOneTask = async (
     taskId,
   );
   recordProgress(store, taskId, `spawning ${resolved.provider} agent in worktree`);
+  const transcriptDir = join(store.projectRoot, 'tmp', 'pipeline-runs', resolved.runId);
+  mkdirSync(transcriptDir, { recursive: true });
+  const transcriptPath = join(transcriptDir, `${taskId}.log`);
+  const tailPath = join(transcriptDir, `${taskId}.tail`);
   const abort = new AbortController();
   const agentStartedAt = resolved.now();
   const spawnResult = await resolved.spawnAgent(
     invocation,
     { idleMs: resolved.constants.AGENT_IDLE_MS, maxMs: resolved.constants.AGENT_MAX_MS },
-    { stderr: resolved.stderr, signal: abort.signal },
+    { stderr: resolved.stderr, signal: abort.signal, transcriptPath },
   );
+  writeFileSync(tailPath, spawnResult.tail);
   const agentElapsed = formatDuration(resolved.now() - agentStartedAt);
   if (spawnResult.killed === 'idle') {
     log(resolved, 'error', `agent idle-timeout after ${agentElapsed}`, taskId);
@@ -621,6 +801,7 @@ export const runOneTask = async (
       `agent exited ${spawnResult.exitCode} after ${agentElapsed} (${reason})`,
       taskId,
     );
+    log(resolved, 'muted', `agent transcript: ${transcriptPath}`, taskId);
     recordProgress(
       store,
       taskId,
@@ -629,6 +810,9 @@ export const runOneTask = async (
     return failed(taskId, branch, null, reason);
   }
   log(resolved, 'success', `agent finished after ${agentElapsed}`, taskId);
+  if (spawnResult.promise) {
+    log(resolved, 'info', `agent reports: ${spawnResult.promise}`, taskId);
+  }
   recordProgress(store, taskId, `agent finished cleanly after ${agentElapsed}`);
   recordPhase(store, taskId, 'agent-exited', resolved.runId, resolved.now);
 
@@ -644,6 +828,8 @@ const buildPipelineInvocation = (
   const body = pipelinePrompt(provider, taskId);
   if (provider === 'claude') {
     return {
+      // System prompt stays on argv (small, fixed); body goes to stdin so
+      // long prompts do not hit argv limits or leak into `ps` output.
       command: [
         'claude',
         '-p',
@@ -652,16 +838,21 @@ const buildPipelineInvocation = (
         branch,
         '--append-system-prompt',
         PIPELINE_SYSTEM_PROMPT,
-        body,
       ],
       cwd: worktree,
       environment: {},
+      stdin: body,
     };
   }
+  // `codex exec` reads stdin when the positional prompt is omitted or is `-`.
+  // We concatenate the system prompt and body into a single stdin payload so
+  // codex sees one coherent prompt; the leading system-prompt block is small
+  // and behaves like a preamble.
   return {
-    command: ['codex', '--cd', worktree, `${PIPELINE_SYSTEM_PROMPT}\n\n${body}`],
+    command: ['codex', 'exec', '--cd', worktree],
     cwd: worktree,
     environment: {},
+    stdin: `${PIPELINE_SYSTEM_PROMPT}\n\n${body}`,
   };
 };
 
@@ -675,15 +866,17 @@ const buildAddressPrInvocation = (
   const body = addressPrPrompt(taskId, pullRequestNumber);
   if (provider === 'claude') {
     return {
-      command: ['claude', '-p', '--dangerously-skip-permissions', '--worktree', branch, body],
+      command: ['claude', '-p', '--dangerously-skip-permissions', '--worktree', branch],
       cwd: worktree,
       environment: {},
+      stdin: body,
     };
   }
   return {
-    command: ['codex', '--cd', worktree, body],
+    command: ['codex', 'exec', '--cd', worktree],
     cwd: worktree,
     environment: {},
+    stdin: body,
   };
 };
 
@@ -859,12 +1052,18 @@ const pollPrUntilMerged = async (
         worktree,
         branch,
       );
+      const addressTranscriptDir = join(store.projectRoot, 'tmp', 'pipeline-runs', resolved.runId);
+      mkdirSync(addressTranscriptDir, { recursive: true });
+      const addressTranscriptPath = join(
+        addressTranscriptDir,
+        `${taskId}.address-pr.${pullRequest.number}.log`,
+      );
       const abort = new AbortController();
       const addressStartedAt = resolved.now();
       const spawn = await resolved.spawnAgent(
         invocation,
         { idleMs: resolved.constants.AGENT_IDLE_MS, maxMs: resolved.constants.AGENT_MAX_MS },
-        { stderr: resolved.stderr, signal: abort.signal },
+        { stderr: resolved.stderr, signal: abort.signal, transcriptPath: addressTranscriptPath },
       );
       const addressElapsed = formatDuration(resolved.now() - addressStartedAt);
       if (spawn.killed === 'idle') {
@@ -1291,6 +1490,14 @@ export const runPipeline = async (
   });
   log(resolved, 'success', `pipeline lock acquired`);
   try {
+    // CLI preflight runs once per pipeline invocation, after the lock so a
+    // missing binary on one host does not race with a healthy run on
+    // another. Lock release happens in this `try`'s `finally`.
+    if (!resolved.dryRun && !options.skipPreflight) {
+      log(resolved, 'muted', `preflight: verifying ${resolved.provider} CLI is reachable`);
+      await verifyAgentReachable(resolved.provider);
+      log(resolved, 'success', `preflight: ${resolved.provider} CLI is reachable`);
+    }
     if (options.mode === 'recover' || options.mode === 'recover-then-run') {
       log(
         resolved,

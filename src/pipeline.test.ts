@@ -124,7 +124,7 @@ const recordingSpawnAgent = (
     invocations.push(invocation);
     const exitCode = results[call] ?? 0;
     call += 1;
-    return { exitCode, stuck: null, killed: null };
+    return { exitCode, stuck: null, killed: null, tail: '', promise: null };
   };
   return { spawn, invocations };
 };
@@ -232,6 +232,7 @@ describe('runPipeline drain mode (mocked)', () => {
     try {
       const summary = await runPipeline(store, {
         provider: 'claude',
+        skipPreflight: true,
         mode: 'drain',
         quiet: true,
         runner: mockGitHubRunner('happy'),
@@ -258,6 +259,7 @@ describe('runPipeline drain mode (mocked)', () => {
       const { spawn } = recordingSpawnAgent([1]);
       const summary = await runPipeline(store, {
         provider: 'claude',
+        skipPreflight: true,
         mode: 'drain',
         quiet: true,
         runner: mockGitHubRunner('happy'),
@@ -284,10 +286,17 @@ describe('runPipeline drain mode (mocked)', () => {
       store.create({ id: 'a', title: 'A' });
       const summary = await runPipeline(store, {
         provider: 'claude',
+        skipPreflight: true,
         mode: 'drain',
         quiet: true,
         runner: mockGitHubRunner('happy'),
-        spawnAgent: async () => ({ exitCode: 0, stuck: null, killed: 'idle' }),
+        spawnAgent: async () => ({
+          exitCode: 0,
+          stuck: null,
+          killed: 'idle',
+          tail: '',
+          promise: null,
+        }),
         sleep: async () => {},
         runId: 'r1',
         repository: 'owner/repo',
@@ -306,10 +315,17 @@ describe('runPipeline drain mode (mocked)', () => {
       store.create({ id: 'a', title: 'A' });
       const summary = await runPipeline(store, {
         provider: 'claude',
+        skipPreflight: true,
         mode: 'drain',
         quiet: true,
         runner: mockGitHubRunner('happy'),
-        spawnAgent: async () => ({ exitCode: 2, stuck: 'tests failed', killed: null }),
+        spawnAgent: async () => ({
+          exitCode: 2,
+          stuck: 'tests failed',
+          killed: null,
+          tail: '',
+          promise: null,
+        }),
         sleep: async () => {},
         runId: 'r1',
         repository: 'owner/repo',
@@ -339,6 +355,7 @@ describe('runPipeline drain mode (mocked)', () => {
       try {
         await runPipeline(store, {
           provider: 'claude',
+          skipPreflight: true,
           mode: 'drain',
           quiet: true,
           runner: mockGitHubRunner('happy'),
@@ -368,6 +385,7 @@ describe('runPipeline dry-run mode', () => {
       let spawnCalled = false;
       const summary = await runPipeline(store, {
         provider: 'claude',
+        skipPreflight: true,
         mode: 'drain',
         max: 2,
         dryRun: true,
@@ -375,7 +393,7 @@ describe('runPipeline dry-run mode', () => {
         runner: mockGitHubRunner('happy'),
         spawnAgent: async () => {
           spawnCalled = true;
-          return { exitCode: 0, stuck: null, killed: null };
+          return { exitCode: 0, stuck: null, killed: null, tail: '', promise: null };
         },
         sleep: async () => {},
         runId: 'r1',
@@ -406,6 +424,7 @@ describe('runPipeline recover mode (annotate-only)', () => {
       store.update(task.id, { status: 'in-progress' });
       const summary = await runPipeline(store, {
         provider: 'claude',
+        skipPreflight: true,
         mode: 'recover',
         quiet: true,
         runner: mockGitHubRunner('happy'),
@@ -433,6 +452,7 @@ describe('runPipeline recover mode (annotate-only)', () => {
       store.update(task.id, { status: 'in-progress' });
       const summary = await runPipeline(store, {
         provider: 'claude',
+        skipPreflight: true,
         mode: 'recover',
         apply: true,
         quiet: true,
