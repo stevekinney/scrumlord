@@ -33,7 +33,12 @@ import {
   reviewStateFromGitHub,
   type BotReview,
 } from './pipeline-bot-reviews.js';
-import { PIPELINE_SYSTEM_PROMPT, addressPrPrompt, pipelinePrompt } from './pipeline-prompts.js';
+import {
+  PIPELINE_SYSTEM_PROMPT,
+  addressPrPrompt,
+  pipelinePrompt,
+  planOnlyPrompt,
+} from './pipeline-prompts.js';
 import type { AgentProvider, Task, TaskStore } from './types.js';
 import { deriveBranchAndShortId, repoCommonDir, resolveBaseBranch } from './worktree.js';
 
@@ -850,6 +855,43 @@ export const runOneTask = async (
     `claimed by pipeline run ${resolved.shortRunId} (branch ${branch}, ${resolved.provider})`,
   );
 
+  // Plan-path surface (#3). Always logs what the agent will see, so the
+  // operator can find the plan file (or see that the agent will draft
+  // one). When SCRUMLORD_PIPELINE_PHASES=split is set, this also runs a
+  // separate plan-only `claude -p` invocation before the implementation
+  // pass so plan drafting is its own visible phase.
+  const taskAfterClaim = store.getTask(taskId);
+  const planPath = taskAfterClaim?.plan ?? null;
+  if (planPath) {
+    log(resolved, 'success', `plan: ${planPath}`, taskId);
+  } else {
+    log(resolved, 'muted', 'plan: none — agent will draft', taskId);
+  }
+  if (Bun.env['SCRUMLORD_PIPELINE_PHASES'] === 'split' && !planPath) {
+    log(resolved, 'step', 'phase: plan-only agent run', taskId);
+    const planInvocation = buildPlanOnlyInvocation(resolved.provider, taskId, branch, worktree);
+    const planAbort = new AbortController();
+    const planResult = await resolved.spawnAgent(
+      planInvocation,
+      {
+        idleMs: resolved.constants.AGENT_IDLE_MS,
+        maxMs: resolved.constants.AGENT_MAX_MS,
+      },
+      { stderr: resolved.stderr, signal: planAbort.signal },
+    );
+    if (planResult.exitCode !== 0) {
+      log(resolved, 'error', `plan-only agent exited ${planResult.exitCode}`, taskId);
+      return failed(taskId, branch, null, 'plan_phase_failed');
+    }
+    const refreshed = store.getTask(taskId);
+    log(
+      resolved,
+      'success',
+      refreshed?.plan ? `plan-only phase complete: ${refreshed.plan}` : 'plan-only phase complete',
+      taskId,
+    );
+  }
+
   const invocation = buildPipelineInvocation(resolved.provider, taskId, branch, worktree);
   log(
     resolved,
@@ -1136,6 +1178,35 @@ const buildPipelineInvocation = (
     cwd: worktree,
     environment: {},
     stdin: `${PIPELINE_SYSTEM_PROMPT}\n\n${body}`,
+  };
+};
+
+/**
+ * Builds the plan-only agent invocation used by the W-E phase split. Same
+ * shape as the main invocation but with the plan-only prompt and without
+ * the full pipeline system prompt — the plan-mode agent has a single
+ * narrow contract and we don't want the merge instructions leaking in.
+ */
+const buildPlanOnlyInvocation = (
+  provider: AgentProvider,
+  taskId: string,
+  branch: string,
+  worktree: string,
+): AgentInvocation => {
+  const body = planOnlyPrompt(taskId);
+  if (provider === 'claude') {
+    return {
+      command: ['claude', '-p', '--dangerously-skip-permissions', '--worktree', branch],
+      cwd: worktree,
+      environment: {},
+      stdin: body,
+    };
+  }
+  return {
+    command: ['codex', 'exec', '--cd', worktree],
+    cwd: worktree,
+    environment: {},
+    stdin: body,
   };
 };
 

@@ -930,6 +930,75 @@ const scenarios: readonly Scenario[] = [
     },
   },
   {
+    name: 'phase-split',
+    introducedInWorkstream: 'E',
+    assertsBehaviorFrom: 'E',
+    description:
+      'with PHASES=split and no existing plan, the pipeline runs a plan-only agent first (#3, #18)',
+    expectedExitCode: 0,
+    expectedStderrSubstrings: [
+      'plan: none — agent will draft',
+      'phase: plan-only agent run',
+      'plan-only phase complete',
+    ],
+    run: async ({ store, appendStderr }) => {
+      seedReadyTask(store, 'phase-split task');
+      const currentBranch = (): string => {
+        const branched = store.list().find((task) => task.branch);
+        return branched?.branch ?? 'feature/main';
+      };
+      const capture = captureInvocationSpawnAgent();
+      process.env['SCRUMLORD_PIPELINE_PHASES'] = 'split';
+      try {
+        const summary = await runPipeline(store, {
+          provider: 'claude',
+          mode: 'drain',
+          skipPreflight: true,
+          runner: mockRunner({ mode: 'happy', currentBranch, prState: 'merged' }),
+          spawnAgent: capture.spawn,
+          stderr: appendStderr,
+          now: () => Date.parse('2026-05-13T15:00:00Z'),
+          runId: 'smoke-phase',
+          repository: 'owner/repo',
+          hostname: 'smoke-host',
+          colorMode: 'off',
+          max: 1,
+          constants: {
+            CHECK_POLL_INTERVAL_MS: 1,
+            CHECK_POLL_MAX_ATTEMPTS: 1,
+            REVIEW_BOT_WAIT_MS: 1,
+            REVIEW_BOT_MAX_ATTEMPTS: 1,
+            ADDRESS_PR_MAX_ROUNDS: 1,
+            AGENT_IDLE_MS: 60_001,
+            AGENT_MAX_MS: 60_001,
+            LOCK_STALE_MS: 60_001,
+          },
+        });
+        return { summary, invocations: capture.invocations };
+      } finally {
+        delete process.env['SCRUMLORD_PIPELINE_PHASES'];
+      }
+    },
+    customAssertions: ({ invocations }) => {
+      assert(invocations !== undefined, 'invocations not captured');
+      assert(
+        invocations.length === 2,
+        `expected 2 agent invocations (plan, implement), got ${invocations.length}`,
+      );
+      // First invocation is the plan-only phase; its stdin should mention the
+      // plan-only contract and NOT the merge contract.
+      const planStdin = invocations[0]!.stdin ?? '';
+      assert(
+        planStdin.includes('plan-only phase'),
+        `plan-phase invocation stdin missing the plan-only marker: ${planStdin}`,
+      );
+      assert(
+        !planStdin.includes('drive it through merge'),
+        'plan-phase invocation must not include the merge contract',
+      );
+    },
+  },
+  {
     name: 'promise-tag',
     introducedInWorkstream: 'B-1',
     assertsBehaviorFrom: 'B-1',

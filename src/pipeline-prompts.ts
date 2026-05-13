@@ -45,6 +45,27 @@ export const pipelinePrompt = (provider: AgentProvider, taskId: string): string 
 };
 
 /**
+ * Builds the plan-only prompt used by the W-E phase split. The agent's
+ * single contract is: write a plan to `tmp/tasks/<task-id>/PLAN.md`, run
+ * `tasks set-plan <task-id> <path>`, then exit. No implementation, no
+ * PR, no merge. Used when `SCRUMLORD_PIPELINE_PHASES=split` and the
+ * task has no plan yet.
+ */
+export const planOnlyPrompt = (taskId: string): string => {
+  return [
+    `You are running the plan-only phase for Scrumlord task \`${taskId}\`.`,
+    'Your single contract:',
+    '',
+    `1. Write a concrete implementation plan to \`tmp/tasks/${taskId}/PLAN.md\`. Include: files to touch, the change in each, the verification approach, and any risks.`,
+    `2. Run \`tasks set-plan ${taskId} tmp/tasks/${taskId}/PLAN.md\` so the pipeline records the plan path.`,
+    '3. Exit cleanly.',
+    '',
+    'Do NOT implement the task. Do NOT open a pull request. Do NOT merge anything.',
+    'If you cannot draft a plan, exit non-zero with `STUCK: <reason>` on stderr.',
+  ].join('\n');
+};
+
+/**
  * Builds the prompt used when the pipeline dispatches an additional agent round
  * specifically to address open review threads or failing CI on a known PR.
  */
