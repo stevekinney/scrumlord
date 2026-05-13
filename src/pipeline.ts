@@ -410,16 +410,15 @@ export const verifyAgentReachable = async (
     spawn?: typeof Bun.spawn;
     /** Defaults to `Bun.env`. */
     environment?: Record<string, string | undefined>;
-    /** Timeout in milliseconds for the smoke test. Default 10s. */
+    /** Timeout in milliseconds for the smoke test. Default 30s. */
     timeoutMs?: number;
   } = {},
 ): Promise<void> => {
   const env = options.environment ?? Bun.env;
   if (env['SCRUMLORD_PIPELINE_PREFLIGHT'] === 'off') return;
   const spawn = options.spawn ?? Bun.spawn;
-  const timeoutMs = options.timeoutMs ?? 10_000;
-  const command =
-    provider === 'claude' ? ['claude', '-p', '--output-format', 'text'] : ['codex', 'exec', '-'];
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const command = provider === 'claude' ? ['claude', '-p'] : ['codex', 'exec', '-'];
   let child;
   try {
     child = spawn(command, { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
