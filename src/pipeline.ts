@@ -4,6 +4,7 @@ import { hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getAgentProvider, type AgentInvocation } from './agent-providers.js';
 import { prepareTaskWorktree } from './cli-agent-commands.js';
+import { createTheme, type ColorMode, type Theme } from './color.js';
 import { runCommand, type CommandRunner } from './command-runner.js';
 import { ScrumlordError } from './errors.js';
 import { pullRequestStatus, pullRequestsForBranch, repositoryName } from './github.js';
@@ -115,6 +116,8 @@ export type PipelineOptions = {
   hostname?: string;
   /** Pre-resolved repository name (testing). */
   repository?: string;
+  /** Color mode for human-readable status output. Defaults to 'auto'. */
+  colorMode?: ColorMode;
 };
 
 export type SpawnAgentResult = {
@@ -265,13 +268,61 @@ const defaultStderr = (line: string): void => {
   process.stderr.write(`${line}\n`);
 };
 
-const emit = (
-  options: Required<Pick<PipelineOptions, 'quiet'>> & { stderr: (line: string) => void },
-  category: 'progress' | 'warning' | 'error',
-  line: string,
-): void => {
-  if (category === 'progress' && options.quiet) return;
-  options.stderr(line);
+type LogContext = {
+  stderr: (line: string) => void;
+  quiet: boolean;
+  theme: Theme;
+  shortRunId: string;
+  now: () => number;
+};
+
+type LogLevel = 'step' | 'info' | 'success' | 'warning' | 'error' | 'muted';
+
+const levelGlyph: Record<LogLevel, string> = {
+  step: '▶',
+  info: '·',
+  success: '✓',
+  warning: '⚠',
+  error: '✗',
+  muted: '…',
+};
+
+const formatTimestamp = (now: () => number): string => {
+  const date = new Date(now());
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+};
+
+const colorForLevel = (theme: Theme, level: LogLevel): ((value: string) => string) => {
+  if (level === 'success') return theme.success;
+  if (level === 'warning') return theme.warning;
+  if (level === 'error') return theme.error;
+  if (level === 'step') return theme.heading;
+  if (level === 'muted') return theme.muted;
+  return theme.command;
+};
+
+const log = (ctx: LogContext, level: LogLevel, message: string, taskId?: string): void => {
+  if (
+    ctx.quiet &&
+    (level === 'info' || level === 'muted' || level === 'step' || level === 'success')
+  )
+    return;
+  const stamp = ctx.theme.muted(`[${formatTimestamp(ctx.now)} ${ctx.shortRunId}]`);
+  const colorize = colorForLevel(ctx.theme, level);
+  const glyph = colorize(levelGlyph[level]);
+  const taskTag = taskId ? ` ${ctx.theme.argument(taskId.slice(0, 8))}` : '';
+  ctx.stderr(`${stamp} ${glyph}${taskTag} ${message}`);
+};
+
+const formatDuration = (milliseconds: number): string => {
+  const totalSeconds = Math.round(milliseconds / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}m${seconds.toString().padStart(2, '0')}s`;
 };
 
 /* ---------- Agent spawn ---------- */
@@ -356,8 +407,10 @@ type ResolvedOptions = {
   dryRun: boolean;
   constants: PipelineConstants;
   runId: string;
+  shortRunId: string;
   hostname: string;
   repository: string | null;
+  theme: Theme;
 };
 
 const recordPhase = (
@@ -470,29 +523,47 @@ export const runOneTask = async (
   });
   recordPhase(store, taskId, 'branch-set', resolved.runId, resolved.now);
 
-  emit(
+  log(
     resolved,
-    'progress',
-    `▶ ${taskId}: branch ${branch}, worktree ${worktree}, ${resolved.provider}`,
+    'step',
+    `claimed task on branch ${resolved.theme.command(branch)}, worktree ${resolved.theme.muted(worktree)}, provider ${resolved.theme.option(resolved.provider)}`,
+    taskId,
   );
 
   const invocation = buildPipelineInvocation(resolved.provider, taskId, branch, worktree);
+  log(
+    resolved,
+    'info',
+    `spawning ${resolved.theme.option(resolved.provider)} agent (idle cap ${formatDuration(resolved.constants.AGENT_IDLE_MS)}, hard cap ${formatDuration(resolved.constants.AGENT_MAX_MS)})`,
+    taskId,
+  );
   const abort = new AbortController();
+  const agentStartedAt = resolved.now();
   const spawnResult = await resolved.spawnAgent(
     invocation,
     { idleMs: resolved.constants.AGENT_IDLE_MS, maxMs: resolved.constants.AGENT_MAX_MS },
     { stderr: resolved.stderr, signal: abort.signal },
   );
-  if (spawnResult.killed === 'idle') return failed(taskId, branch, null, 'agent_idle');
-  if (spawnResult.killed === 'hard') return failed(taskId, branch, null, 'agent_timeout');
-  if (spawnResult.exitCode !== 0) {
-    return failed(
-      taskId,
-      branch,
-      null,
-      spawnResult.stuck ? `stuck:${spawnResult.stuck}` : 'agent_failed',
-    );
+  const agentElapsed = formatDuration(resolved.now() - agentStartedAt);
+  if (spawnResult.killed === 'idle') {
+    log(resolved, 'error', `agent idle-timeout after ${agentElapsed}`, taskId);
+    return failed(taskId, branch, null, 'agent_idle');
   }
+  if (spawnResult.killed === 'hard') {
+    log(resolved, 'error', `agent hard-timeout after ${agentElapsed}`, taskId);
+    return failed(taskId, branch, null, 'agent_timeout');
+  }
+  if (spawnResult.exitCode !== 0) {
+    const reason = spawnResult.stuck ? `stuck:${spawnResult.stuck}` : 'agent_failed';
+    log(
+      resolved,
+      'error',
+      `agent exited ${spawnResult.exitCode} after ${agentElapsed} (${reason})`,
+      taskId,
+    );
+    return failed(taskId, branch, null, reason);
+  }
+  log(resolved, 'success', `agent finished after ${agentElapsed}`, taskId);
   recordPhase(store, taskId, 'agent-exited', resolved.runId, resolved.now);
 
   return await pollPrUntilMerged(store, taskId, branch, resolved);
@@ -558,7 +629,15 @@ const pollPrUntilMerged = async (
   resolved: ResolvedOptions,
 ): Promise<RunOneTaskResult> => {
   let prRecorded = false;
-  for (let round = 1; round <= resolved.constants.ADDRESS_PR_MAX_ROUNDS; round++) {
+  const totalRounds = resolved.constants.ADDRESS_PR_MAX_ROUNDS;
+  log(resolved, 'info', `entering PR polling loop (max ${totalRounds} rounds)`, taskId);
+  for (let round = 1; round <= totalRounds; round++) {
+    log(
+      resolved,
+      'muted',
+      `poll round ${round}/${totalRounds}: looking up PR for branch ${resolved.theme.command(branch)}`,
+      taskId,
+    );
     const task = store.getTask(taskId);
     if (!task) return failed(taskId, branch, null, 'task_disappeared');
     let prResult = await pullRequestForTask(
@@ -567,10 +646,21 @@ const pollPrUntilMerged = async (
       resolved.runner,
       resolved.repository,
     );
-    if (prResult.kind === 'unavailable')
+    if (prResult.kind === 'unavailable') {
+      log(resolved, 'error', `PR lookup unavailable: ${prResult.reason}`, taskId);
       return failed(taskId, branch, null, `pr_lookup_unavailable:${prResult.reason}`);
-    if (prResult.kind === 'multiple') return failed(taskId, branch, null, 'multiple_prs');
+    }
+    if (prResult.kind === 'multiple') {
+      log(resolved, 'error', `multiple PRs match branch ${branch}`, taskId);
+      return failed(taskId, branch, null, 'multiple_prs');
+    }
     if (prResult.kind === 'none') {
+      log(
+        resolved,
+        'muted',
+        `no PR yet; sleeping ${formatDuration(resolved.constants.CHECK_POLL_INTERVAL_MS)} before rechecking`,
+        taskId,
+      );
       await resolved.sleep(resolved.constants.CHECK_POLL_INTERVAL_MS);
       prResult = await pullRequestForTask(
         store.projectRoot,
@@ -578,21 +668,37 @@ const pollPrUntilMerged = async (
         resolved.runner,
         resolved.repository,
       );
-      if (prResult.kind !== 'found') return failed(taskId, branch, null, 'pr_never_opened');
+      if (prResult.kind !== 'found') {
+        log(resolved, 'error', 'agent finished but no PR was opened', taskId);
+        return failed(taskId, branch, null, 'pr_never_opened');
+      }
     }
     if (prResult.kind !== 'found') return failed(taskId, branch, null, 'pr_never_opened');
     const pullRequest = prResult.pullRequest;
     if (!prRecorded) {
       recordPhase(store, taskId, 'pr-created', resolved.runId, resolved.now);
+      log(
+        resolved,
+        'success',
+        `PR #${pullRequest.number} found: ${resolved.theme.muted(pullRequest.url)}`,
+        taskId,
+      );
       prRecorded = true;
     }
 
     // Already-merged success branch — checked first.
     if (pullRequest.state === 'MERGED') {
+      log(
+        resolved,
+        'success',
+        `PR #${pullRequest.number} already merged; syncing task state`,
+        taskId,
+      );
       await syncAndRefresh(store, taskId, resolved);
       const refreshed = store.getTask(taskId);
       if (refreshed?.status === 'completed') {
         recordPhase(store, taskId, 'merge', resolved.runId, resolved.now);
+        log(resolved, 'success', `task completed (PR #${pullRequest.number} merged)`, taskId);
         return shipped(taskId, branch, pullRequest.number, 'merged');
       }
     }
@@ -605,11 +711,21 @@ const pollPrUntilMerged = async (
       });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
+      log(resolved, 'error', `status lookup failed: ${reason}`, taskId);
       return failed(taskId, branch, pullRequest.number, `status_lookup_unavailable:${reason}`);
     }
+    const checksLine = `CI ${status.continuousIntegration.allGreen ? '✓ all green' : `${status.continuousIntegration.failedCount}✗ ${status.continuousIntegration.pendingCount}…`}`;
+    const reviewLine = `${status.reviewComments.unresolvedCount} unresolved review comments`;
+    log(
+      resolved,
+      'info',
+      `PR #${pullRequest.number} state=${status.pullRequest.state}, readyToMerge=${status.readyToMerge}, ${checksLine}, ${reviewLine}`,
+      taskId,
+    );
 
     if (status.readyToMerge) {
       if (status.pullRequest.state !== 'MERGED') {
+        log(resolved, 'step', `merging PR #${pullRequest.number}`, taskId);
         const merge = await mergeIfNeeded(
           store.projectRoot,
           {
@@ -621,27 +737,36 @@ const pollPrUntilMerged = async (
           },
           resolved.runner,
         );
-        if (!merge.merged)
+        if (!merge.merged) {
+          log(resolved, 'error', `merge failed: ${merge.reason ?? 'unknown'}`, taskId);
           return failed(
             taskId,
             branch,
             pullRequest.number,
             `merge_failed:${merge.reason ?? 'unknown'}`,
           );
+        }
+        log(resolved, 'success', `PR #${pullRequest.number} merged`, taskId);
       }
       await syncAndRefresh(store, taskId, resolved);
       const refreshed = store.getTask(taskId);
       if (refreshed?.status === 'completed') {
         recordPhase(store, taskId, 'merge', resolved.runId, resolved.now);
+        log(resolved, 'success', `task shipped`, taskId);
         return shipped(taskId, branch, pullRequest.number, 'merged');
       }
-      // sync didn't complete the task — surface as stuck rather than spinning.
+      log(resolved, 'error', 'PR merged but task did not transition to completed', taskId);
       return failed(taskId, branch, pullRequest.number, 'merged_but_not_completed');
     }
 
     if (status.continuousIntegration.failedCount > 0 || status.reviewComments.unresolvedCount > 0) {
       recordPhase(store, taskId, 'address-pr', resolved.runId, resolved.now);
-      // Get the worktree path again. Claude managed its own; Codex has the path in store.
+      log(
+        resolved,
+        'step',
+        `dispatching /address-pr ${pullRequest.number} (${status.continuousIntegration.failedCount} failing checks, ${status.reviewComments.unresolvedCount} unresolved comments)`,
+        taskId,
+      );
       const worktree = await worktreeForTask(store.projectRoot, branch, resolved.runner);
       const invocation = buildAddressPrInvocation(
         resolved.provider,
@@ -651,29 +776,45 @@ const pollPrUntilMerged = async (
         branch,
       );
       const abort = new AbortController();
+      const addressStartedAt = resolved.now();
       const spawn = await resolved.spawnAgent(
         invocation,
         { idleMs: resolved.constants.AGENT_IDLE_MS, maxMs: resolved.constants.AGENT_MAX_MS },
         { stderr: resolved.stderr, signal: abort.signal },
       );
-      if (spawn.killed === 'idle') return failed(taskId, branch, pullRequest.number, 'agent_idle');
-      if (spawn.killed === 'hard')
-        return failed(taskId, branch, pullRequest.number, 'agent_timeout');
-      if (spawn.exitCode !== 0) {
-        return failed(
-          taskId,
-          branch,
-          pullRequest.number,
-          spawn.stuck ? `stuck:${spawn.stuck}` : 'address_pr_failed',
-        );
+      const addressElapsed = formatDuration(resolved.now() - addressStartedAt);
+      if (spawn.killed === 'idle') {
+        log(resolved, 'error', `address-pr agent idle-timeout after ${addressElapsed}`, taskId);
+        return failed(taskId, branch, pullRequest.number, 'agent_idle');
       }
+      if (spawn.killed === 'hard') {
+        log(resolved, 'error', `address-pr agent hard-timeout after ${addressElapsed}`, taskId);
+        return failed(taskId, branch, pullRequest.number, 'agent_timeout');
+      }
+      if (spawn.exitCode !== 0) {
+        const reason = spawn.stuck ? `stuck:${spawn.stuck}` : 'address_pr_failed';
+        log(
+          resolved,
+          'error',
+          `address-pr exited ${spawn.exitCode} after ${addressElapsed} (${reason})`,
+          taskId,
+        );
+        return failed(taskId, branch, pullRequest.number, reason);
+      }
+      log(resolved, 'success', `address-pr finished after ${addressElapsed}`, taskId);
       await syncAndRefresh(store, taskId, resolved);
       continue;
     }
 
-    // No actionable signal: wait for pending CI / bots, then loop.
+    log(
+      resolved,
+      'muted',
+      `no actionable signal; sleeping ${formatDuration(resolved.constants.CHECK_POLL_INTERVAL_MS)} before next poll`,
+      taskId,
+    );
     await resolved.sleep(resolved.constants.CHECK_POLL_INTERVAL_MS);
   }
+  log(resolved, 'error', `address-pr cap (${totalRounds}) reached without merging`, taskId);
   return failed(taskId, branch, null, 'address_pr_cap_reached');
 };
 
@@ -697,12 +838,13 @@ const syncAndRefresh = async (
   taskId: string,
   resolved: ResolvedOptions,
 ): Promise<void> => {
+  log(resolved, 'muted', 'syncing GitHub state into local task store', taskId);
   const { syncGitStatus } = await import('./git-status.js');
   try {
     await syncGitStatus(store, { runner: resolved.runner });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    emit(resolved, 'warning', `⚠ sync_git_status_failed for ${taskId}: ${reason}`);
+    log(resolved, 'warning', `sync_git_status_failed: ${reason}`, taskId);
   }
 };
 
@@ -874,8 +1016,10 @@ export const runRecoverySweep = async (
   const stranded = store
     .list({ includeInactive: false })
     .filter((task) => task.status === 'in-progress' || task.status === 'in-review');
+  log(resolved, 'info', `${stranded.length} stranded task(s) to classify`);
   const outcomes: RecoveryOutcome[] = [];
   for (const task of stranded) {
+    log(resolved, 'muted', `gathering recovery inputs for ${task.title}`, task.id);
     const recoveryInputs = await gatherRecoveryInputs(
       store,
       task,
@@ -886,9 +1030,16 @@ export const runRecoverySweep = async (
     const verdict = classifyTaskForRecovery(recoveryInputs);
     const applied = apply && (verdict.kind === 'rollback-safe' || verdict.kind === 'complete-safe');
     if (applied) {
+      log(resolved, 'step', `verdict ${annotationFor(verdict)} (applying mutation)`, task.id);
       dispatchRecoveryMutation(store, task, verdict, resolved);
     } else {
       const note = annotationFor(verdict);
+      log(
+        resolved,
+        verdict.kind === 'manual' ? 'warning' : 'info',
+        `verdict ${note}${apply ? '' : ' (annotate-only)'}`,
+        task.id,
+      );
       store.addProgress(task.id, { message: `pipeline:recovery=${note}` });
     }
     outcomes.push({ taskId: task.id, verdict, applied });
@@ -937,6 +1088,8 @@ const resolveOptions = async (
       repository = null;
     }
   }
+  const runId = options.runId ?? generateRunId();
+  const colorMode: ColorMode = options.colorMode ?? 'auto';
   return {
     provider: options.provider,
     runner,
@@ -947,9 +1100,11 @@ const resolveOptions = async (
     quiet: options.quiet ?? false,
     dryRun: options.dryRun ?? false,
     constants,
-    runId: options.runId ?? generateRunId(),
+    runId,
+    shortRunId: runId.slice(0, 8),
     hostname: options.hostname ?? hostname(),
     repository,
+    theme: createTheme(colorMode),
   };
 };
 
@@ -981,14 +1136,24 @@ export const runPipeline = async (
 ): Promise<PipelineSummary> => {
   const resolved = await resolveOptions(options, store.projectRoot);
   const startedAt = new Date(resolved.now()).toISOString();
+  const wallStart = resolved.now();
   const shippedOutcomes: TaskOutcome[] = [];
   const skippedOutcomes: TaskOutcome[] = [];
   const failedOutcomes: TaskOutcome[] = [];
   let recovery: RecoveryOutcome[] | null = null;
 
+  logBanner(resolved, options);
+
   if (resolved.dryRun) {
+    log(resolved, 'step', 'dry-run: previewing claim order without writes');
     const candidates = store.listClaimCandidates(options.max ?? 50);
+    log(resolved, 'info', `would claim ${candidates.length} task(s)`);
     for (const task of candidates) {
+      log(
+        resolved,
+        'muted',
+        `→ would claim ${resolved.theme.argument(task.id.slice(0, 8))} (priority ${task.priority}, ${task.title})`,
+      );
       skippedOutcomes.push({
         taskId: task.id,
         branch: task.branch,
@@ -996,7 +1161,7 @@ export const runPipeline = async (
         reason: 'dry_run_would_claim',
       });
     }
-    return finalizeSummary(
+    const summary = finalizeSummary(
       resolved,
       startedAt,
       0,
@@ -1005,20 +1170,30 @@ export const runPipeline = async (
       failedOutcomes,
       null,
     );
+    logSummary(resolved, summary, resolved.now() - wallStart);
+    return summary;
   }
 
+  log(resolved, 'muted', `acquiring pipeline lock`);
   const release = acquirePipelineLock(store.projectRoot, resolved.runId, {
     now: resolved.now,
     staleMs: resolved.constants.LOCK_STALE_MS,
     hostname: resolved.hostname,
   });
+  log(resolved, 'success', `pipeline lock acquired`);
   try {
     if (options.mode === 'recover' || options.mode === 'recover-then-run') {
+      log(
+        resolved,
+        'step',
+        `running recovery sweep (${options.apply === true ? 'apply' : 'annotate-only'})`,
+      );
       recovery = await runRecoverySweep(store, resolved, options.apply === true);
+      log(resolved, 'info', `recovery sweep produced ${recovery.length} verdict(s)`);
       if (options.mode === 'recover') {
         const manualPresent = recovery.some((outcome) => outcome.verdict.kind === 'manual');
         const exit: PipelineExitCode = manualPresent ? 4 : 0;
-        return finalizeSummary(
+        const summary = finalizeSummary(
           resolved,
           startedAt,
           exit,
@@ -1027,12 +1202,14 @@ export const runPipeline = async (
           failedOutcomes,
           recovery,
         );
+        logSummary(resolved, summary, resolved.now() - wallStart);
+        return summary;
       }
       // recover-then-run: refuse to drain while resumable verdicts exist.
       const resumablePresent = recovery.some((outcome) => outcome.verdict.kind === 'resumable');
       if (resumablePresent) {
-        emit(resolved, 'error', 'Resumable tasks present. Use `--resume <id>` first.');
-        return finalizeSummary(
+        log(resolved, 'error', 'resumable tasks present. Use `--resume <id>` first.');
+        const summary = finalizeSummary(
           resolved,
           startedAt,
           4,
@@ -1041,12 +1218,15 @@ export const runPipeline = async (
           failedOutcomes,
           recovery,
         );
+        logSummary(resolved, summary, resolved.now() - wallStart);
+        return summary;
       }
     }
 
     if (options.mode === 'resume') {
       if (!options.resumeTaskId) {
-        return finalizeSummary(
+        log(resolved, 'error', 'resume mode requires --resume <task-id>');
+        const summary = finalizeSummary(
           resolved,
           startedAt,
           2,
@@ -1055,11 +1235,14 @@ export const runPipeline = async (
           failedOutcomes,
           recovery,
         );
+        logSummary(resolved, summary, resolved.now() - wallStart);
+        return summary;
       }
+      log(resolved, 'step', `resuming task`, options.resumeTaskId);
       const result = await runOneTask(store, options.resumeTaskId, resolved);
       record(result, shippedOutcomes, skippedOutcomes, failedOutcomes);
       const exit: PipelineExitCode = result.kind === 'shipped' ? 0 : 1;
-      return finalizeSummary(
+      const summary = finalizeSummary(
         resolved,
         startedAt,
         exit,
@@ -1068,23 +1251,46 @@ export const runPipeline = async (
         failedOutcomes,
         recovery,
       );
+      logSummary(resolved, summary, resolved.now() - wallStart);
+      return summary;
     }
 
     // Drain mode (and recover-then-run after sweep).
+    log(resolved, 'step', `draining queue${options.max ? ` (max ${options.max} attempts)` : ''}`);
     let attempts = 0;
     let exit: PipelineExitCode = 0;
     while (options.max === undefined || attempts < options.max) {
       const task = store.claimNext({ runId: resolved.runId });
-      if (!task) break;
+      if (!task) {
+        log(
+          resolved,
+          attempts === 0 ? 'info' : 'success',
+          attempts === 0 ? 'queue empty; nothing to drain' : 'queue drained',
+        );
+        break;
+      }
       attempts += 1;
+      log(
+        resolved,
+        'step',
+        `[attempt ${attempts}${options.max ? `/${options.max}` : ''}] claimed: ${task.title}`,
+        task.id,
+      );
       const result = await runOneTask(store, task.id, resolved);
       record(result, shippedOutcomes, skippedOutcomes, failedOutcomes);
+      log(
+        resolved,
+        result.kind === 'shipped' ? 'success' : result.kind === 'skipped' ? 'warning' : 'error',
+        `attempt ${attempts} ${result.kind}: ${result.outcome.reason}`,
+        task.id,
+      );
       if (result.kind === 'failed') {
         exit = 1;
+        log(resolved, 'warning', 'stopping pipeline on failed task (on-stuck=stop)');
         break;
       }
     }
-    return finalizeSummary(
+    const summary = finalizeSummary(
       resolved,
       startedAt,
       exit,
@@ -1093,7 +1299,10 @@ export const runPipeline = async (
       failedOutcomes,
       recovery,
     );
+    logSummary(resolved, summary, resolved.now() - wallStart);
+    return summary;
   } finally {
+    log(resolved, 'muted', 'releasing pipeline lock');
     release();
   }
 };
@@ -1107,4 +1316,61 @@ const record = (
   if (result.kind === 'shipped') shipped.push(result.outcome);
   else if (result.kind === 'skipped') skipped.push(result.outcome);
   else failed.push(result.outcome);
+};
+
+const logBanner = (resolved: ResolvedOptions, options: PipelineOptions): void => {
+  const { theme } = resolved;
+  const modeLabel = theme.argument(options.mode);
+  const providerLabel = theme.option(resolved.provider);
+  const dryRun = resolved.dryRun ? theme.warning(' [dry-run]') : '';
+  const max = options.max ? theme.muted(` max=${options.max}`) : '';
+  resolved.stderr(
+    `${theme.title('━━━ tasks pipeline ━━━')} ${theme.muted(`run=${resolved.shortRunId}`)} mode=${modeLabel} cli=${providerLabel}${max}${dryRun}`,
+  );
+  if (resolved.repository) {
+    log(resolved, 'muted', `repository ${resolved.theme.command(resolved.repository)}`);
+  }
+};
+
+const logSummary = (
+  resolved: ResolvedOptions,
+  summary: PipelineSummary,
+  elapsedMs: number,
+): void => {
+  const { theme } = resolved;
+  const shipped = theme.success(`shipped ${summary.shipped.length}`);
+  const skipped = theme.warning(`skipped ${summary.skipped.length}`);
+  const failedCount = theme.error(`failed ${summary.failed.length}`);
+  const exit =
+    summary.exitCode === 0
+      ? theme.success(`exit=${summary.exitCode}`)
+      : theme.error(`exit=${summary.exitCode}`);
+  resolved.stderr(
+    `${theme.title('━━━ summary ━━━')} ${shipped}  ${skipped}  ${failedCount}  ${theme.muted(`(${formatDuration(elapsedMs)})`)}  ${exit}`,
+  );
+  for (const outcome of summary.shipped) {
+    resolved.stderr(
+      `  ${theme.success('✓')} ${theme.argument(outcome.taskId.slice(0, 8))} ${theme.muted(outcome.reason)}${outcome.pullRequestNumber ? theme.muted(` PR #${outcome.pullRequestNumber}`) : ''}`,
+    );
+  }
+  for (const outcome of summary.skipped) {
+    resolved.stderr(
+      `  ${theme.warning('•')} ${theme.argument(outcome.taskId.slice(0, 8))} ${theme.muted(outcome.reason)}`,
+    );
+  }
+  for (const outcome of summary.failed) {
+    resolved.stderr(
+      `  ${theme.error('✗')} ${theme.argument(outcome.taskId.slice(0, 8))} ${theme.muted(outcome.reason)}`,
+    );
+  }
+  if (summary.recovery && summary.recovery.length > 0) {
+    resolved.stderr(`${theme.heading('recovery verdicts:')}`);
+    for (const outcome of summary.recovery) {
+      const verdictLabel = annotationFor(outcome.verdict);
+      const applied = outcome.applied
+        ? theme.success(' [applied]')
+        : theme.muted(' [annotate-only]');
+      resolved.stderr(`  ${theme.argument(outcome.taskId.slice(0, 8))} ${verdictLabel}${applied}`);
+    }
+  }
 };
