@@ -39,6 +39,7 @@
     "prepack": "bun run build",
     "prepare": "lefthook install",
     "prepublishOnly": "bun run validate",
+    "smoke:pipeline": "bun run scripts/smoke-pipeline.ts",
     "start": "bun run src/cli.ts",
     "test": "bun test",
     "test:coverage": "bun test --coverage",

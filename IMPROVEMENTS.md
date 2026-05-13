@@ -7,7 +7,7 @@ Each entry: what cinder does → what scrumlord does (or doesn't) → improvemen
 
 ### 1. Validate the agent CLI before claiming a task
 
-**Cinder:** First line of output is `Validating claude -p invocation (cheap smoke test)…` followed by `claude -p is reachable`. If `claude` isn't on `$PATH` or the binary is broken, the pipeline fails fast *before* mutating any task state.
+**Cinder:** First line of output is `Validating claude -p invocation (cheap smoke test)…` followed by `claude -p is reachable`. If `claude` isn't on `$PATH` or the binary is broken, the pipeline fails fast _before_ mutating any task state.
 
 **Scrumlord:** Capability precheck only confirms `--worktree` / `--cd` flag support — it does not actually invoke the binary. A broken or missing `claude` only surfaces after `claimNext` has moved the row to `in-progress`.
 
@@ -23,9 +23,9 @@ Each entry: what cinder does → what scrumlord does (or doesn't) → improvemen
 
 ### 3. Surface the plan path immediately
 
-**Cinder:** `[OK] Plan exists at tmp/plans/0a423b46-…md` — tells the operator (and the agent) where the plan lives before spawning anything. If no plan exists, cinder drafts one inline using `claude -p` with a plan prompt and writes it to `tmp/plans/<id>.md` *before* the implementation phase.
+**Cinder:** `[OK] Plan exists at tmp/plans/0a423b46-…md` — tells the operator (and the agent) where the plan lives before spawning anything. If no plan exists, cinder drafts one inline using `claude -p` with a plan prompt and writes it to `tmp/plans/<id>.md` _before_ the implementation phase.
 
-**Scrumlord:** Has `tasks set-plan` and reads `task.plan` but the pipeline never logs the plan path and never drafts one if missing. It just spawns the agent and hopes the skill handles planning. The `next-task` skill *does* draft plans, but the pipeline doesn't surface that fact, so silence after spawn looks like a hang.
+**Scrumlord:** Has `tasks set-plan` and reads `task.plan` but the pipeline never logs the plan path and never drafts one if missing. It just spawns the agent and hopes the skill handles planning. The `next-task` skill _does_ draft plans, but the pipeline doesn't surface that fact, so silence after spawn looks like a hang.
 
 **Action:** In `runOneTask`, log `plan: <path>` (or `plan: none — agent will draft`) right after `claimed`. Consider an explicit `ensurePlan` phase that drafts via `claude -p` directly when `task.plan` is missing — keeps the heavy implementation prompt focused on implementation and gives the operator a visible plan-mode step.
 
@@ -39,11 +39,11 @@ Each entry: what cinder does → what scrumlord does (or doesn't) → improvemen
 ━━━ summary ━━━ shipped 0  skipped 0  failed 0  (0s)  exit=0
 ```
 
-That output is correct but is *easy to miss* in a terminal: three short lines flash by, no agent spawns, exit code 0. "Didn't do anything" is a fair description from the user side.
+That output is correct but is _easy to miss_ in a terminal: three short lines flash by, no agent spawns, exit code 0. "Didn't do anything" is a fair description from the user side.
 
 **Action:**
 
-- When the queue is empty, surface *why* explicitly with a queue breakdown: `queue: 0 ready, X blocked, Y in-progress, Z draft`. The user can then act on the right thing (unblock something, mark a draft ready, etc.).
+- When the queue is empty, surface _why_ explicitly with a queue breakdown: `queue: 0 ready, X blocked, Y in-progress, Z draft`. The user can then act on the right thing (unblock something, mark a draft ready, etc.).
 - When `attempts === 0` and exit is 0, exit with a non-error but distinct visual signal — a yellow `nothing to do` summary line rather than the all-zero green summary, which currently looks identical to "queue drained successfully."
 
 ### (would-have-mattered) Other plausible failure modes
@@ -52,9 +52,9 @@ Before any of the polish items below: the user reported running `tasks pipeline`
 
 1. **No agent CLI smoke test.** If `claude` isn't on `$PATH` for the spawned process (Homebrew shim, fnm/nvm shadow, etc.), `Bun.spawn(['claude', …])` rejects immediately and we record `agent_failed` but the exit happens in milliseconds — looks like "did nothing" because the work was over before stderr flushed.
 2. **`claimNext` succeeded but spawn race.** Check that the lockfile got written and a `pipeline:phase=claim` marker exists for whichever task moved to in-progress. If yes, the agent died; if no, no task was ever picked up — meaning the queue was empty (no `ready` tasks with satisfied blockers) and we silently exited.
-3. **`--cli` / `SCRUMLORD_CLI` missing.** The CLI wrapper throws `scrumlord_cli_required` before any logging starts. Exit code 2, no banner. The banner should print even on flag-validation failure so the user sees *something* attempted.
+3. **`--cli` / `SCRUMLORD_CLI` missing.** The CLI wrapper throws `scrumlord_cli_required` before any logging starts. Exit code 2, no banner. The banner should print even on flag-validation failure so the user sees _something_ attempted.
 
-**Action:** Make the banner the very first stderr line, before flag validation. Add the smoke test (item 1 above). When `claimNext` returns null, log `queue empty (0 ready, X blocked, Y in-progress)` so the user knows *why* nothing happened.
+**Action:** Make the banner the very first stderr line, before flag validation. Add the smoke test (item 1 above). When `claimNext` returns null, log `queue empty (0 ready, X blocked, Y in-progress)` so the user knows _why_ nothing happened.
 
 ### 4. Show git operations as they happen
 
@@ -78,11 +78,11 @@ Before any of the polish items below: the user reported running `tasks pipeline`
 
 **Scrumlord:** The `next-task` skill is what opens the PR for us; we have no enforcement that the skill includes the task id in the body. If the skill stops doing this, identity verification (improvement 5) breaks silently.
 
-**Action:** Either (a) have the pipeline open the PR itself with `gh pr create --body "<task-id> …"` after the agent commits, and tell the agent *not* to open one, or (b) add a post-spawn check that fetches the open PR for the branch, reads its body, and appends a `pipeline-task: <task-id>` line if missing. (a) is simpler but conflicts with our "agent owns the PR" contract.
+**Action:** Either (a) have the pipeline open the PR itself with `gh pr create --body "<task-id> …"` after the agent commits, and tell the agent _not_ to open one, or (b) add a post-spawn check that fetches the open PR for the branch, reads its body, and appends a `pipeline-task: <task-id>` line if missing. (a) is simpler but conflicts with our "agent owns the PR" contract.
 
 ### 7. Wait for expected review bots explicitly
 
-**Cinder:** Has a configured list of `expectedBots` (default `['copilot-pull-request-reviewer']`). After `address-pr` runs, it polls until those bots have posted at least one review *and* checks are green *and* threads are resolved. Logs the pending bot names on every poll iteration: `Awaiting review bots (2/5): copilot-pull-request-reviewer`.
+**Cinder:** Has a configured list of `expectedBots` (default `['copilot-pull-request-reviewer']`). After `address-pr` runs, it polls until those bots have posted at least one review _and_ checks are green _and_ threads are resolved. Logs the pending bot names on every poll iteration: `Awaiting review bots (2/5): copilot-pull-request-reviewer`.
 
 **Scrumlord:** Treats `readyToMerge` as the only signal. The reality is that on a repo with a copilot reviewer, the PR can be momentarily ready (no checks running, no unresolved threads) before copilot files its first review, and the pipeline will merge too early.
 
@@ -93,16 +93,18 @@ Before any of the polish items below: the user reported running `tasks pipeline`
 **Cinder:** `Bun.spawn(['claude', '-p', '--dangerously-skip-permissions'], { stdin: 'pipe' })` then writes the prompt body to stdin. Two reasons: prompts can exceed the platform argv limit (~256KB on macOS, smaller on some Linuxes), and shell quoting bugs are impossible if it never touches argv.
 
 **Scrumlord:** Passes the prompt body as a positional CLI argument:
+
 ```
 claude -p --dangerously-skip-permissions --worktree <branch> --append-system-prompt <prompt> <body>
 ```
+
 The system prompt and the body are both in argv. For long plans + descriptions this risks `E2BIG` on Linux and is harder to debug because the prompt shows up in `ps`.
 
 **Action:** Switch to stdin for the prompt body (and the system prompt if claude supports stdin for it — otherwise keep `--append-system-prompt` for the small system prompt and put the long body on stdin).
 
 ### 9. `--concurrency` and `--serialize`
 
-**Cinder:** Supports `--concurrency <n>` (parallel workers via tmux) and `--serialize` (keep claiming until `tasks next` empty). The default is "run one task and stop." Concurrency was explicitly cut from scrumlord v1 to keep the global lockfile design simple, but `--serialize` is *exactly* our default drain behavior.
+**Cinder:** Supports `--concurrency <n>` (parallel workers via tmux) and `--serialize` (keep claiming until `tasks next` empty). The default is "run one task and stop." Concurrency was explicitly cut from scrumlord v1 to keep the global lockfile design simple, but `--serialize` is _exactly_ our default drain behavior.
 
 **Scrumlord:** Always drains. Has no "run one task and stop" mode, which is what a user would want when they're trying the pipeline for the first time and want to see one task ship before letting it loose on the queue.
 
@@ -126,7 +128,7 @@ The system prompt and the body are both in argv. For long plans + descriptions t
 
 ### 12. Per-attempt sleep logging with attempt counters
 
-**Cinder:** Every sleep prints `Checks pending (3/120) — sleeping 30s: 1 pass / 2 pending / 0 fail; ...`. The operator can see exactly which attempt is firing and a snapshot of *why*.
+**Cinder:** Every sleep prints `Checks pending (3/120) — sleeping 30s: 1 pass / 2 pending / 0 fail; ...`. The operator can see exactly which attempt is firing and a snapshot of _why_.
 
 **Scrumlord:** Logs `no actionable signal; sleeping 30s before next poll` (no counter, no snapshot recap inline).
 
@@ -136,7 +138,7 @@ The system prompt and the body are both in argv. For long plans + descriptions t
 
 **Cinder:** Per-task lock directories (`tmp/locks/<task-id>/`) with PID + timestamp, and `reapStaleLock` removes them when the PID is dead. Plus the recovery sweep classifies `liveLockHeld → manual` so even partial-state crashes are detected.
 
-**Scrumlord:** Has a single global pipeline lockfile with stale-PID and stale-age reaping. But because we explicitly chose serial v1, we don't have per-task locks. That's fine — but the *recovery sweep* doesn't know how to tell "I crashed mid-task" from "another pipeline is running" because there is no surviving lock to inspect.
+**Scrumlord:** Has a single global pipeline lockfile with stale-PID and stale-age reaping. But because we explicitly chose serial v1, we don't have per-task locks. That's fine — but the _recovery sweep_ doesn't know how to tell "I crashed mid-task" from "another pipeline is running" because there is no surviving lock to inspect.
 
 **Action:** When the pipeline acquires the global lockfile, also write a per-task heartbeat marker (progress entry like `pipeline:heartbeat=<run>:<ts>`) every ~30s while a task is in-progress. Recovery can use the absence-of-recent-heartbeat as evidence that the prior pipeline died, not that it's still running.
 
@@ -171,7 +173,7 @@ The system prompt and the body are both in argv. For long plans + descriptions t
 **Implications:**
 
 - Our pipeline isn't uniquely bad at this — cinder has the same dead zone.
-- Operators *will* mistake this for a hang.
+- Operators _will_ mistake this for a hang.
 - The fix isn't more logging in the pipeline; it's making the agent's progress visible.
 
 **Action:**
@@ -182,7 +184,7 @@ The system prompt and the body are both in argv. For long plans + descriptions t
 
 ### 18. The plan-mode draft as a separate pipeline phase (not just an agent responsibility)
 
-**Cinder:** Plan drafting is its own phase: a separate `claude -p` invocation that ONLY drafts the plan, invokes `plan-review`, writes the plan path back to the task, and exits. Then the implementation phase is a *second* `claude -p` call that gets the plan as context.
+**Cinder:** Plan drafting is its own phase: a separate `claude -p` invocation that ONLY drafts the plan, invokes `plan-review`, writes the plan path back to the task, and exits. Then the implementation phase is a _second_ `claude -p` call that gets the plan as context.
 
 **Scrumlord:** All four phases (plan, implement, committee-review, address-pr-to-merge) happen inside a single `claude -p` invocation via the `next-task` skill. That's nice in theory but it means a planning failure looks like an implementation failure looks like a review failure — all the same exit code, same opaque "agent_failed."
 
@@ -215,6 +217,7 @@ The system prompt and the body are both in argv. For long plans + descriptions t
 ### 23. The agent's final status block on stdout is structured
 
 **Watched behavior:** When claude finishes (in this case, after `address-pr` consensus), it dumps a structured summary to stdout:
+
 ```
 All exit conditions are met:
 - `unresolved_count: 0` …
@@ -232,11 +235,13 @@ This is rich data — task-level evidence that the agent considers itself done, 
 ### 25. "Not fully clean but no actionable feedback" — soft-accept escape hatch
 
 **Watched behavior:** Cinder waited 5 minutes for copilot-pull-request-reviewer, the bot never reviewed, but checks were green and threads resolved. Cinder logged:
+
 ```
 [WARN] Bots never reviewed within budget: copilot-pull-request-reviewer — proceeding anyway
 [WARN] PR #70 not fully clean but has no actionable feedback — accepting
 ```
-…and merged. The decision: if the only thing preventing merge is a bot that never showed up, but everything *actionable* is green, ship it.
+
+…and merged. The decision: if the only thing preventing merge is a bot that never showed up, but everything _actionable_ is green, ship it.
 
 **Scrumlord:** Our `readyToMerge` is binary. If we add expected-bot tracking (improvement 7), we need this same fallback — otherwise a missing bot blocks merge forever.
 
@@ -245,12 +250,13 @@ This is rich data — task-level evidence that the agent considers itself done, 
 ### 26. Remove the worktree BEFORE merging
 
 **Watched behavior:**
+
 ```
 [17:33:08] [PHASE] Removing worktree before merge
 [17:33:11] [PHASE] Merging PR #70
 ```
 
-Cinder removes the per-task worktree *before* invoking `gh pr merge`. Two reasons: (a) `gh pr merge --delete-branch` will fail if a worktree still has that branch checked out, and (b) cleanup is owned by the pipeline, not by GitHub.
+Cinder removes the per-task worktree _before_ invoking `gh pr merge`. Two reasons: (a) `gh pr merge --delete-branch` will fail if a worktree still has that branch checked out, and (b) cleanup is owned by the pipeline, not by GitHub.
 
 **Scrumlord:** No worktree-removal step. We rely on `gh pr merge --delete-branch` to handle it, but the worktree on disk stays around forever, accumulating garbage. Eventually `git worktree list` becomes unmanageable.
 
@@ -259,6 +265,7 @@ Cinder removes the per-task worktree *before* invoking `gh pr merge`. Two reason
 ### 27. Per-task lifecycle is observable in 5 distinct phase lines
 
 **Watched cinder summary for one task:**
+
 ```
 [OK] 5 commit(s) on next/0a423b46
 [OK] Found existing PR #70: https://github.com/stevekinney/cinder/pull/70
@@ -279,6 +286,7 @@ Eight discrete events. Each one is a checkpoint the operator can grep for. The t
 ### 24. Bot-aware polling — first round shows the breakdown immediately
 
 **Cinder polling output:**
+
 ```
 [PHASE] PR readiness check 1/5 for PR #70
 [INFO] 2 pass / 0 pending / 0 fail; 0 unresolved; awaiting copilot-pull-request-reviewer
@@ -299,4 +307,20 @@ Round number, full quad on a single line, then the bot-wait counter on a separat
 
 **Action:** See improvement 13 (heartbeats). The classifier should treat a recent heartbeat (within ~2× the heartbeat interval) as evidence that another pipeline is live and produce `manual: live-pipeline-detected` instead of any rollback verdict.
 
+---
 
+## Status
+
+Tracking table for the workstreams that address the items above. Each row is the contract a workstream PR must satisfy. Update as each lands.
+
+| #                            | Workstream       | Status      | PR        | Smoke scenario                   |
+| ---------------------------- | ---------------- | ----------- | --------- | -------------------------------- |
+| 16                           | W0 smoke harness | in progress | (this PR) | `green`, `empty`, `stuck-stderr` |
+| 1, 8, 8b, 11, 23             | B-1              | pending     | —         | —                                |
+| 2, 4, 10, 12, 14, 15, 17, 24 | A                | pending     | —         | —                                |
+| 5, 6a, 6b, 6c                | B-2              | pending     | —         | —                                |
+| 7, 25                        | D                | pending     | —         | —                                |
+| 9                            | F                | pending     | —         | —                                |
+| 13, 19                       | B-3              | pending     | —         | —                                |
+| 20, 21, 22, 26, 27           | C                | pending     | —         | —                                |
+| 3, 18                        | E                | pending     | —         | —                                |
