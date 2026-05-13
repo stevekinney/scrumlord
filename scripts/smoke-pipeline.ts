@@ -28,10 +28,8 @@ import { createTaskStore } from '../src/database-open';
 import { runPipeline, type PipelineSummary, type SpawnAgent } from '../src/pipeline';
 import type { TaskStore } from '../src/types';
 
-type ScenarioName = 'green' | 'empty' | 'stuck-stderr';
-
 type Scenario = {
-  name: ScenarioName;
+  name: string;
   introducedInWorkstream: string;
   /**
    * Which workstream's behavior the scenario asserts. `'current'` means it
@@ -72,6 +70,13 @@ type MockRunnerOptions = {
   mode: 'happy' | 'no-tasks';
   /** Branch the mock should claim is currently checked out (used by sync-git-status). */
   currentBranch?: () => string;
+  /**
+   * Initial PR state. `merged` returns a closed+merged PR (short-circuits the
+   * polling loop). `open` returns an OPEN PR so the pipeline calls
+   * `pullRequestStatus`, sees readyToMerge=true with green checks, and runs
+   * the merge step itself.
+   */
+  prState?: 'merged' | 'open';
 };
 
 const ghApiEndpoint = (joined: string, suffix: string): boolean => {
@@ -79,12 +84,17 @@ const ghApiEndpoint = (joined: string, suffix: string): boolean => {
 };
 
 const mockRunner = (options: MockRunnerOptions): CommandRunner => {
-  const { mode } = options;
+  const { mode, prState = 'merged' } = options;
   // eslint-disable-next-line complexity
   return async (command) => {
     const joined = command.join(' ');
     const headParam = extractFParam(command, 'head');
     const branchFromHead = headParam?.split(':', 2)[1] ?? 'task/smoke';
+    const buildPr = (): ReturnType<typeof buildMergedPullRequest> => {
+      return prState === 'merged'
+        ? buildMergedPullRequest(branchFromHead)
+        : buildOpenPullRequest(branchFromHead);
+    };
     if (joined.endsWith('--help')) {
       return ok('Options:\n  --worktree [name]\n  -C, --cd <DIR>\n');
     }
@@ -105,7 +115,7 @@ const mockRunner = (options: MockRunnerOptions): CommandRunner => {
     // `gh api …/repos/owner/repo/pulls -F head=owner:<branch> …` (list query).
     if (joined.startsWith('gh api') && commandHasEndpoint(command, 'pulls')) {
       if (mode === 'no-tasks') return ghIncludeBody([]);
-      return ghIncludeBody([buildMergedPullRequest(branchFromHead)]);
+      return ghIncludeBody([buildPr()]);
     }
     if (joined.startsWith('gh api') && ghApiEndpoint(joined, 'pulls/42/comments')) {
       return ghIncludeBody([]);
@@ -114,7 +124,7 @@ const mockRunner = (options: MockRunnerOptions): CommandRunner => {
       return ghIncludeBody([]);
     }
     if (joined.startsWith('gh api') && ghApiEndpoint(joined, 'pulls/42')) {
-      return ghIncludeBody(buildMergedPullRequest(branchFromHead));
+      return ghIncludeBody(buildPr());
     }
     if (joined.startsWith('gh api') && ghApiEndpoint(joined, 'commits/sha-42/check-runs')) {
       return ghIncludeBody({ check_runs: [] });
@@ -170,6 +180,16 @@ const buildMergedPullRequest = (branch: string) => ({
   merged_at: '2026-05-13T15:00:00Z',
 });
 
+const buildOpenPullRequest = (branch: string) => ({
+  number: 42,
+  state: 'open',
+  url: 'https://github.test/pull/42',
+  title: 'smoke task',
+  head: { ref: branch, sha: 'sha-42' },
+  base: { ref: 'main' },
+  merged_at: null,
+});
+
 const extractFParam = (command: readonly string[], key: string): string | undefined => {
   for (let index = 0; index < command.length - 1; index += 1) {
     if (command[index] === '-F') {
@@ -218,10 +238,18 @@ const scenarios: readonly Scenario[] = [
   {
     name: 'green',
     introducedInWorkstream: 'W0',
-    assertsBehaviorFrom: 'current',
+    assertsBehaviorFrom: 'W-A',
     description: 'one ready task ships end-to-end against happy mock gh + git',
     expectedExitCode: 0,
-    expectedStderrSubstrings: ['claimed', 'shipped'],
+    expectedStderrSubstrings: [
+      'tasks pipeline starting…',
+      'smoke task', // title threaded into claim line (#2)
+      'tip: cd ', // worktree path tip (#14)
+      'PR #42 found',
+      'https://github.test/pull/42', // URL on its own line (#15)
+      'pass=', // quad snapshot present (#10)
+      'shipped',
+    ],
     run: async ({ store, appendStderr }) => {
       seedReadyTask(store, 'smoke task');
       // After the pipeline claims the task and prepares a worktree, the task
@@ -236,7 +264,7 @@ const scenarios: readonly Scenario[] = [
       const summary = await runPipeline(store, {
         provider: 'claude',
         mode: 'drain',
-        runner: mockRunner({ mode: 'happy', currentBranch }),
+        runner: mockRunner({ mode: 'happy', currentBranch, prState: 'open' }),
         spawnAgent: recordingSpawnAgent([0]).spawn,
         stderr: appendStderr,
         now: () => Date.parse('2026-05-13T15:00:00Z'),
@@ -270,10 +298,10 @@ const scenarios: readonly Scenario[] = [
   {
     name: 'empty',
     introducedInWorkstream: 'W0',
-    assertsBehaviorFrom: 'current',
-    description: 'empty queue exits 0 with current "queue empty" log line',
+    assertsBehaviorFrom: 'W-A',
+    description: 'empty queue exits 0 with ready-queue breakdown',
     expectedExitCode: 0,
-    expectedStderrSubstrings: ['queue empty'],
+    expectedStderrSubstrings: ['tasks pipeline starting…', 'ready-queue breakdown:', 'queue empty'],
     run: async ({ store, appendStderr }) => {
       const summary = await runPipeline(store, {
         provider: 'claude',

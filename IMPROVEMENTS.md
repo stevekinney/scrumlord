@@ -313,14 +313,15 @@ Round number, full quad on a single line, then the bot-wait counter on a separat
 
 Tracking table for the workstreams that address the items above. Each row is the contract a workstream PR must satisfy. Update as each lands.
 
-| #                            | Workstream       | Status      | PR        | Smoke scenario                   |
-| ---------------------------- | ---------------- | ----------- | --------- | -------------------------------- |
-| 16                           | W0 smoke harness | in progress | (this PR) | `green`, `empty`, `stuck-stderr` |
-| 1, 8, 8b, 11, 23             | B-1              | pending     | —         | —                                |
-| 2, 4, 10, 12, 14, 15, 17, 24 | A                | pending     | —         | —                                |
-| 5, 6a, 6b, 6c                | B-2              | pending     | —         | —                                |
-| 7, 25                        | D                | pending     | —         | —                                |
-| 9                            | F                | pending     | —         | —                                |
-| 13, 19                       | B-3              | pending     | —         | —                                |
-| 20, 21, 22, 26, 27           | C                | pending     | —         | —                                |
-| 3, 18                        | E                | pending     | —         | —                                |
+| #                         | Workstream       | Status                                                                                                           | PR        | Smoke scenario                   |
+| ------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------- | --------- | -------------------------------- |
+| 16                        | W0 smoke harness | merged                                                                                                           | 5c17060   | `green`, `empty`, `stuck-stderr` |
+| 1, 8, 8b, 11, 23          | B-1              | pending                                                                                                          | —         | —                                |
+| 2, 10, 12, 14, 15, 17, 24 | A                | in progress                                                                                                      | (this PR) | `green`, `empty`                 |
+| 4                         | A (codex path)   | shipped, not asserted in smoke (claude provider does not run git ops itself; codex-mode scenario follows in B-1) | (this PR) | —                                |
+| 5, 6a, 6b, 6c             | B-2              | pending                                                                                                          | —         | —                                |
+| 7, 25                     | D                | pending                                                                                                          | —         | —                                |
+| 9                         | F                | pending                                                                                                          | —         | —                                |
+| 13, 19                    | B-3              | pending                                                                                                          | —         | —                                |
+| 20, 21, 22, 26, 27        | C                | pending                                                                                                          | —         | —                                |
+| 3, 18                     | E                | pending                                                                                                          | —         | —                                |

@@ -229,12 +229,16 @@ const setupCodexWorktree = async (
   const slug = repoSlug(store.projectRoot);
   const directory = await codexWorktreePath(store.projectRoot, slug, derived.shortId);
   const base = await resolveBaseBranch(store.projectRoot, runner);
+  const worktreeLog = options.stderr
+    ? (line: string): void => writeStderrLine(options, line)
+    : undefined;
   const result = await ensureCodexWorktree(
     store.projectRoot,
     derived.branch,
     base,
     directory,
     runner,
+    worktreeLog,
   );
   return {
     worktree: result.worktree,

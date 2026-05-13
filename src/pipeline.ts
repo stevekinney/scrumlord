@@ -317,6 +317,27 @@ const log = (ctx: LogContext, level: LogLevel, message: string, taskId?: string)
   ctx.stderr(`${stamp} ${glyph}${taskTag} ${message}`);
 };
 
+/**
+ * Renders a one-line PR readiness snapshot the operator can grep for. Every
+ * count appears in every line so a single log entry shows the full state of
+ * checks and review comments. `botsPending` is omitted when empty so the
+ * common case stays terse.
+ */
+export const formatSnapshot = (input: {
+  pass: number;
+  pending: number;
+  fail: number;
+  unresolved: number;
+  botsPending?: readonly string[];
+}): string => {
+  const pass = Math.max(0, input.pass);
+  const base = `pass=${pass} pending=${input.pending} fail=${input.fail} unresolved=${input.unresolved}`;
+  if (input.botsPending && input.botsPending.length > 0) {
+    return `${base} bots-pending=${input.botsPending.join(',')}`;
+  }
+  return base;
+};
+
 const formatDuration = (milliseconds: number): string => {
   const totalSeconds = Math.round(milliseconds / 1000);
   if (totalSeconds < 60) return `${totalSeconds}s`;
@@ -354,6 +375,24 @@ const defaultSpawnAgent: SpawnAgent = async (invocation, caps, controls) => {
     }
   }, 1_000);
 
+  // Visible heartbeat from the parent. `claude -p` over a pipe does not stream
+  // its TUI output, so without this the operator sees nothing for 5+ minutes
+  // while the agent is working. The heartbeat goes to stderr in plain text
+  // (no theme) every ~30s so it survives non-TTY contexts.
+  const heartbeatIntervalMs = 30_000;
+  const heartbeat = setInterval(() => {
+    if (killed !== null) return;
+    const now = Date.now();
+    const elapsedMs = now - start;
+    const idleMs = now - lastActivity;
+    const elapsedSeconds = Math.round(elapsedMs / 1000);
+    const idleSeconds = Math.round(idleMs / 1000);
+    const idleCapSeconds = Math.round(caps.idleMs / 1000);
+    controls.stderr(
+      `agent still running (${elapsedSeconds}s elapsed, last activity ${idleSeconds}s ago, idle cap ${idleCapSeconds}s)\n`,
+    );
+  }, heartbeatIntervalMs);
+
   const onAbort = (): void => {
     killed = killed ?? 'hard';
     child.kill('SIGTERM');
@@ -383,6 +422,7 @@ const defaultSpawnAgent: SpawnAgent = async (invocation, caps, controls) => {
     await Promise.all([drainStdout, drainStderr]);
   } finally {
     clearInterval(checkTimeouts);
+    clearInterval(heartbeat);
     controls.signal.removeEventListener('abort', onAbort);
   }
 
@@ -532,12 +572,15 @@ export const runOneTask = async (
   });
   recordPhase(store, taskId, 'branch-set', resolved.runId, resolved.now);
 
+  const titleLabel = current.title ? ` — ${current.title}` : '';
   log(
     resolved,
     'step',
-    `claimed task on branch ${resolved.theme.command(branch)}, worktree ${resolved.theme.muted(worktree)}, provider ${resolved.theme.option(resolved.provider)}`,
+    `claimed${titleLabel} on branch ${resolved.theme.command(branch)}, provider ${resolved.theme.option(resolved.provider)}`,
     taskId,
   );
+  // Worktree path on its own undecorated line (#14) — easy to spot and copy.
+  resolved.stderr(`tip: cd ${worktree}`);
   recordProgress(
     store,
     taskId,
@@ -705,12 +748,8 @@ const pollPrUntilMerged = async (
         taskId,
         `pull request #${pullRequest.number} opened: ${pullRequest.url}`,
       );
-      log(
-        resolved,
-        'success',
-        `PR #${pullRequest.number} found: ${resolved.theme.muted(pullRequest.url)}`,
-        taskId,
-      );
+      log(resolved, 'success', `PR #${pullRequest.number} found`, taskId);
+      resolved.stderr(pullRequest.url);
       prRecorded = true;
     }
 
@@ -743,12 +782,19 @@ const pollPrUntilMerged = async (
       log(resolved, 'error', `status lookup failed: ${reason}`, taskId);
       return failed(taskId, branch, pullRequest.number, `status_lookup_unavailable:${reason}`);
     }
-    const checksLine = `CI ${status.continuousIntegration.allGreen ? '✓ all green' : `${status.continuousIntegration.failedCount}✗ ${status.continuousIntegration.pendingCount}…`}`;
-    const reviewLine = `${status.reviewComments.unresolvedCount} unresolved review comments`;
+    const snapshot = formatSnapshot({
+      pass:
+        status.continuousIntegration.checks.length -
+        status.continuousIntegration.pendingCount -
+        status.continuousIntegration.failedCount,
+      pending: status.continuousIntegration.pendingCount,
+      fail: status.continuousIntegration.failedCount,
+      unresolved: status.reviewComments.unresolvedCount,
+    });
     log(
       resolved,
       'info',
-      `PR #${pullRequest.number} state=${status.pullRequest.state}, readyToMerge=${status.readyToMerge}, ${checksLine}, ${reviewLine}`,
+      `PR #${pullRequest.number} state=${status.pullRequest.state} readyToMerge=${status.readyToMerge} ${snapshot}`,
       taskId,
     );
 
@@ -863,7 +909,7 @@ const pollPrUntilMerged = async (
     log(
       resolved,
       'muted',
-      `no actionable signal; sleeping ${formatDuration(resolved.constants.CHECK_POLL_INTERVAL_MS)} before next poll`,
+      `Checks pending (${round}/${totalRounds}) — sleeping ${formatDuration(resolved.constants.CHECK_POLL_INTERVAL_MS)}: ${snapshot}`,
       taskId,
     );
     await resolved.sleep(resolved.constants.CHECK_POLL_INTERVAL_MS);
@@ -1189,7 +1235,15 @@ export const runPipeline = async (
   store: TaskStore,
   options: PipelineOptions,
 ): Promise<PipelineSummary> => {
-  const resolved = await resolveOptions(options, store.projectRoot);
+  // Minimal startup line — emitted BEFORE option resolution so an env-var
+  // validation failure inside resolveOptions still surfaces something visible
+  // to the operator. Uses the caller-supplied runId when present so the early
+  // line matches the later banner; otherwise mints one and threads it through.
+  const startupRunId = options.runId ?? generateRunId();
+  const startupStderr = options.stderr ?? defaultStderr;
+  startupStderr(`[${startupRunId.slice(0, 8)}] tasks pipeline starting…`);
+
+  const resolved = await resolveOptions({ ...options, runId: startupRunId }, store.projectRoot);
   const startedAt = new Date(resolved.now()).toISOString();
   const wallStart = resolved.now();
   const shippedOutcomes: TaskOutcome[] = [];
@@ -1317,11 +1371,17 @@ export const runPipeline = async (
     while (options.max === undefined || attempts < options.max) {
       const task = store.claimNext({ runId: resolved.runId });
       if (!task) {
-        log(
-          resolved,
-          attempts === 0 ? 'info' : 'success',
-          attempts === 0 ? 'queue empty; nothing to drain' : 'queue drained',
-        );
+        if (attempts === 0) {
+          const summary = store.summarizeReadyQueue();
+          log(
+            resolved,
+            'warning',
+            `ready-queue breakdown: ${summary.ready} ready, ${summary.blocked} blocked, ${summary.inProgress} in-progress, ${summary.inReview} in-review, ${summary.draft} draft, ${summary.completed} completed`,
+          );
+          log(resolved, 'warning', 'queue empty; nothing to drain');
+        } else {
+          log(resolved, 'success', 'queue drained');
+        }
         break;
       }
       attempts += 1;

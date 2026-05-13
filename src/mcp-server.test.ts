@@ -143,6 +143,9 @@ const failingAvailableStore = (calls: string[]): TaskStore => ({
   remaining() {
     return 0;
   },
+  summarizeReadyQueue() {
+    return { draft: 0, ready: 0, inProgress: 0, inReview: 0, completed: 0, blocked: 0 };
+  },
   cleanup() {
     return { deleted: 0 };
   },

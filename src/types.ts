@@ -143,6 +143,20 @@ export type TaskStore = {
     predicate: ConditionalUpdatePredicate,
   ): Task | null;
   remaining(): number;
+  /**
+   * Returns a count of active (non-deleted, non-archived) tasks grouped by
+   * status. Used by the pipeline to render a "ready-queue breakdown" line
+   * when the drain finds nothing to claim, so the operator can see whether
+   * the queue is empty because everything is blocked, in-progress, etc.
+   */
+  summarizeReadyQueue(): {
+    draft: number;
+    ready: number;
+    inProgress: number;
+    inReview: number;
+    completed: number;
+    blocked: number;
+  };
   cleanup(days: number): { deleted: number };
   addTag(id: TaskIdentifier, tag: string): Task;
   removeTag(id: TaskIdentifier, tag: string): Task;

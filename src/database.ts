@@ -323,6 +323,32 @@ export class SqliteTaskStore implements TaskStore {
     return row?.count ?? 0;
   }
 
+  summarizeReadyQueue(): {
+    draft: number;
+    ready: number;
+    inProgress: number;
+    inReview: number;
+    completed: number;
+    blocked: number;
+  } {
+    const rows = this.#database
+      .query<
+        { status: string; count: number },
+        []
+      >('SELECT status, COUNT(*) AS count FROM tasks WHERE deleted = 0 AND archived = 0 GROUP BY status')
+      .all();
+    const counts = { draft: 0, ready: 0, inProgress: 0, inReview: 0, completed: 0 };
+    for (const row of rows) {
+      if (row.status === 'draft') counts.draft = row.count;
+      else if (row.status === 'ready') counts.ready = row.count;
+      else if (row.status === 'in-progress') counts.inProgress = row.count;
+      else if (row.status === 'in-review') counts.inReview = row.count;
+      else if (row.status === 'completed') counts.completed = row.count;
+    }
+    const blocked = this.blocked().length;
+    return { ...counts, blocked };
+  }
+
   cleanup(days: number): { deleted: number } {
     if (!Number.isInteger(days) || days < 0) {
       throw new ScrumlordError(

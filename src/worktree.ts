@@ -162,12 +162,16 @@ export const codexWorktreePath = async (
  * worktree when one matches the branch, otherwise materializes one according
  * to the resolution decision tree (local branch → remote-tracking → base ref).
  */
+export type WorktreeLog = (line: string) => void;
+
+// eslint-disable-next-line complexity
 export const ensureCodexWorktree = async (
   projectRoot: string,
   branch: string,
   base: BaseBranch,
   directory: string,
   runner: CommandRunner = defaultRunner,
+  log?: WorktreeLog,
 ): Promise<{ worktree: string; created: boolean }> => {
   const existing = await worktreeForExactBranch(projectRoot, branch, runner);
   if (existing) {
@@ -186,6 +190,7 @@ export const ensureCodexWorktree = async (
     projectRoot,
   );
   if (localExists.exitCode === 0) {
+    log?.(`creating worktree at ${directory} from local branch ${branch}`);
     await runGit(['git', 'worktree', 'add', directory, branch], projectRoot, runner);
     return { worktree: directory, created: true };
   }
@@ -195,6 +200,7 @@ export const ensureCodexWorktree = async (
     projectRoot,
   );
   if (remoteExists.exitCode === 0) {
+    log?.(`creating worktree at ${directory} from origin/${branch}`);
     await runGit(
       ['git', 'worktree', 'add', '-b', branch, directory, `refs/remotes/origin/${branch}`],
       projectRoot,
@@ -204,12 +210,14 @@ export const ensureCodexWorktree = async (
   }
 
   if (base.ref.startsWith('refs/remotes/origin/')) {
+    log?.(`fetching origin/${base.name}`);
     const fetch = await runner(['git', 'fetch', 'origin', base.name], projectRoot);
     if (fetch.exitCode !== 0) {
       // Best-effort fetch; fall through to whichever ref we have.
       // The downstream `git worktree add` will fail loudly if base.ref is truly missing.
     }
   }
+  log?.(`creating worktree at ${directory} from ${base.ref}`);
   await runGit(['git', 'worktree', 'add', '-b', branch, directory, base.ref], projectRoot, runner);
   return { worktree: directory, created: true };
 };
