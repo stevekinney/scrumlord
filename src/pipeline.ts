@@ -424,6 +424,15 @@ const recordPhase = (
   store.addProgress(taskId, { message: marker });
 };
 
+/**
+ * Writes a human-readable pipeline note to the task progress log so `tasks progress`
+ * reflects everything the pipeline is doing. Prefixed `pipeline:` so future tooling
+ * can distinguish pipeline-authored notes from agent-authored ones.
+ */
+const recordProgress = (store: TaskStore, taskId: string, note: string): void => {
+  store.addProgress(taskId, { message: `pipeline: ${note}` });
+};
+
 /** Returns the PR number for a task's branch, or a structured failure. */
 export const pullRequestForTask = async (
   projectRoot: string,
@@ -529,6 +538,11 @@ export const runOneTask = async (
     `claimed task on branch ${resolved.theme.command(branch)}, worktree ${resolved.theme.muted(worktree)}, provider ${resolved.theme.option(resolved.provider)}`,
     taskId,
   );
+  recordProgress(
+    store,
+    taskId,
+    `claimed by pipeline run ${resolved.shortRunId} (branch ${branch}, ${resolved.provider})`,
+  );
 
   const invocation = buildPipelineInvocation(resolved.provider, taskId, branch, worktree);
   log(
@@ -537,6 +551,7 @@ export const runOneTask = async (
     `spawning ${resolved.theme.option(resolved.provider)} agent (idle cap ${formatDuration(resolved.constants.AGENT_IDLE_MS)}, hard cap ${formatDuration(resolved.constants.AGENT_MAX_MS)})`,
     taskId,
   );
+  recordProgress(store, taskId, `spawning ${resolved.provider} agent in worktree`);
   const abort = new AbortController();
   const agentStartedAt = resolved.now();
   const spawnResult = await resolved.spawnAgent(
@@ -547,10 +562,12 @@ export const runOneTask = async (
   const agentElapsed = formatDuration(resolved.now() - agentStartedAt);
   if (spawnResult.killed === 'idle') {
     log(resolved, 'error', `agent idle-timeout after ${agentElapsed}`, taskId);
+    recordProgress(store, taskId, `agent killed (idle-timeout after ${agentElapsed})`);
     return failed(taskId, branch, null, 'agent_idle');
   }
   if (spawnResult.killed === 'hard') {
     log(resolved, 'error', `agent hard-timeout after ${agentElapsed}`, taskId);
+    recordProgress(store, taskId, `agent killed (hard-timeout after ${agentElapsed})`);
     return failed(taskId, branch, null, 'agent_timeout');
   }
   if (spawnResult.exitCode !== 0) {
@@ -561,9 +578,15 @@ export const runOneTask = async (
       `agent exited ${spawnResult.exitCode} after ${agentElapsed} (${reason})`,
       taskId,
     );
+    recordProgress(
+      store,
+      taskId,
+      `agent exited ${spawnResult.exitCode} after ${agentElapsed} (${reason})`,
+    );
     return failed(taskId, branch, null, reason);
   }
   log(resolved, 'success', `agent finished after ${agentElapsed}`, taskId);
+  recordProgress(store, taskId, `agent finished cleanly after ${agentElapsed}`);
   recordPhase(store, taskId, 'agent-exited', resolved.runId, resolved.now);
 
   return await pollPrUntilMerged(store, taskId, branch, resolved);
@@ -677,6 +700,11 @@ const pollPrUntilMerged = async (
     const pullRequest = prResult.pullRequest;
     if (!prRecorded) {
       recordPhase(store, taskId, 'pr-created', resolved.runId, resolved.now);
+      recordProgress(
+        store,
+        taskId,
+        `pull request #${pullRequest.number} opened: ${pullRequest.url}`,
+      );
       log(
         resolved,
         'success',
@@ -698,6 +726,7 @@ const pollPrUntilMerged = async (
       const refreshed = store.getTask(taskId);
       if (refreshed?.status === 'completed') {
         recordPhase(store, taskId, 'merge', resolved.runId, resolved.now);
+        recordProgress(store, taskId, `PR #${pullRequest.number} merged; task completed`);
         log(resolved, 'success', `task completed (PR #${pullRequest.number} merged)`, taskId);
         return shipped(taskId, branch, pullRequest.number, 'merged');
       }
@@ -739,6 +768,7 @@ const pollPrUntilMerged = async (
         );
         if (!merge.merged) {
           log(resolved, 'error', `merge failed: ${merge.reason ?? 'unknown'}`, taskId);
+          recordProgress(store, taskId, `merge failed: ${merge.reason ?? 'unknown'}`);
           return failed(
             taskId,
             branch,
@@ -747,20 +777,28 @@ const pollPrUntilMerged = async (
           );
         }
         log(resolved, 'success', `PR #${pullRequest.number} merged`, taskId);
+        recordProgress(store, taskId, `PR #${pullRequest.number} merged by pipeline`);
       }
       await syncAndRefresh(store, taskId, resolved);
       const refreshed = store.getTask(taskId);
       if (refreshed?.status === 'completed') {
         recordPhase(store, taskId, 'merge', resolved.runId, resolved.now);
+        recordProgress(store, taskId, `task shipped (PR #${pullRequest.number} merged)`);
         log(resolved, 'success', `task shipped`, taskId);
         return shipped(taskId, branch, pullRequest.number, 'merged');
       }
       log(resolved, 'error', 'PR merged but task did not transition to completed', taskId);
+      recordProgress(store, taskId, 'PR merged but task did not transition to completed');
       return failed(taskId, branch, pullRequest.number, 'merged_but_not_completed');
     }
 
     if (status.continuousIntegration.failedCount > 0 || status.reviewComments.unresolvedCount > 0) {
       recordPhase(store, taskId, 'address-pr', resolved.runId, resolved.now);
+      recordProgress(
+        store,
+        taskId,
+        `dispatching /address-pr ${pullRequest.number}: ${status.continuousIntegration.failedCount} failing check(s), ${status.reviewComments.unresolvedCount} unresolved comment(s)`,
+      );
       log(
         resolved,
         'step',
@@ -785,10 +823,20 @@ const pollPrUntilMerged = async (
       const addressElapsed = formatDuration(resolved.now() - addressStartedAt);
       if (spawn.killed === 'idle') {
         log(resolved, 'error', `address-pr agent idle-timeout after ${addressElapsed}`, taskId);
+        recordProgress(
+          store,
+          taskId,
+          `address-pr agent killed (idle-timeout after ${addressElapsed})`,
+        );
         return failed(taskId, branch, pullRequest.number, 'agent_idle');
       }
       if (spawn.killed === 'hard') {
         log(resolved, 'error', `address-pr agent hard-timeout after ${addressElapsed}`, taskId);
+        recordProgress(
+          store,
+          taskId,
+          `address-pr agent killed (hard-timeout after ${addressElapsed})`,
+        );
         return failed(taskId, branch, pullRequest.number, 'agent_timeout');
       }
       if (spawn.exitCode !== 0) {
@@ -799,9 +847,15 @@ const pollPrUntilMerged = async (
           `address-pr exited ${spawn.exitCode} after ${addressElapsed} (${reason})`,
           taskId,
         );
+        recordProgress(
+          store,
+          taskId,
+          `address-pr exited ${spawn.exitCode} after ${addressElapsed} (${reason})`,
+        );
         return failed(taskId, branch, pullRequest.number, reason);
       }
       log(resolved, 'success', `address-pr finished after ${addressElapsed}`, taskId);
+      recordProgress(store, taskId, `address-pr finished cleanly after ${addressElapsed}`);
       await syncAndRefresh(store, taskId, resolved);
       continue;
     }
@@ -815,6 +869,7 @@ const pollPrUntilMerged = async (
     await resolved.sleep(resolved.constants.CHECK_POLL_INTERVAL_MS);
   }
   log(resolved, 'error', `address-pr cap (${totalRounds}) reached without merging`, taskId);
+  recordProgress(store, taskId, `address-pr cap (${totalRounds}) reached without merging`);
   return failed(taskId, branch, null, 'address_pr_cap_reached');
 };
 
