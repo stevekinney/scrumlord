@@ -418,7 +418,10 @@ export const verifyAgentReachable = async (
   if (env['SCRUMLORD_PIPELINE_PREFLIGHT'] === 'off') return;
   const spawn = options.spawn ?? Bun.spawn;
   const timeoutMs = options.timeoutMs ?? 30_000;
-  const command = provider === 'claude' ? ['claude', '-p'] : ['codex', 'exec', '-'];
+  const command =
+    provider === 'claude'
+      ? ['claude', '-p']
+      : ['codex', 'exec', '--dangerously-bypass-approvals-and-sandbox', '-'];
   let child;
   try {
     child = spawn(command, { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
@@ -1169,8 +1172,10 @@ const buildPipelineInvocation = (
   // We concatenate the system prompt and body into a single stdin payload so
   // codex sees one coherent prompt; the leading system-prompt block is small
   // and behaves like a preamble.
+  // `--dangerously-bypass-approvals-and-sandbox` is required because the
+  // worktree path is not in the codex trust list.
   return {
-    command: ['codex', 'exec', '--cd', worktree],
+    command: ['codex', 'exec', '--dangerously-bypass-approvals-and-sandbox', '--cd', worktree],
     cwd: worktree,
     environment: {},
     stdin: `${PIPELINE_SYSTEM_PROMPT}\n\n${body}`,
@@ -1198,7 +1203,7 @@ const buildPlanOnlyInvocation = (
     };
   }
   return {
-    command: ['codex', 'exec', '--cd', worktree],
+    command: ['codex', 'exec', '--dangerously-bypass-approvals-and-sandbox', '--cd', worktree],
     cwd: worktree,
     environment: {},
     stdin: body,
@@ -1221,7 +1226,7 @@ const buildAddressPrInvocation = (
     };
   }
   return {
-    command: ['codex', 'exec', '--cd', worktree],
+    command: ['codex', 'exec', '--dangerously-bypass-approvals-and-sandbox', '--cd', worktree],
     cwd: worktree,
     environment: {},
     stdin: body,
