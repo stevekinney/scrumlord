@@ -7,22 +7,37 @@ import {
   getAgentProvider,
   resolveTaskSession,
   type AgentInvocation,
+  type TaskPhase,
 } from './agent-providers.js';
 import { runAgentHook } from './agent-hook.js';
 import { flag, required, type ParsedArguments } from './cli-arguments.js';
 import { taskIdFromArguments } from './cli-task-id.js';
-import { runCommand } from './command-runner.js';
+import { runCommand, type CommandRunner } from './command-runner.js';
 import { ScrumlordError } from './errors.js';
 import { currentGitBranch, worktreeForBranch } from './git-status.js';
 import type { CliOptions, CliResult } from './cli-types.js';
 import type { AgentProvider, Task, TaskStore } from './types.js';
 import { parseAgentProvider } from './validation.js';
+import {
+  checkProviderCapabilities,
+  codexWorktreePath,
+  deriveBranchAndShortId,
+  ensureCodexWorktree,
+  repoCommonDir,
+  repoSlug,
+  resolveBaseBranch,
+} from './worktree.js';
 
 export type TaskAgentCommandOptions = {
   provider?: AgentProvider;
   environment?: Record<string, string | undefined>;
   runAgentInvocation?: (invocation: AgentInvocation) => Promise<number>;
   which?: (executable: string) => string | null;
+  noWorktree?: boolean;
+  force?: boolean;
+  quiet?: boolean;
+  stderr?: (line: string) => void;
+  runner?: CommandRunner;
 };
 
 export type TaskAgentCommandResult = {
@@ -131,9 +146,12 @@ const planContentsFor = async (planPath: string | null): Promise<string | null> 
   }
 };
 
-const currentBranchOrNull = async (projectRoot: string): Promise<string | null> => {
+const currentBranchOrNull = async (
+  projectRoot: string,
+  runner: CommandRunner = runCommand,
+): Promise<string | null> => {
   try {
-    return await currentGitBranch(projectRoot, runCommand);
+    return await currentGitBranch(projectRoot, runner);
   } catch {
     return null;
   }
@@ -148,8 +166,157 @@ export const runStartCommand = async (
   const result = await startTask(store, taskId, {
     ...options,
     provider: providerFromStartCommand(parsed, options),
+    noWorktree: parsed.flags.has('no-worktree'),
+    force: parsed.flags.has('force'),
+    quiet: parsed.flags.has('quiet'),
   });
   return { exitCode: result.exitCode, stdout: '', stderr: '' };
+};
+
+const writeStderrLine = (options: TaskAgentCommandOptions, line: string): void => {
+  if (options.stderr) options.stderr(line);
+  else process.stderr.write(`${line}\n`);
+};
+
+/**
+ * Resolves the task `phase` from observable state:
+ *  - `start` when the current status is not in-progress.
+ *  - `resume-planning` when a resumed task has no non-empty plan.
+ *  - `resume-implementation` when a resumed task has a non-empty plan.
+ */
+const resolvePhase = async (task: Task, planPath: string | null): Promise<TaskPhase> => {
+  if (task.status !== 'in-progress') return 'start';
+  if (!planPath || !existsSync(planPath)) return 'resume-planning';
+  const size = Bun.file(planPath).size;
+  return size > 0 ? 'resume-implementation' : 'resume-planning';
+};
+
+type WorktreeSetup = {
+  worktree: string;
+  branch: string;
+  created: 'created' | 'reused' | 'claude-managed' | 'skipped';
+};
+
+const setupClaudeWorktree = async (
+  store: TaskStore,
+  task: Task,
+  options: TaskAgentCommandOptions,
+  runner: CommandRunner,
+): Promise<WorktreeSetup> => {
+  if (options.noWorktree) return noWorktreeSetup(store, task, options, runner);
+  const common = await repoCommonDir(store.projectRoot, runner).catch(() => store.projectRoot);
+  const { branch } = task.branch
+    ? { branch: task.branch }
+    : deriveBranchAndShortId(common, task.id);
+  const existing = task.branch
+    ? await worktreeForBranch(store.projectRoot, task.branch, runner)
+    : store.projectRoot;
+  const worktree = existing === store.projectRoot ? store.projectRoot : existing;
+  return { worktree, branch, created: 'claude-managed' };
+};
+
+const setupCodexWorktree = async (
+  store: TaskStore,
+  task: Task,
+  options: TaskAgentCommandOptions,
+  runner: CommandRunner,
+): Promise<WorktreeSetup> => {
+  if (options.noWorktree) return noWorktreeSetup(store, task, options, runner);
+  const common = await repoCommonDir(store.projectRoot, runner);
+  const derived = task.branch
+    ? { branch: task.branch, shortId: shortIdFromBranch(task.branch, common, task.id) }
+    : deriveBranchAndShortId(common, task.id);
+  const slug = repoSlug(store.projectRoot);
+  const directory = await codexWorktreePath(store.projectRoot, slug, derived.shortId);
+  const base = await resolveBaseBranch(store.projectRoot, runner);
+  const result = await ensureCodexWorktree(
+    store.projectRoot,
+    derived.branch,
+    base,
+    directory,
+    runner,
+  );
+  return {
+    worktree: result.worktree,
+    branch: derived.branch,
+    created: result.created ? 'created' : 'reused',
+  };
+};
+
+const shortIdFromBranch = (branch: string, commonDir: string, taskId: string): string => {
+  const match = /^task\/([0-9a-f]{8})$/.exec(branch);
+  if (match) return match[1]!;
+  return deriveBranchAndShortId(commonDir, taskId).shortId;
+};
+
+const noWorktreeSetup = async (
+  store: TaskStore,
+  task: Task,
+  options: TaskAgentCommandOptions,
+  runner: CommandRunner,
+): Promise<WorktreeSetup> => {
+  const current = (await currentBranchOrNull(store.projectRoot, runner)) ?? task.branch ?? 'HEAD';
+  const base = await resolveBaseBranch(store.projectRoot, runner).catch(() => null);
+  if (base && current === base.name && !options.force) {
+    throw new ScrumlordError(
+      'refuse_no_worktree_on_base_branch',
+      `Refusing to run on base branch ${current} with --no-worktree. Pass --force to override.`,
+    );
+  }
+  writeStderrLine(
+    options,
+    `⚠ --no-worktree: agent will run on the current branch (${current}). Not recommended.`,
+  );
+  return { worktree: store.projectRoot, branch: task.branch ?? current, created: 'skipped' };
+};
+
+const setupWorktree = (
+  provider: AgentProvider,
+  store: TaskStore,
+  task: Task,
+  options: TaskAgentCommandOptions,
+  runner: CommandRunner,
+): Promise<WorktreeSetup> => {
+  if (provider === 'claude') return setupClaudeWorktree(store, task, options, runner);
+  return setupCodexWorktree(store, task, options, runner);
+};
+
+const emitStatusLine = (
+  options: TaskAgentCommandOptions,
+  task: Task,
+  provider: AgentProvider,
+  setup: WorktreeSetup,
+): void => {
+  if (options.quiet) return;
+  writeStderrLine(
+    options,
+    `▶ task ${task.id}: branch ${setup.branch}, worktree ${setup.worktree} [${setup.created}], provider ${provider}`,
+  );
+};
+
+const verifyClaudeWorktreeAfterSession = async (
+  store: TaskStore,
+  branch: string,
+  exitCode: number,
+  previous: { status: Task['status']; branch: string | null },
+  taskId: string,
+  options: TaskAgentCommandOptions,
+  runner: CommandRunner,
+): Promise<void> => {
+  const worktree = await worktreeForBranch(store.projectRoot, branch, runner);
+  if (worktree !== store.projectRoot) return;
+  if (exitCode === 0) {
+    writeStderrLine(
+      options,
+      `⚠ Claude session ended but no worktree exists for branch ${branch}; task left in-progress.`,
+    );
+    return;
+  }
+  store.update(taskId, { status: previous.status, branch: previous.branch });
+  writeStderrLine(
+    options,
+    `↩ Claude session failed and no worktree was created; reverted task ${taskId} to ${previous.status}.`,
+  );
 };
 
 /** Starts a task in an agent CLI and updates task status, session, and branch metadata. */
@@ -163,35 +330,53 @@ export const startTask = async (
   const task = store.getTask(taskId);
   if (!task) throw new ScrumlordError('task_not_found', `Task not found: ${taskId}`);
   assertTaskCanStart(store, task);
+  const runner = options.runner ?? runCommand;
+  await checkProviderCapabilities(provider, runner, store.projectRoot);
 
+  const previous = { status: task.status, branch: task.branch };
+  const setup = await setupWorktree(provider, store, task, options, runner);
   const adapter = getAgentProvider(provider);
   const session = adapter.createSession();
-  const branch = task.branch ?? (await currentBranchOrNull(store.projectRoot));
   const updated = store.update(task.id, {
     status: 'in-progress',
     provider,
     session: session ?? task.session,
-    branch,
+    branch: setup.branch,
   });
-  const worktree = updated.branch
-    ? await worktreeForBranch(store.projectRoot, updated.branch, runCommand)
-    : store.projectRoot;
+
   const storedPlan = updated.plan ?? defaultTaskPlanPath(updated.id);
   const planPath = absoluteTaskPlanPath(store.projectRoot, storedPlan);
   const planContents = await planContentsFor(planPath);
+  const phase = await resolvePhase(task, planPath);
+
+  emitStatusLine(options, updated, provider, setup);
+
   const invocation = withExecutablePath(
     buildTaskStartInvocation(provider, {
       task: updated,
       projectRoot: store.projectRoot,
-      cwd: worktree,
+      cwd: setup.worktree,
       planPath,
       planContents,
       session: session ?? updated.session,
+      phase,
     }),
     executablePath,
   );
 
-  return { exitCode: await runAgentInvocation(invocation, options) };
+  const exitCode = await runAgentInvocation(invocation, options);
+  if (provider === 'claude' && setup.created === 'claude-managed') {
+    await verifyClaudeWorktreeAfterSession(
+      store,
+      setup.branch,
+      exitCode,
+      previous,
+      updated.id,
+      options,
+      runner,
+    );
+  }
+  return { exitCode };
 };
 
 export const runResumeCommand = async (

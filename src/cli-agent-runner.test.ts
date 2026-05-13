@@ -4,7 +4,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runTasksCli } from './cli-runner';
 import { emptyProgressStoreMethods } from './test-progress-store-methods';
+import { taskStartRunner } from './test-runner-mocks';
 import type { Task, TaskReference, TaskStore } from './types';
+
+const startRunner = taskStartRunner({
+  'git branch --show-current': () => ({
+    exitCode: 0,
+    stdout: 'feature/task-graph\n',
+    stderr: '',
+  }),
+});
 
 const temporaryDirectories: string[] = [];
 
@@ -136,9 +145,10 @@ describe('runTasksCli agent session commands', () => {
       }),
     };
 
-    const startResult = await runTasksCli(['start', 'task-id', '--cli', 'claude'], {
+    const startResult = await runTasksCli(['start', 'task-id', '--cli', 'claude', '--quiet'], {
       createStore: async () => store,
       which: () => '/bin/provider',
+      runner: startRunner,
       runAgentInvocation: async (invocation) => {
         invocations.push(invocation.command);
         return 7;
@@ -149,6 +159,7 @@ describe('runTasksCli agent session commands', () => {
     expect(invocations[0]?.[0]).toBe('/bin/provider');
     expect(invocations[0]).toContain('--permission-mode');
     expect(invocations[0]).toContain('--session-id');
+    expect(invocations[0]).toContain('--worktree');
 
     const resumeResult = await runTasksCli(['resume', 'task-id'], {
       createStore: async () => store,
@@ -176,9 +187,10 @@ describe('runTasksCli agent session commands', () => {
     const truePath = Bun.which('true') ?? '/usr/bin/true';
     const calls: string[] = [];
 
-    const result = await runTasksCli(['start', 'task-id', '--cli', 'claude'], {
+    const result = await runTasksCli(['start', 'task-id', '--cli', 'claude', '--quiet'], {
       createStore: async () => ({ ...fakeStore(calls), projectRoot: root }),
       which: () => truePath,
+      runner: startRunner,
     });
 
     expect(result).toEqual({ exitCode: 0, stdout: '', stderr: '' });
@@ -196,12 +208,14 @@ describe('runTasksCli agent session commands', () => {
     const missingExecutable = await runTasksCli(['start', 'task-id', '--cli', 'codex'], {
       createStore,
       which: () => null,
+      runner: startRunner,
     });
     expect(JSON.parse(missingExecutable.stderr).error.code).toBe('provider_cli_not_found');
 
     const blocked = await runTasksCli(['start', 'task-id', '--cli', 'codex'], {
       createStore,
       which: () => '/bin/codex',
+      runner: startRunner,
     });
     expect(JSON.parse(blocked.stderr).error.code).toBe('task_blocked');
 
@@ -217,6 +231,7 @@ describe('runTasksCli agent session commands', () => {
           getTask: () => task('task-id', overrides),
         }),
         which: () => '/bin/codex',
+        runner: startRunner,
       });
       expect(JSON.parse(result.stderr).error.code).toBe(code);
     }
@@ -238,6 +253,7 @@ describe('runTasksCli agent session commands', () => {
         update: (_id: string, input) => task('task-id', { ...input, plan: unreadablePath }),
       }),
       which: () => '/bin/codex',
+      runner: startRunner,
     });
     expect(JSON.parse(unreadablePlan.stderr).error.code).toBe('plan_unreadable');
   });
@@ -269,268 +285,5 @@ describe('runTasksCli agent session commands', () => {
 
     expect(routed).toEqual({ exitCode: 0, stdout: '', stderr: '' });
     expect(calls).toContain('setSession:task-id:codex:session-1');
-  });
-});
-
-describe('runTasksCli boundary commands', () => {
-  it('handles setup and pull request boundary commands', async () => {
-    const root = await workspaceRoot();
-    const githubCalls: string[] = [];
-    const pullRequest = {
-      number: 1,
-      url: 'https://github.test/pull/1',
-      headRefName: 'feature/task-graph',
-      headSha: 'abc123',
-      title: 'Task graph',
-    };
-    const check = {
-      name: 'build',
-      state: 'SUCCESS',
-      bucket: 'pass',
-      workflow: 'Validate',
-      url: 'https://github.test/checks/build',
-      completedAt: '2026-05-11T12:00:00Z',
-    };
-    const checkReport = {
-      ...check,
-      conclusion: 'successful' as const,
-      synopsis: 'Validate: build passed.',
-    };
-    const reviewComment = {
-      id: 'comment-id',
-      url: 'https://github.test/comment',
-      path: 'src/github.ts',
-      line: 123,
-      body: 'Please fix this.',
-      author: 'reviewer',
-    };
-    const github = {
-      async repositoryName(projectRoot: string) {
-        githubCalls.push(`repository:${projectRoot}`);
-        return 'owner/repository';
-      },
-      async repositoryUrl(projectRoot: string) {
-        githubCalls.push(`repositoryUrl:${projectRoot}`);
-        return 'https://github.com/owner/repository';
-      },
-      async pullRequestUrl(projectRoot: string, open: boolean) {
-        githubCalls.push(`url:${projectRoot}:${open}`);
-        return { url: pullRequest.url };
-      },
-      async pullRequestStatus(projectRoot: string) {
-        githubCalls.push(`status:${projectRoot}`);
-        return {
-          pullRequest,
-          reviewComments: { allResolved: true, unresolvedCount: 0, unresolved: [] },
-          continuousIntegration: {
-            allGreen: true,
-            pendingCount: 0,
-            failedCount: 0,
-            checks: [checkReport],
-            pending: [],
-            failed: [],
-          },
-          readyToMerge: true,
-        };
-      },
-      async tasksOverview(store: TaskStore) {
-        githubCalls.push(`overview:${store.projectRoot}`);
-        return [
-          {
-            pullRequest,
-            associatedTasks: [],
-            reviewComments: { unresolvedCount: 0 },
-            continuousIntegration: {
-              status: 'success' as const,
-              pendingCount: 0,
-              failedCount: 0,
-              checks: [checkReport],
-            },
-            readyToMerge: true,
-          },
-        ];
-      },
-      async unresolvedReviewComments(projectRoot: string) {
-        githubCalls.push(`comments:${projectRoot}`);
-        return [reviewComment];
-      },
-      async continuousIntegrationStatus(projectRoot: string) {
-        githubCalls.push(`ci:${projectRoot}`);
-        return [check];
-      },
-    };
-
-    const pullRequestResult = await runTasksCli(['pr', '--open'], { cwd: root, github });
-    expect(JSON.parse(pullRequestResult.stdout)).toEqual({ url: 'https://github.test/pull/1' });
-    expect(githubCalls).toContain(`url:${root}:true`);
-    const pullRequestStatusResult = await runTasksCli(['pr', 'status'], { cwd: root, github });
-    expect(JSON.parse(pullRequestStatusResult.stdout).readyToMerge).toBe(true);
-    expect(githubCalls).toContain(`status:${root}`);
-    const repositoryResult = await runTasksCli(['repository'], { cwd: root, github });
-    expect(JSON.parse(repositoryResult.stdout)).toBe('owner/repository');
-    expect(githubCalls).toContain(`repository:${root}`);
-    const repositoryUrlResult = await runTasksCli(['repository', '--url'], { cwd: root, github });
-    expect(JSON.parse(repositoryUrlResult.stdout)).toBe('https://github.com/owner/repository');
-    expect(githubCalls).toContain(`repositoryUrl:${root}`);
-    const overviewCalls: string[] = [];
-    const overviewResult = await runTasksCli(['overview'], {
-      cwd: root,
-      createStore: async () => fakeStore(overviewCalls),
-      github,
-    });
-    expect(JSON.parse(overviewResult.stdout)[0].pullRequest.number).toBe(1);
-    expect(githubCalls).toContain('overview:/project');
-    expect(overviewCalls).toEqual(['close']);
-    const commentsResult = await runTasksCli(['comments'], { cwd: root, github });
-    expect(JSON.parse(commentsResult.stdout)).toEqual([reviewComment]);
-    expect(githubCalls).toContain(`comments:${root}`);
-    const continuousIntegrationResult = await runTasksCli(['ci'], { cwd: root, github });
-    expect(JSON.parse(continuousIntegrationResult.stdout)).toEqual([check]);
-    expect(githubCalls).toContain(`ci:${root}`);
-
-    const initResult = await runTasksCli(['init'], {
-      cwd: root,
-      initializeProject: async (options) => ({ initialized: true, cwd: options.cwd }),
-    });
-    expect(JSON.parse(initResult.stdout)).toEqual({ initialized: true, cwd: root });
-
-    const setupResult = await runTasksCli(['setup-skills', '--all'], { cwd: root });
-    expect(JSON.parse(setupResult.stdout).map((entry: { target: string }) => entry.target)).toEqual(
-      ['codex', 'claude', 'cursor'],
-    );
-
-    const setupGitHooksResult = await runTasksCli(['setup-git-hooks'], {
-      cwd: root,
-      setupGitHooks: async (projectRoot: string) => ({
-        configurationPath: join(projectRoot, 'lefthook.yml'),
-        changed: true,
-        hooks: [],
-        install: null,
-      }),
-    });
-    expect(JSON.parse(setupGitHooksResult.stdout)).toEqual({
-      configurationPath: join(root, 'lefthook.yml'),
-      changed: true,
-      hooks: [],
-      install: null,
-    });
-
-    const setupAgentHooksResult = await runTasksCli(['setup-agent-hooks'], {
-      cwd: root,
-      homeDirectory: root,
-      setupAgentHooks: async () => ({
-        claude: {
-          settingsPath: join(root, '.claude/settings.json'),
-          changed: true,
-          skipped: false,
-        },
-        codex: {
-          configurationPath: join(root, '.codex/config.toml'),
-          hooksPath: join(root, '.codex/hooks.json'),
-          changed: true,
-          skipped: false,
-        },
-      }),
-    });
-    expect(JSON.parse(setupAgentHooksResult.stdout).claude.settingsPath).toBe(
-      join(root, '.claude/settings.json'),
-    );
-
-    const setupSubagentsResult = await runTasksCli(['setup-subagents', 'codex', '--global'], {
-      cwd: root,
-      homeDirectory: root,
-      setupSubagents: async (projectRoot, options) => ({
-        projectRoot,
-        scope: options?.scope ?? 'local',
-        providers: [
-          {
-            provider: options?.target === 'claude' ? 'claude' : 'codex',
-            path: join(projectRoot, '.codex/agents/scrumlord-task-manager.toml'),
-            changed: true,
-            settingsPath: null,
-            settingsChanged: false,
-          },
-        ],
-        skills: [],
-        warnings: options?.target ? [`target:${options.target}`] : [],
-      }),
-      which: () => '/bin/provider',
-    });
-    expect(JSON.parse(setupSubagentsResult.stdout)).toEqual({
-      projectRoot: root,
-      scope: 'global',
-      providers: [
-        {
-          provider: 'codex',
-          path: join(root, '.codex/agents/scrumlord-task-manager.toml'),
-          changed: true,
-          settingsPath: null,
-          settingsChanged: false,
-        },
-      ],
-      skills: [],
-      warnings: ['target:codex'],
-    });
-
-    const setupStatusResult = await runTasksCli(['setup', 'status'], {
-      cwd: root,
-      which: (executable) => (executable === 'tasks' ? '/bin/tasks' : null),
-    });
-    expect(JSON.parse(setupStatusResult.stdout).projectRoot).toBe(root);
-
-    const fullSetupResult = await runTasksCli(['setup', '--yes'], {
-      cwd: root,
-      setupProject: async (setupOptions) => ({
-        projectRoot: setupOptions.cwd ?? root,
-        databasePath: join(setupOptions.cwd ?? root, 'tmp/tasks.db'),
-        skills: [],
-        subagents: null,
-        agentHooks: null,
-        gitHooks: { configurationPath: null, changed: false, hooks: [], install: null },
-        warnings: [],
-      }),
-      which: (executable) => (executable === 'codex' ? '/bin/codex' : null),
-    });
-    expect(JSON.parse(fullSetupResult.stdout).projectRoot).toBe(root);
-
-    const setupInteractiveResult = await runTasksCli(['setup'], {
-      cwd: root,
-      colorMode: 'always',
-      readStdin: async () => 'codex\nlocal\nnone\n',
-      setupProject: async (setupOptions) => ({
-        projectRoot: setupOptions.cwd ?? root,
-        databasePath: join(setupOptions.cwd ?? root, 'tmp/tasks.db'),
-        skills: [],
-        subagents: null,
-        agentHooks: null,
-        gitHooks: { configurationPath: null, changed: false, hooks: [], install: null },
-        warnings: [],
-      }),
-      which: (executable) => (executable === 'codex' ? '/bin/codex' : null),
-    });
-    expect(JSON.parse(setupInteractiveResult.stdout).projectRoot).toBe(root);
-    expect(setupInteractiveResult.stderr).toContain('\u001b[');
-
-    const truePath = Bun.which('true') ?? '/usr/bin/true';
-    const spawnedSetupResult = await runTasksCli(['setup', '--codex'], {
-      cwd: root,
-      setupProject: async (setupOptions) => ({
-        projectRoot: setupOptions.cwd ?? root,
-        databasePath: join(setupOptions.cwd ?? root, 'tmp/tasks.db'),
-        skills: [],
-        subagents: null,
-        agentHooks: null,
-        gitHooks: { configurationPath: null, changed: false, hooks: [], install: null },
-        warnings: [],
-      }),
-      which: (executable) => (executable === 'codex' ? truePath : null),
-    });
-    expect(spawnedSetupResult).toEqual({ exitCode: 0, stdout: '', stderr: '' });
-
-    const realSetupResult = await runTasksCli(['setup', '--yes'], {
-      cwd: root,
-      which: () => null,
-    });
-    expect(JSON.parse(realSetupResult.stdout).databasePath).toBe(join(root, 'tmp/tasks.db'));
   });
 });

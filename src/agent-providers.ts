@@ -20,7 +20,7 @@ export type AgentCliProvider = {
   id: AgentProvider;
   executable: string;
   createSession(): string | null;
-  buildStartInvocation(context: AgentStartInvocationContext): AgentInvocation;
+  buildStartInvocation(context: TaskPromptContext): AgentInvocation;
   buildResumeInvocation(context: AgentResumeInvocationContext): AgentInvocation;
   buildSetupInvocation(context: AgentSetupInvocationContext): AgentInvocation;
   sessionSearchRoots(options?: AgentSessionPathOptions): string[];
@@ -54,27 +54,54 @@ export type ResolveTaskSessionOptions = AgentSessionPathOptions & {
   runner?: CommandRunner;
 };
 
-const providerSystemPrompt =
-  'You are working on a Scrumlord task. Use the tasks CLI for task state. If you do not already know the task ID, run tasks current-task before falling back to tasks next. Commands whose first positional argument is a task ID can omit it when exactly one active task is assigned to the current Git branch. Read any existing plan before implementation. If you create or replace a plan, write it to the task plan path and update the task plan field with tasks set-plan [task-id] <path>. Record meaningful task progress with tasks add-progress [task-id] --message <note> after planning, major implementation steps, blockers, and handoffs; recording progress moves draft or ready tasks to in-progress. Record the branch with tasks set-branch [task-id] <branch> when work starts; setting a branch moves draft or ready tasks to in-progress. Run tasks sync-git-status when GitHub might already know about the pull request, and mark tasks completed after the pull request merges into origin/main.';
+export const taskPhases = ['start', 'resume-planning', 'resume-implementation'] as const;
+export type TaskPhase = (typeof taskPhases)[number];
 
-const planInstructions = [
-  'Start in plan mode.',
-  'Do not edit files until the plan is ready and the user exits plan mode.',
-  'If task.plan is set, read that file before planning.',
-  'If you generate a plan, write it to planPath and run tasks set-plan [task-id] <path>.',
-  'After the plan is saved, run tasks add-progress [task-id] --message <note> to record the planning result.',
+const providerSystemPrompt = [
+  'You are working on a Scrumlord task in a per-task git worktree. The branch is checked out; do not create new worktrees or branches.',
+  'The workflow has four phases: plan, implement, committee-review, address-pr.',
+  '1. Plan in plan mode. Write the plan to the task plan path and run `tasks set-plan [task-id] <path>`. Before exiting plan mode, invoke the `plan-review` skill and drive it to approval.',
+  '2. Implement against the approved plan. Record progress at major checkpoints with `tasks add-progress [task-id] --message <note>`. Keep the plan file accurate if scope shifts.',
+  '3. Open the pull request via the `committee-review` skill. Do not run `gh pr create` yourself; the skill handles the approval marker and the push.',
+  '4. Drive the pull request to merge via the `address-pr` skill. Do not stop until the pull request is merged.',
+  'Use the tasks CLI for task state. If you do not already know the task ID, run `tasks current-task` before falling back to `tasks next`. Commands whose first positional argument is a task ID can omit it when exactly one active task is assigned to the current Git branch.',
+  'Record the branch with `tasks set-branch [task-id] <branch>` if it is not already recorded. Run `tasks sync-git-status` when GitHub may already know about the pull request, and mark tasks completed after the pull request merges into the base branch.',
 ].join(' ');
 
-const buildTaskPrompt = (context: AgentStartInvocationContext): string => {
+const planInstructionsByPhase: Record<TaskPhase, string> = {
+  start: [
+    'Start in plan mode.',
+    'Do not edit files until the plan is ready, the `plan-review` skill has approved it, and you exit plan mode.',
+    'If task.plan is set, read that file before planning.',
+    'If you generate or replace a plan, write it to planPath and run `tasks set-plan [task-id] <path>`.',
+    'After the plan is saved, run `tasks add-progress [task-id] --message <note>` to record the planning result.',
+  ].join(' '),
+  'resume-planning': [
+    'Resume planning for this task.',
+    'No plan exists yet; start in plan mode, draft the plan, and gate exit on the `plan-review` skill.',
+    'Write the plan to planPath and run `tasks set-plan [task-id] <path>` before exiting plan mode.',
+  ].join(' '),
+  'resume-implementation': [
+    'Resume implementation for this task. A plan already exists at planPath.',
+    'Do not re-plan. Read the existing plan, check `tasks progress [task-id]` for prior checkpoints, and continue from where the previous session left off.',
+    'Record progress at major checkpoints with `tasks add-progress [task-id] --message <note>`.',
+  ].join(' '),
+};
+
+export type TaskPromptContext = AgentStartInvocationContext & { phase: TaskPhase };
+
+const buildTaskPrompt = (context: TaskPromptContext): string => {
   const payload = {
     task: context.task,
     projectRoot: context.projectRoot,
     worktree: context.cwd,
+    branch: context.task.branch,
     planPath: context.planPath,
     existingPlan: context.planContents,
+    phase: context.phase,
   };
   return [
-    planInstructions,
+    planInstructionsByPhase[context.phase],
     '',
     'Task context:',
     '```json',
@@ -82,6 +109,9 @@ const buildTaskPrompt = (context: AgentStartInvocationContext): string => {
     '```',
   ].join('\n');
 };
+
+/** True when the provider should force its planning UX (Claude plan mode, Codex /plan prefix). */
+export const phaseForcesPlanMode = (phase: TaskPhase): boolean => phase !== 'resume-implementation';
 
 const buildSetupPrompt = (context: AgentSetupInvocationContext): string => {
   return [
@@ -109,13 +139,10 @@ const claudeProvider: AgentCliProvider = {
   executable: 'claude',
   createSession: () => crypto.randomUUID(),
   buildStartInvocation(context) {
-    const command = [
-      'claude',
-      '--permission-mode',
-      'plan',
-      '--append-system-prompt',
-      providerSystemPrompt,
-    ];
+    const command = ['claude'];
+    if (context.task.branch) command.push('--worktree', context.task.branch);
+    if (phaseForcesPlanMode(context.phase)) command.push('--permission-mode', 'plan');
+    command.push('--append-system-prompt', providerSystemPrompt);
     if (context.session) command.push('--session-id', context.session);
     command.push(buildTaskPrompt(context));
     return withEnvironment(command, context.cwd);
@@ -138,7 +165,10 @@ const codexProvider: AgentCliProvider = {
   executable: 'codex',
   createSession: () => null,
   buildStartInvocation(context) {
-    const prompt = `/plan ${providerSystemPrompt}\n\n${buildTaskPrompt(context)}`;
+    const taskPrompt = buildTaskPrompt(context);
+    const prompt = phaseForcesPlanMode(context.phase)
+      ? `/plan ${providerSystemPrompt}\n\n${taskPrompt}`
+      : `${providerSystemPrompt}\n\n${taskPrompt}`;
     return withEnvironment(['codex', '--cd', context.cwd, prompt], context.cwd);
   },
   buildResumeInvocation(context) {
@@ -213,12 +243,16 @@ const findSessionPath = async (
   return null;
 };
 
-/** Builds a provider-specific start command for a Scrumlord task. */
+/**
+ * Builds a provider-specific start command for a Scrumlord task. The `phase`
+ * defaults to `"start"` so existing callers behave the same.
+ */
 export const buildTaskStartInvocation = (
   provider: AgentProvider,
-  context: AgentStartInvocationContext,
+  context: AgentStartInvocationContext & { phase?: TaskPhase },
 ): AgentInvocation => {
-  return getAgentProvider(provider).buildStartInvocation(context);
+  const phase: TaskPhase = context.phase ?? 'start';
+  return getAgentProvider(provider).buildStartInvocation({ ...context, phase });
 };
 
 /** Builds a provider-specific resume command for a Scrumlord task session. */

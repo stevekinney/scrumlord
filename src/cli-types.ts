@@ -1,5 +1,6 @@
 import type { AgentInvocation } from './agent-providers.js';
 import type { ColorMode } from './color.js';
+import type { CommandRunner } from './command-runner.js';
 import type { PullRequestCheck, PullRequestStatusReport, ReviewComment } from './github.js';
 import type { InitializeProjectOptions } from './init.js';
 import type { SetupAgentHooksOptions, SetupAgentHooksResult } from './agent-hooks.js';
@@ -24,6 +25,7 @@ export type CliOptions = {
   readStdin?: () => Promise<string>;
   runAgentInvocation?: (invocation: AgentInvocation) => Promise<number>;
   which?: (executable: string) => string | null;
+  runner?: CommandRunner;
   homeDirectory?: string;
   setupProject?: (options: SetupProjectOptions) => Promise<SetupProjectResult>;
   setupSubagents?: (

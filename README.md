@@ -122,7 +122,7 @@ All flags use kebab case. Tags are trimmed and lowercased before storage. `branc
 
 ### Agent Sessions
 
-- `tasks start [task-id] --cli <claude|codex>`: Start a task in an agent CLI. If `--cli` is omitted, Scrumlord uses `SCRUMLORD_CLI`; if neither is present, it fails before launching anything.
+- `tasks start [task-id] --cli <claude|codex>`: Start a task in an agent CLI. Scrumlord creates the worktree and branch (Claude: `claude --worktree`; Codex: `~/.codex/worktrees/<slug>-<short-id>` with a `<projectRoot>/tmp/worktrees/` fallback when the home location is unwritable) before launching the provider. The agent receives a JSON payload with `worktree`, `branch`, and `phase` (`start | resume-planning | resume-implementation`), and a system prompt that names the four-phase workflow: plan → implement → `committee-review` (which opens the PR) → `address-pr` (which drives it to merge). Pass `--no-worktree` to skip worktree creation (refused on the resolved base branch unless `--force`); pass `--quiet` to suppress the pre-launch status line. If `--cli` is omitted, Scrumlord uses `SCRUMLORD_CLI`; if neither is present, it fails before launching anything.
 - `tasks resume [task-id]`: Resume the recorded provider session from the derived worktree when available, falling back to the project root.
 - `tasks session [task-id]`: Return the task session report as JSON.
 - `tasks current-task`: Show the task for the current branch when you need to inspect the inferred ID directly.

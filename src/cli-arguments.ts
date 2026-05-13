@@ -62,7 +62,11 @@ const commandSpecifications: Record<string, CommandSpecification> = {
     ...optionalTaskId,
     valueFlags: ['message', 'provider', 'session'],
   },
-  start: { ...optionalTaskId, valueFlags: ['cli'] },
+  start: {
+    ...optionalTaskId,
+    valueFlags: ['cli'],
+    booleanFlags: ['no-worktree', 'force', 'quiet'],
+  },
   resume: optionalTaskId,
   'agent-hook': onePositional,
   delete: optionalTaskId,
