@@ -245,4 +245,72 @@ describe('classifyTaskForRecovery', () => {
       expect(result).toMatchObject({ kind: 'manual', code: 'input-unavailable' });
     }
   });
+
+  describe('live-pipeline detection (W-B-3)', () => {
+    it('manual live-pipeline-detected when currentLockState is live (highest precedence)', () => {
+      // Live lock wins even if all other inputs look rollback-safe.
+      const result = classifyTaskForRecovery(inputs({ currentLockState: 'live' }));
+      expect(result).toMatchObject({
+        kind: 'manual',
+        code: 'live-pipeline-detected',
+      });
+    });
+
+    it('manual live-pipeline-detected when lock is absent but heartbeat pid is alive and fresh', () => {
+      const now = Date.parse('2026-01-01T12:00:00Z');
+      const result = classifyTaskForRecovery(
+        inputs({
+          now,
+          currentLockState: 'absent',
+          latestHeartbeat: {
+            ts: now - 5_000, // 5s old
+            runId: 'r1',
+            pid: 99999,
+            pidAlive: true,
+          },
+        }),
+      );
+      expect(result).toMatchObject({
+        kind: 'manual',
+        code: 'live-pipeline-detected',
+      });
+    });
+
+    it('falls through when heartbeat is fresh but pid is dead', () => {
+      const now = Date.parse('2026-01-01T12:00:00Z');
+      const result = classifyTaskForRecovery(
+        inputs({
+          now,
+          currentLockState: 'absent',
+          latestHeartbeat: { ts: now - 5_000, runId: 'r1', pid: 99999, pidAlive: false },
+        }),
+      );
+      // Falls back to normal classification — no branch, no PR → rollback-safe.
+      expect(result.kind).toBe('rollback-safe');
+    });
+
+    it('falls through when heartbeat pid is alive but the marker is stale', () => {
+      const now = Date.parse('2026-01-01T12:00:00Z');
+      const result = classifyTaskForRecovery(
+        inputs({
+          now,
+          currentLockState: 'absent',
+          latestHeartbeat: {
+            ts: now - 5 * 60_000, // 5 minutes old
+            runId: 'r1',
+            pid: 99999,
+            pidAlive: true,
+          },
+        }),
+      );
+      expect(result.kind).toBe('rollback-safe');
+    });
+
+    it('falls through with stale lock + no heartbeat (recoverable)', () => {
+      const result = classifyTaskForRecovery(
+        inputs({ currentLockState: 'stale', latestHeartbeat: null }),
+      );
+      expect(result.kind).toBe('rollback-safe');
+    });
+  });
 });

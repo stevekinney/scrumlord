@@ -30,6 +30,28 @@ export type RecoveryInputs = {
   progressPhases: PipelinePhase[];
   branchProvenance: 'task-derived' | 'foreign' | 'unknown';
   now: number;
+  /**
+   * State of the global pipeline lockfile at the moment recovery ran. Used
+   * by rule precedence: a live lock means another pipeline is actively
+   * working — recovery should refuse all mutations and classify as
+   * `manual: live-pipeline-detected`.
+   *
+   *   `absent` — no lockfile on disk.
+   *   `live`   — lockfile present and PID is alive.
+   *   `stale`  — lockfile present but PID is dead or age > threshold.
+   *
+   * Optional so older test fixtures continue to work; treated as `absent`
+   * when undefined.
+   */
+  currentLockState?: 'absent' | 'live' | 'stale';
+  /**
+   * Latest heartbeat marker written by a running pipeline for this task,
+   * if any. The marker records the pid of the lock owner so we can
+   * distinguish "pipeline alive, lock crashed" from "pipeline dead".
+   */
+  latestHeartbeat?: { ts: number; runId: string; pid: number; pidAlive: boolean } | null;
+  /** How long a heartbeat counts as fresh. Defaults to 60s (2× the 30s emit interval). */
+  heartbeatFreshnessMs?: number;
 };
 
 export type ManualReasonCode =
@@ -43,7 +65,8 @@ export type ManualReasonCode =
   | 'empty-remote-branch'
   | 'past-claim-with-missing-state'
   | 'orphan-worktree'
-  | 'input-unavailable';
+  | 'input-unavailable'
+  | 'live-pipeline-detected';
 
 export type RecoveryVerdict =
   | { kind: 'rollback-safe'; reason: string }
@@ -97,12 +120,58 @@ const wentPastClaim = (phases: PipelinePhase[]): boolean => {
 };
 
 /**
+ * Detects whether another pipeline is actively working on this task.
+ * Precedence (highest signal first):
+ *   1. Live lockfile: another pipeline holds the global lock right now.
+ *   2. Absent/stale lockfile + fresh heartbeat whose PID is alive: the lock
+ *      crashed but the pipeline itself is still running. Rare but possible.
+ * Both produce a `manual: live-pipeline-detected` verdict; the recovery
+ * sweep refuses any mutation. Stale-heartbeat / dead-PID falls through to
+ * normal recovery.
+ */
+const detectLivePipeline = (
+  inputs: RecoveryInputs,
+): { reason: string; evidence: string[] } | null => {
+  if (inputs.currentLockState === 'live') {
+    return {
+      reason:
+        'Another pipeline holds the global lockfile; refusing to mutate state. Re-run recovery after the live pipeline finishes.',
+      evidence: ['currentLockState=live'],
+    };
+  }
+  const heartbeat = inputs.latestHeartbeat;
+  if (!heartbeat) return null;
+  if (!heartbeat.pidAlive) return null;
+  const freshnessMs = inputs.heartbeatFreshnessMs ?? 60_000;
+  const age = inputs.now - heartbeat.ts;
+  if (age > freshnessMs) return null;
+  return {
+    reason:
+      'Lockfile is absent or stale but a recent heartbeat marker references a live PID; another pipeline is still running.',
+    evidence: [
+      `heartbeat.pid=${heartbeat.pid}`,
+      `heartbeat.ageMs=${age}`,
+      `freshnessMs=${freshnessMs}`,
+    ],
+  };
+};
+
+/**
  * Classifies a stranded task into a recovery verdict. Pure function — does no
  * I/O, makes no mutations. The caller is responsible for dispatching whatever
  * action the verdict requires (or refusing to mutate in default `--recover`).
  */
 // eslint-disable-next-line complexity
 export const classifyTaskForRecovery = (inputs: RecoveryInputs): RecoveryVerdict => {
+  const liveSignal = detectLivePipeline(inputs);
+  if (liveSignal) {
+    return {
+      kind: 'manual',
+      reason: liveSignal.reason,
+      code: 'live-pipeline-detected',
+      evidence: liveSignal.evidence,
+    };
+  }
   if (hasUnknownInputs(inputs)) {
     return {
       kind: 'manual',

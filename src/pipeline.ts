@@ -864,11 +864,27 @@ export const runOneTask = async (
   const tailPath = join(transcriptDir, `${taskId}.tail`);
   const abort = new AbortController();
   const agentStartedAt = resolved.now();
-  const spawnResult = await resolved.spawnAgent(
-    invocation,
-    { idleMs: resolved.constants.AGENT_IDLE_MS, maxMs: resolved.constants.AGENT_MAX_MS },
-    { stderr: resolved.stderr, signal: abort.signal, transcriptPath },
-  );
+  // Per-task heartbeat marker (#13). Every 30s while the agent runs we
+  // record `pipeline:heartbeat=<run>:<pid>:<iso>` into the task's progress
+  // log. The recovery sweep correlates these with the global lock state to
+  // tell "pipeline crashed mid-task" from "another pipeline is alive."
+  const heartbeatInterval = setInterval(() => {
+    recordProgress(
+      store,
+      taskId,
+      `pipeline:heartbeat=${resolved.runId}:${process.pid}:${new Date(resolved.now()).toISOString()}`,
+    );
+  }, 30_000);
+  let spawnResult;
+  try {
+    spawnResult = await resolved.spawnAgent(
+      invocation,
+      { idleMs: resolved.constants.AGENT_IDLE_MS, maxMs: resolved.constants.AGENT_MAX_MS },
+      { stderr: resolved.stderr, signal: abort.signal, transcriptPath },
+    );
+  } finally {
+    clearInterval(heartbeatInterval);
+  }
   writeFileSync(tailPath, spawnResult.tail);
   const agentElapsed = formatDuration(resolved.now() - agentStartedAt);
   if (spawnResult.killed === 'idle') {
@@ -1659,7 +1675,58 @@ const gatherRecoveryInputs = async (
     progressPhases: collectProgressPhases(store, task.id),
     branchProvenance: provenance,
     now,
+    currentLockState: classifyLockfile(store.projectRoot, now),
+    latestHeartbeat: latestHeartbeatFor(store, task.id),
   };
+};
+
+/**
+ * Reads the global lockfile (if any) and classifies it as absent, live, or
+ * stale. Used by the recovery classifier's live-pipeline precedence rule.
+ * `stale` covers both dead-PID and age-exceeded cases; recovery treats it
+ * like absent and falls through to normal classification.
+ *
+ * The recovery sweep itself runs while this process holds the lock, so a
+ * match between the lockfile pid and our own pid is treated as `absent`
+ * for classification purposes — otherwise every sweep would refuse to
+ * mutate anything.
+ */
+const classifyLockfile = (projectRoot: string, now: number): 'absent' | 'live' | 'stale' => {
+  const path = LOCKFILE_PATH(projectRoot);
+  const existing = readLockfile(path);
+  if (!existing) return 'absent';
+  if (existing.pid === process.pid) return 'absent';
+  if (!isPidAlive(existing.pid)) return 'stale';
+  const ageMs = now - Date.parse(existing.startedAt);
+  if (Number.isFinite(ageMs) && ageMs > CONSTANT_CLAMP_RULES['LOCK_STALE_MS']!.default) {
+    return 'stale';
+  }
+  return 'live';
+};
+
+/**
+ * Parses the most recent `pipeline:heartbeat=<run>:<pid>:<iso>` marker from
+ * the task's progress log and resolves whether the PID is currently alive.
+ * Returns null when no heartbeat marker exists.
+ */
+const latestHeartbeatFor = (
+  store: TaskStore,
+  taskId: string,
+): { ts: number; runId: string; pid: number; pidAlive: boolean } | null => {
+  const entries = store.progress(taskId);
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index]!;
+    const match = /^pipeline:heartbeat=([^:]+):(\d+):(.+)$/.exec(entry.message);
+    if (!match) continue;
+    const ts = Date.parse(match[3]!);
+    if (!Number.isFinite(ts)) continue;
+    const pid = Number(match[2]!);
+    // Heartbeats from the current process are noise for the classifier —
+    // we are doing the recovery sweep, so we know our own pid is alive.
+    if (pid === process.pid) return { ts, runId: match[1]!, pid, pidAlive: false };
+    return { ts, runId: match[1]!, pid, pidAlive: isPidAlive(pid) };
+  }
+  return null;
 };
 
 /** Runs the recovery sweep over every stranded task. Annotate-only unless `apply` is true. */
