@@ -8,6 +8,7 @@ import { createTheme, type ColorMode, type Theme } from './color.js';
 import { runCommand, type CommandRunner } from './command-runner.js';
 import { ScrumlordError } from './errors.js';
 import { pullRequestStatus, pullRequestsForBranch, repositoryName } from './github.js';
+import { runGitHubRestGet } from './github-rest.js';
 import {
   formatPipelinePhaseMarker,
   parsePipelineMarker,
@@ -25,6 +26,13 @@ import {
   isFlagOn,
   parsePullRequestFooter,
 } from './pipeline-pr-footer.js';
+import {
+  detectPendingBots,
+  parseBotWaitPolicy,
+  parseExpectedBots,
+  reviewStateFromGitHub,
+  type BotReview,
+} from './pipeline-bot-reviews.js';
 import { PIPELINE_SYSTEM_PROMPT, addressPrPrompt, pipelinePrompt } from './pipeline-prompts.js';
 import type { AgentProvider, Task, TaskStore } from './types.js';
 import { deriveBranchAndShortId, repoCommonDir, resolveBaseBranch } from './worktree.js';
@@ -915,6 +923,98 @@ export const runOneTask = async (
 };
 
 /**
+ * Fetches the reviews for a PR and maps them to `BotReview[]`. Unknown
+ * states bucket to `PENDING` so they never count toward the gate.
+ */
+const fetchPullRequestBotReviews = async (
+  projectRoot: string,
+  repository: string,
+  pullRequestNumber: number,
+  runner: CommandRunner,
+): Promise<BotReview[]> => {
+  const [owner, name] = repository.split('/');
+  if (!owner || !name) return [];
+  const parsed = (await runGitHubRestGet(
+    projectRoot,
+    `repos/${owner}/${name}/pulls/${pullRequestNumber}/reviews`,
+    {},
+    { runner },
+    'review_lookup_failed',
+    true,
+  )) as unknown;
+  if (!Array.isArray(parsed)) return [];
+  return parsed.flatMap((entry: unknown): BotReview[] => {
+    if (typeof entry !== 'object' || entry === null) return [];
+    const record = entry as Record<string, unknown>;
+    const user = record['user'];
+    const userRecord =
+      typeof user === 'object' && user !== null ? (user as Record<string, unknown>) : null;
+    const login =
+      userRecord && typeof userRecord['login'] === 'string' ? userRecord['login'] : null;
+    if (!login) return [];
+    const commitId = typeof record['commit_id'] === 'string' ? record['commit_id'] : null;
+    return [
+      {
+        authorLogin: login,
+        state: reviewStateFromGitHub(record['state']),
+        commitOid: commitId,
+      },
+    ];
+  });
+};
+
+/**
+ * Polls the reviews endpoint until all expected bots have posted active
+ * reviews on the current head sha, the wait budget exhausts, or the
+ * pipeline is aborted. Returns the list of bot logins still pending.
+ */
+const waitForExpectedBots = async (input: {
+  expectedBots: readonly string[];
+  projectRoot: string;
+  repository: string;
+  pullRequestNumber: number;
+  headSha: string | null;
+  runner: CommandRunner;
+  sleep: (ms: number) => Promise<void>;
+  maxAttempts: number;
+  intervalMs: number;
+  log: (level: LogLevel, message: string) => void;
+}): Promise<string[]> => {
+  for (let attempt = 1; attempt <= input.maxAttempts; attempt += 1) {
+    const reviews = await fetchPullRequestBotReviews(
+      input.projectRoot,
+      input.repository,
+      input.pullRequestNumber,
+      input.runner,
+    );
+    const pending = detectPendingBots({
+      expectedBots: input.expectedBots,
+      reviews,
+      headRefOid: input.headSha,
+    });
+    if (pending.length === 0) return [];
+    input.log(
+      'muted',
+      `Awaiting review bots (${attempt}/${input.maxAttempts}): ${pending.join(',')}`,
+    );
+    if (attempt < input.maxAttempts) await input.sleep(input.intervalMs);
+  }
+  // Final fetch after the last sleep would have happened above; return
+  // whatever remained pending. Callers decide advisory vs strict.
+  const reviews = await fetchPullRequestBotReviews(
+    input.projectRoot,
+    input.repository,
+    input.pullRequestNumber,
+    input.runner,
+  );
+  return detectPendingBots({
+    expectedBots: input.expectedBots,
+    reviews,
+    headRefOid: input.headSha,
+  });
+};
+
+/**
  * Removes the per-task worktree and local branch after a successful merge.
  *
  *   keep   (default): no-op — preserves today's behavior.
@@ -1195,6 +1295,44 @@ const pollPrUntilMerged = async (
     );
 
     if (status.readyToMerge) {
+      // Expected-bot wait gate (#7, #25). When SCRUMLORD_PIPELINE_EXPECTED_BOTS
+      // is set, poll the reviews endpoint until each listed bot has posted
+      // an active review on the current head sha. Advisory mode (default)
+      // proceeds anyway with a warning when the budget exhausts; strict
+      // mode fails with `expected_bots_never_reviewed`.
+      const expectedBots = parseExpectedBots(Bun.env['SCRUMLORD_PIPELINE_EXPECTED_BOTS']);
+      if (expectedBots.length > 0 && resolved.repository) {
+        const pending = await waitForExpectedBots({
+          expectedBots,
+          projectRoot: store.projectRoot,
+          repository: resolved.repository,
+          pullRequestNumber: pullRequest.number,
+          headSha: status.pullRequest.headSha,
+          runner: resolved.runner,
+          sleep: resolved.sleep,
+          maxAttempts: resolved.constants.REVIEW_BOT_MAX_ATTEMPTS,
+          intervalMs: resolved.constants.REVIEW_BOT_WAIT_MS,
+          log: (level, message) => log(resolved, level, message, taskId),
+        });
+        if (pending.length > 0) {
+          const policy = parseBotWaitPolicy(Bun.env['SCRUMLORD_PIPELINE_BOT_WAIT']);
+          if (policy === 'strict') {
+            log(
+              resolved,
+              'error',
+              `expected bots never reviewed (strict): ${pending.join(',')}`,
+              taskId,
+            );
+            return failed(taskId, branch, pullRequest.number, 'expected_bots_never_reviewed');
+          }
+          log(
+            resolved,
+            'warning',
+            `bots never reviewed, no actionable feedback — accepting (advisory): ${pending.join(',')}`,
+            taskId,
+          );
+        }
+      }
       if (status.pullRequest.state !== 'MERGED') {
         log(resolved, 'step', `merging PR #${pullRequest.number}`, taskId);
         const merge = await mergeIfNeeded(

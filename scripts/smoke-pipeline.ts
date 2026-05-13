@@ -96,6 +96,11 @@ type MockRunnerOptions = {
   onWorktreeRemove?: (path: string, force: boolean) => void;
   /** Called when the mock receives `git branch -d …`. */
   onBranchDelete?: (branch: string) => void;
+  /**
+   * Reviews to return from `gh api repos/owner/repo/pulls/42/reviews`. Used
+   * by the W-D bot-aware readiness scenarios. Default is an empty list.
+   */
+  reviews?: Array<{ user: { login: string }; state: string; commit_id: string }>;
 };
 
 const ghApiEndpoint = (joined: string, suffix: string): boolean => {
@@ -155,7 +160,7 @@ const mockRunner = (options: MockRunnerOptions): CommandRunner => {
       return ghIncludeBody([]);
     }
     if (joined.startsWith('gh api') && ghApiEndpoint(joined, 'pulls/42/reviews')) {
-      return ghIncludeBody([]);
+      return ghIncludeBody(options.reviews ?? []);
     }
     if (joined.startsWith('gh api') && ghApiEndpoint(joined, 'pulls/42')) {
       return ghIncludeBody(buildPr());
@@ -766,6 +771,115 @@ const scenarios: readonly Scenario[] = [
         return { summary };
       } finally {
         delete process.env['SCRUMLORD_PIPELINE_CLEANUP'];
+      }
+    },
+  },
+  {
+    name: 'bot-pending-advisory',
+    introducedInWorkstream: 'D',
+    assertsBehaviorFrom: 'D',
+    description: 'with EXPECTED_BOTS set and no review, advisory mode warns then ships (#7 + #25)',
+    expectedExitCode: 0,
+    expectedStderrSubstrings: ['Awaiting review bots', 'accepting (advisory)', 'task shipped'],
+    run: async ({ store, appendStderr }) => {
+      seedReadyTask(store, 'advisory task');
+      const currentBranch = (): string => {
+        const branched = store.list().find((task) => task.branch);
+        return branched?.branch ?? 'feature/main';
+      };
+      process.env['SCRUMLORD_PIPELINE_EXPECTED_BOTS'] = 'copilot';
+      try {
+        const summary = await runPipeline(store, {
+          provider: 'claude',
+          mode: 'drain',
+          skipPreflight: true,
+          runner: mockRunner({
+            mode: 'happy',
+            currentBranch,
+            prState: 'open',
+            reviews: [],
+          }),
+          spawnAgent: recordingSpawnAgent([0]).spawn,
+          stderr: appendStderr,
+          now: () => Date.parse('2026-05-13T15:00:00Z'),
+          runId: 'smoke-advisory',
+          repository: 'owner/repo',
+          hostname: 'smoke-host',
+          colorMode: 'off',
+          max: 1,
+          constants: {
+            CHECK_POLL_INTERVAL_MS: 1,
+            CHECK_POLL_MAX_ATTEMPTS: 1,
+            REVIEW_BOT_WAIT_MS: 1_000,
+            REVIEW_BOT_MAX_ATTEMPTS: 2,
+            ADDRESS_PR_MAX_ROUNDS: 1,
+            AGENT_IDLE_MS: 60_001,
+            AGENT_MAX_MS: 60_001,
+            LOCK_STALE_MS: 60_001,
+          },
+          // The fake sleep makes the wait budget elapse instantly.
+          sleep: async () => undefined,
+        });
+        return { summary };
+      } finally {
+        delete process.env['SCRUMLORD_PIPELINE_EXPECTED_BOTS'];
+      }
+    },
+  },
+  {
+    name: 'bot-pending-strict',
+    introducedInWorkstream: 'D',
+    assertsBehaviorFrom: 'D',
+    description:
+      'with EXPECTED_BOTS set, BOT_WAIT=strict, and no review, the pipeline fails (#7 + #25)',
+    expectedExitCode: 1,
+    expectedStderrSubstrings: [
+      'expected bots never reviewed (strict)',
+      'expected_bots_never_reviewed',
+    ],
+    run: async ({ store, appendStderr }) => {
+      seedReadyTask(store, 'strict task');
+      const currentBranch = (): string => {
+        const branched = store.list().find((task) => task.branch);
+        return branched?.branch ?? 'feature/main';
+      };
+      process.env['SCRUMLORD_PIPELINE_EXPECTED_BOTS'] = 'copilot';
+      process.env['SCRUMLORD_PIPELINE_BOT_WAIT'] = 'strict';
+      try {
+        const summary = await runPipeline(store, {
+          provider: 'claude',
+          mode: 'drain',
+          skipPreflight: true,
+          runner: mockRunner({
+            mode: 'happy',
+            currentBranch,
+            prState: 'open',
+            reviews: [],
+          }),
+          spawnAgent: recordingSpawnAgent([0]).spawn,
+          stderr: appendStderr,
+          now: () => Date.parse('2026-05-13T15:00:00Z'),
+          runId: 'smoke-strict',
+          repository: 'owner/repo',
+          hostname: 'smoke-host',
+          colorMode: 'off',
+          max: 1,
+          constants: {
+            CHECK_POLL_INTERVAL_MS: 1,
+            CHECK_POLL_MAX_ATTEMPTS: 1,
+            REVIEW_BOT_WAIT_MS: 1_000,
+            REVIEW_BOT_MAX_ATTEMPTS: 2,
+            ADDRESS_PR_MAX_ROUNDS: 1,
+            AGENT_IDLE_MS: 60_001,
+            AGENT_MAX_MS: 60_001,
+            LOCK_STALE_MS: 60_001,
+          },
+          sleep: async () => undefined,
+        });
+        return { summary };
+      } finally {
+        delete process.env['SCRUMLORD_PIPELINE_EXPECTED_BOTS'];
+        delete process.env['SCRUMLORD_PIPELINE_BOT_WAIT'];
       }
     },
   },
