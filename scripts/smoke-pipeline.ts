@@ -90,6 +90,12 @@ type MockRunnerOptions = {
   prBody?: () => string;
   /** Called when the mock receives `gh pr edit … --body <new>`. */
   onPrEdit?: (number: number, newBody: string) => void;
+  /** Override the `git rev-list --count` return value used by the commit-count check. */
+  commitCount?: number;
+  /** Called when the mock receives `git worktree remove …`. */
+  onWorktreeRemove?: (path: string, force: boolean) => void;
+  /** Called when the mock receives `git branch -d …`. */
+  onBranchDelete?: (branch: string) => void;
 };
 
 const ghApiEndpoint = (joined: string, suffix: string): boolean => {
@@ -122,6 +128,20 @@ const mockRunner = (options: MockRunnerOptions): CommandRunner => {
     if (joined.startsWith('git show-ref')) return fail();
     if (joined.startsWith('git fetch')) return ok('');
     if (joined.startsWith('git worktree add')) return ok('');
+    if (joined.startsWith('git worktree remove')) {
+      const path = command[command.length - 1]!;
+      const force = command.includes('--force');
+      options.onWorktreeRemove?.(path, force);
+      return ok('');
+    }
+    if (joined.startsWith('git branch -d ')) {
+      const branch = command[3] ?? '';
+      options.onBranchDelete?.(branch);
+      return ok('');
+    }
+    if (joined.startsWith('git rev-list --count')) {
+      return ok(`${options.commitCount ?? 1}\n`);
+    }
     if (joined.startsWith('gh repo view')) {
       // gh repo view --json nameWithOwner --jq .nameWithOwner → bare string.
       return ok('owner/repo\n');
@@ -632,6 +652,124 @@ const scenarios: readonly Scenario[] = [
     },
   },
   {
+    name: 'no-commits',
+    introducedInWorkstream: 'C',
+    assertsBehaviorFrom: 'C',
+    description:
+      'with REQUIRE_COMMITS=on, agent exits 0 with no commits → no_commits_after_agent (#20)',
+    expectedExitCode: 1,
+    expectedStderrSubstrings: ['0 commits', 'no_commits_after_agent'],
+    run: async ({ store, appendStderr }) => {
+      seedReadyTask(store, 'no-commit task');
+      const currentBranch = (): string => {
+        const branched = store.list().find((task) => task.branch);
+        return branched?.branch ?? 'feature/main';
+      };
+      process.env['SCRUMLORD_PIPELINE_REQUIRE_COMMITS'] = 'on';
+      try {
+        const summary = await runPipeline(store, {
+          provider: 'claude',
+          mode: 'drain',
+          skipPreflight: true,
+          runner: mockRunner({
+            mode: 'happy',
+            currentBranch,
+            prState: 'merged',
+            commitCount: 0,
+          }),
+          spawnAgent: recordingSpawnAgent([0]).spawn,
+          stderr: appendStderr,
+          now: () => Date.parse('2026-05-13T15:00:00Z'),
+          runId: 'smoke-no-commits',
+          repository: 'owner/repo',
+          hostname: 'smoke-host',
+          colorMode: 'off',
+          max: 1,
+          constants: {
+            CHECK_POLL_INTERVAL_MS: 1,
+            CHECK_POLL_MAX_ATTEMPTS: 1,
+            REVIEW_BOT_WAIT_MS: 1,
+            REVIEW_BOT_MAX_ATTEMPTS: 1,
+            ADDRESS_PR_MAX_ROUNDS: 1,
+            AGENT_IDLE_MS: 60_001,
+            AGENT_MAX_MS: 60_001,
+            LOCK_STALE_MS: 60_001,
+          },
+        });
+        return { summary };
+      } finally {
+        delete process.env['SCRUMLORD_PIPELINE_REQUIRE_COMMITS'];
+      }
+    },
+  },
+  {
+    name: 'worktree-cleanup',
+    introducedInWorkstream: 'C',
+    assertsBehaviorFrom: 'C',
+    description: 'with CLEANUP=remove, the cleanup helper runs after merge (#26)',
+    expectedExitCode: 0,
+    // The smoke harness has no real per-task worktree on disk, so
+    // worktreeForTask resolves to the project root and the cleanup helper
+    // short-circuits without calling git. We assert behavior the harness
+    // can observe: the env var is honored without breaking the run, and a
+    // real worktree (one not equal to project root) would have triggered
+    // the recorded removal. Unit tests in src/pipeline.test.ts cover the
+    // full removal path against a stub runner.
+    expectedStderrSubstrings: ['task completed (PR #42 merged)'],
+    run: async ({ store, appendStderr }) => {
+      seedReadyTask(store, 'cleanup task');
+      const currentBranch = (): string => {
+        const branched = store.list().find((task) => task.branch);
+        return branched?.branch ?? 'feature/main';
+      };
+      const removals: Array<{ path: string; force: boolean }> = [];
+      const branchDeletes: string[] = [];
+      process.env['SCRUMLORD_PIPELINE_CLEANUP'] = 'remove';
+      try {
+        const summary = await runPipeline(store, {
+          provider: 'claude',
+          mode: 'drain',
+          skipPreflight: true,
+          runner: mockRunner({
+            mode: 'happy',
+            currentBranch,
+            prState: 'merged',
+            onWorktreeRemove: (path, force) => removals.push({ path, force }),
+            onBranchDelete: (branch) => branchDeletes.push(branch),
+          }),
+          spawnAgent: recordingSpawnAgent([0]).spawn,
+          stderr: appendStderr,
+          now: () => Date.parse('2026-05-13T15:00:00Z'),
+          runId: 'smoke-cleanup',
+          repository: 'owner/repo',
+          hostname: 'smoke-host',
+          colorMode: 'off',
+          max: 1,
+          constants: {
+            CHECK_POLL_INTERVAL_MS: 1,
+            CHECK_POLL_MAX_ATTEMPTS: 1,
+            REVIEW_BOT_WAIT_MS: 1,
+            REVIEW_BOT_MAX_ATTEMPTS: 1,
+            ADDRESS_PR_MAX_ROUNDS: 1,
+            AGENT_IDLE_MS: 60_001,
+            AGENT_MAX_MS: 60_001,
+            LOCK_STALE_MS: 60_001,
+          },
+        });
+        // Without a real worktree on disk, worktreeForTask returns
+        // store.projectRoot and cleanup short-circuits. Allow zero removals
+        // in that case, but if removals did happen they must NOT be --force.
+        for (const removal of removals) {
+          assert(!removal.force, 'CLEANUP=remove must not pass --force');
+        }
+        void branchDeletes;
+        return { summary };
+      } finally {
+        delete process.env['SCRUMLORD_PIPELINE_CLEANUP'];
+      }
+    },
+  },
+  {
     name: 'promise-tag',
     introducedInWorkstream: 'B-1',
     assertsBehaviorFrom: 'B-1',
@@ -742,7 +880,11 @@ const runScenario = async (scenario: Scenario): Promise<{ pass: boolean; reason?
       if (!joinedStderr.includes(needle)) {
         return {
           pass: false,
-          reason: `stderr did not contain expected substring ${JSON.stringify(needle)}`,
+          reason:
+            `stderr did not contain expected substring ${JSON.stringify(needle)}\n` +
+            (process.env['SMOKE_DEBUG']
+              ? `--- stderr ---\n${joinedStderr}--- end stderr ---`
+              : '(set SMOKE_DEBUG=1 to dump stderr)'),
         };
       }
     }

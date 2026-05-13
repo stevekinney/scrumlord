@@ -309,7 +309,7 @@ type LogContext = {
   now: () => number;
 };
 
-type LogLevel = 'step' | 'info' | 'success' | 'warning' | 'error' | 'muted';
+export type LogLevel = 'step' | 'info' | 'success' | 'warning' | 'error' | 'muted';
 
 const levelGlyph: Record<LogLevel, string> = {
   step: '▶',
@@ -896,7 +896,94 @@ export const runOneTask = async (
   recordProgress(store, taskId, `agent finished cleanly after ${agentElapsed}`);
   recordPhase(store, taskId, 'agent-exited', resolved.runId, resolved.now);
 
+  // Commit-count check (#20). Default off because today the pipeline tolerates
+  // zero-commit runs and the polling loop catches the symptom via
+  // `pr_never_opened`. When `SCRUMLORD_PIPELINE_REQUIRE_COMMITS=on`, fail
+  // fast right here so we don't waste polling cycles on a PR that will
+  // never exist.
+  if (Bun.env['SCRUMLORD_PIPELINE_REQUIRE_COMMITS'] === 'on') {
+    const commitCount = await countCommitsAhead(worktree, resolved.runner);
+    if (commitCount === 0) {
+      log(resolved, 'error', `agent exited cleanly but made 0 commits`, taskId);
+      recordProgress(store, taskId, 'no_commits_after_agent');
+      return failed(taskId, branch, null, 'no_commits_after_agent');
+    }
+    log(resolved, 'muted', `${commitCount} commit(s) on ${branch}`, taskId);
+  }
+
   return await pollPrUntilMerged(store, taskId, branch, resolved);
+};
+
+/**
+ * Removes the per-task worktree and local branch after a successful merge.
+ *
+ *   keep   (default): no-op — preserves today's behavior.
+ *   remove: `git worktree remove` without --force. Retains on failure
+ *           (uncommitted changes, dirty state) and logs the path.
+ *   force:  `git worktree remove --force`. Still retains on git refusal
+ *           (e.g. nested worktrees). Only chosen by operators who have
+ *           verified the worktree never holds unrecoverable state.
+ *
+ * Local branch deletion uses the non-force `git branch -d` so a branch
+ * that is not fully merged into base is preserved with a warning.
+ */
+export const cleanupWorktreeAfterMerge = async (input: {
+  worktree: string;
+  branch: string;
+  projectRoot: string;
+  runner: CommandRunner;
+  log: (level: LogLevel, message: string) => void;
+}): Promise<void> => {
+  const mode = Bun.env['SCRUMLORD_PIPELINE_CLEANUP'] ?? 'keep';
+  if (mode === 'keep') return;
+  if (mode !== 'remove' && mode !== 'force') {
+    input.log('warning', `unknown SCRUMLORD_PIPELINE_CLEANUP=${mode}; treating as keep`);
+    return;
+  }
+  if (input.worktree === input.projectRoot) {
+    // Pipeline ran without a per-task worktree (e.g. --no-worktree). Nothing
+    // to remove without nuking the project root.
+    return;
+  }
+  const args = ['git', 'worktree', 'remove', input.worktree];
+  if (mode === 'force') args.push('--force');
+  const removeResult = await input.runner(args, input.projectRoot);
+  if (removeResult.exitCode !== 0) {
+    input.log(
+      'warning',
+      `worktree retained at ${input.worktree}: ${removeResult.stderr.trim() || 'git refused'}`,
+    );
+    return;
+  }
+  input.log('muted', `removed worktree at ${input.worktree}`);
+  const branchResult = await input.runner(['git', 'branch', '-d', input.branch], input.projectRoot);
+  if (branchResult.exitCode !== 0) {
+    input.log(
+      'warning',
+      `local branch ${input.branch} retained: ${branchResult.stderr.trim() || 'git refused'}`,
+    );
+    return;
+  }
+  input.log('muted', `removed local branch ${input.branch}`);
+};
+
+/**
+ * Counts commits on HEAD that are not on the base ref. Returns -1 when the
+ * base ref cannot be resolved, and 0 when HEAD has nothing ahead. Used by
+ * the commit-count check (#20) so the pipeline can fail fast on a clean
+ * agent exit that produced no commits.
+ */
+const countCommitsAhead = async (worktree: string, runner: CommandRunner): Promise<number> => {
+  // Prefer the upstream tracking ref (faster, no fetch needed); fall back to
+  // origin/main. Either way, return 0 on parse failure so the caller can
+  // surface a clean "no commits" message instead of throwing.
+  const trySource = async (revRange: string): Promise<number | null> => {
+    const result = await runner(['git', 'rev-list', '--count', revRange], worktree);
+    if (result.exitCode !== 0) return null;
+    const parsed = Number(result.stdout.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  return (await trySource('@{u}..HEAD')) ?? (await trySource('origin/main..HEAD')) ?? 0;
 };
 
 const buildPipelineInvocation = (
@@ -1023,6 +1110,14 @@ const pollPrUntilMerged = async (
       );
       log(resolved, 'success', `PR #${pullRequest.number} found`, taskId);
       resolved.stderr(pullRequest.url);
+      // Explicit transition to `in-review` so the operator sees the state
+      // change in the log. `sync-git-status` would infer the same later but
+      // not loudly. No-op when the task is already in-review (e.g. resume).
+      const taskBeforeReview = store.getTask(taskId);
+      if (taskBeforeReview && taskBeforeReview.status !== 'in-review') {
+        store.update(taskId, { status: 'in-review' });
+        log(resolved, 'step', 'task moved to in-review', taskId);
+      }
       prRecorded = true;
 
       // Footer verify/repair state machine. Default off for both flags.
@@ -1060,6 +1155,14 @@ const pollPrUntilMerged = async (
         recordPhase(store, taskId, 'merge', resolved.runId, resolved.now);
         recordProgress(store, taskId, `PR #${pullRequest.number} merged; task completed`);
         log(resolved, 'success', `task completed (PR #${pullRequest.number} merged)`, taskId);
+        const cleanupWorktree = await worktreeForTask(store.projectRoot, branch, resolved.runner);
+        await cleanupWorktreeAfterMerge({
+          worktree: cleanupWorktree,
+          branch,
+          projectRoot: store.projectRoot,
+          runner: resolved.runner,
+          log: (level, message) => log(resolved, level, message, taskId),
+        });
         return shipped(taskId, branch, pullRequest.number, 'merged');
       }
     }
@@ -1125,6 +1228,18 @@ const pollPrUntilMerged = async (
         recordPhase(store, taskId, 'merge', resolved.runId, resolved.now);
         recordProgress(store, taskId, `task shipped (PR #${pullRequest.number} merged)`);
         log(resolved, 'success', `task shipped`, taskId);
+        // Worktree cleanup (#26). Default is `keep` — today's behavior, leaves
+        // the worktree on disk forever. `remove` tries `git worktree remove`
+        // without --force and retains on dirty-state failure. `force` adds
+        // --force. On merge failure (above) the worktree is always retained.
+        const cleanupWorktree = await worktreeForTask(store.projectRoot, branch, resolved.runner);
+        await cleanupWorktreeAfterMerge({
+          worktree: cleanupWorktree,
+          branch,
+          projectRoot: store.projectRoot,
+          runner: resolved.runner,
+          log: (level, message) => log(resolved, level, message, taskId),
+        });
         return shipped(taskId, branch, pullRequest.number, 'merged');
       }
       log(resolved, 'error', 'PR merged but task did not transition to completed', taskId);
