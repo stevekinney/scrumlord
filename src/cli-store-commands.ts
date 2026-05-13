@@ -30,6 +30,11 @@ import {
   setTaskPlan,
   setTaskSession,
   setTaskStatus,
+  type CountListTasksOptions,
+  type CountTaskListingOptions,
+  type ListTasksOptions,
+  type TaskListingOptions,
+  type TaskPlanFilter,
   taskProgress,
   tasksBlockedBy,
   tasksBlocking,
@@ -42,7 +47,7 @@ import {
 } from './task-commands.js';
 import { next, remaining } from './task-queries.js';
 import type { CliOptions } from './cli-types.js';
-import type { CreateTaskInput, Task, TaskStore, UpdateTaskInput } from './types.js';
+import type { CreateTaskInput, TaskStore, UpdateTaskInput } from './types.js';
 import { parseAgentProvider, parsePriority, parseStatus } from './validation.js';
 
 type StoreCommandHandler = (
@@ -51,7 +56,6 @@ type StoreCommandHandler = (
   options: CliOptions,
 ) => unknown;
 type StoreCommandInputValidator = (parsed: ParsedArguments, options: CliOptions) => void;
-type TaskPlanFilter = 'planned' | 'unplanned';
 
 const taskListingCommands = new Set([
   'available',
@@ -188,42 +192,69 @@ const taskPlanFilterFrom = (parsed: ParsedArguments): TaskPlanFilter | null => {
   return null;
 };
 
-const filterTaskListByPlan = (parsed: ParsedArguments, tasks: Task[]): Task[] => {
+const taskListingOptionsFrom = (parsed: ParsedArguments): TaskListingOptions => {
   const planFilter = taskPlanFilterFrom(parsed);
-  if (!planFilter) return tasks;
-  return tasks.filter((task) =>
-    planFilter === 'planned' ? task.plan !== null : task.plan === null,
-  );
+  return planFilter ? { plan: planFilter } : {};
+};
+
+const taskListingResultOptionsFrom = (
+  parsed: ParsedArguments,
+): TaskListingOptions | CountTaskListingOptions => {
+  const options = taskListingOptionsFrom(parsed);
+  return parsed.flags.has('count') ? { ...options, count: true } : options;
+};
+
+const listTasksOptionsFrom = (
+  parsed: ParsedArguments,
+): ListTasksOptions | CountListTasksOptions => {
+  const options = {
+    ...taskListingOptionsFrom(parsed),
+    includeInactive: parsed.flags.has('all'),
+  };
+  return parsed.flags.has('count') ? { ...options, count: true } : options;
 };
 
 const storeCommandHandlers: Record<string, StoreCommandHandler> = {
-  available: (store, parsed) => filterTaskListByPlan(parsed, availableTasks(store)),
-  list: (store, parsed) =>
-    filterTaskListByPlan(parsed, listTasks(store, { includeInactive: parsed.flags.has('all') })),
-  blocked: (store, parsed) => filterTaskListByPlan(parsed, blockedTasks(store)),
-  completed: (store, parsed) => filterTaskListByPlan(parsed, completedTasks(store)),
+  available: (store, parsed) => availableTasks(store, taskListingResultOptionsFrom(parsed)),
+  list: (store, parsed) => listTasks(store, listTasksOptionsFrom(parsed)),
+  blocked: (store, parsed) => blockedTasks(store, taskListingResultOptionsFrom(parsed)),
+  completed: (store, parsed) => completedTasks(store, taskListingResultOptionsFrom(parsed)),
   get: async (store, parsed) => getTask(store, await taskIdFromArguments(store, parsed)),
   'with-tag': (store, parsed) =>
-    filterTaskListByPlan(parsed, tasksWithTag(store, required(parsed.positionals, 'tag'))),
+    tasksWithTag(store, required(parsed.positionals, 'tag'), taskListingResultOptionsFrom(parsed)),
   'with-all-tags': (store, parsed) =>
-    filterTaskListByPlan(parsed, tasksWithAllTags(store, ...parsed.positionals)),
+    tasksWithAllTags(store, taskListingResultOptionsFrom(parsed), ...parsed.positionals),
   'with-any-tag': (store, parsed) =>
-    filterTaskListByPlan(parsed, tasksWithAnyTags(store, ...parsed.positionals)),
+    tasksWithAnyTags(store, taskListingResultOptionsFrom(parsed), ...parsed.positionals),
   'with-branch': (store, parsed) =>
-    filterTaskListByPlan(parsed, tasksWithBranch(store, required(parsed.positionals, 'branch'))),
+    tasksWithBranch(
+      store,
+      required(parsed.positionals, 'branch'),
+      taskListingResultOptionsFrom(parsed),
+    ),
   'blocked-by': async (store, parsed) =>
-    filterTaskListByPlan(parsed, tasksBlockedBy(store, await taskIdFromArguments(store, parsed))),
+    tasksBlockedBy(
+      store,
+      await taskIdFromArguments(store, parsed),
+      taskListingResultOptionsFrom(parsed),
+    ),
   blocking: async (store, parsed) =>
-    filterTaskListByPlan(parsed, tasksBlocking(store, await taskIdFromArguments(store, parsed))),
+    tasksBlocking(
+      store,
+      await taskIdFromArguments(store, parsed),
+      taskListingResultOptionsFrom(parsed),
+    ),
   priority: (store, parsed) =>
-    filterTaskListByPlan(
-      parsed,
-      tasksWithPriority(store, parsePriority(Number(required(parsed.positionals, 'priority')))),
+    tasksWithPriority(
+      store,
+      parsePriority(Number(required(parsed.positionals, 'priority'))),
+      taskListingResultOptionsFrom(parsed),
     ),
   'with-priority': (store, parsed) =>
-    filterTaskListByPlan(
-      parsed,
-      tasksWithPriority(store, parsePriority(Number(required(parsed.positionals, 'priority')))),
+    tasksWithPriority(
+      store,
+      parsePriority(Number(required(parsed.positionals, 'priority'))),
+      taskListingResultOptionsFrom(parsed),
     ),
   session: async (store, parsed, options) =>
     resolveTaskSession(

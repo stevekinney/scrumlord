@@ -363,6 +363,7 @@ describe('runTasksCli', () => {
     const availableHelp = await runTasksCli(['help', 'available'], { colorMode: 'never' });
     expect(availableHelp.stdout).toContain('tasks available');
     expect(availableHelp.stdout).toContain('--planned');
+    expect(availableHelp.stdout).toContain('--count');
 
     const listHelp = await runTasksCli(['list', '--help'], { colorMode: 'never' });
     expect(listHelp.stdout).toContain('tasks list [--all]');

@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { setupAgentHooks } from './agent-hooks.js';
 import { runAgentHookCommand, runResumeCommand, runStartCommand } from './cli-agent-commands.js';
+import { runPipelineCommand } from './cli-pipeline-command.js';
 import {
   helpPath,
   isHelpRequest,
@@ -39,6 +40,7 @@ const storeCommands = new Set([
   'start',
   'resume',
   'agent-hook',
+  'pipeline',
 ]);
 
 const renderHelpResult = (parsed: ParsedArguments, options: CliOptions): CliResult => {
@@ -253,6 +255,7 @@ const runOpenedStoreCommand = async (
 ): Promise<CliResult> => {
   if (parsed.command === 'start') return await runStartCommand(store, parsed, options);
   if (parsed.command === 'resume') return await runResumeCommand(store, parsed, options);
+  if (parsed.command === 'pipeline') return await runPipelineCommand(store, parsed, options);
   return storeCommandResult(parsed, await runStoreCommand(store, parsed, options));
 };
 

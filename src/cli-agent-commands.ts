@@ -319,22 +319,52 @@ const verifyClaudeWorktreeAfterSession = async (
   );
 };
 
-/** Starts a task in an agent CLI and updates task status, session, and branch metadata. */
-export const startTask = async (
+export type PrepareTaskWorktreeResult = {
+  task: Task;
+  worktree: string;
+  branch: string;
+  worktreeCreated: WorktreeSetup['created'];
+  previousStatus: Task['status'];
+  previousBranch: string | null;
+};
+
+export type PrepareTaskWorktreeOptions = TaskAgentCommandOptions & {
+  /** When false, skips status/branch/provider/session persistence and only resolves the worktree. */
+  persistClaim?: boolean;
+};
+
+/**
+ * Validates a task is startable, runs the provider capability precheck, materializes
+ * (or reuses) the per-task worktree, and persists status/provider/session/branch.
+ * Shared by `startTask` and the pipeline driver so both go through the same seam.
+ */
+export const prepareTaskWorktree = async (
   store: TaskStore,
   taskId: string,
-  options: TaskAgentCommandOptions = {},
-): Promise<TaskAgentCommandResult> => {
+  options: PrepareTaskWorktreeOptions = {},
+): Promise<PrepareTaskWorktreeResult> => {
   const provider = providerFromStartOptions(options);
-  const executablePath = providerExecutablePath(provider, options);
   const task = store.getTask(taskId);
   if (!task) throw new ScrumlordError('task_not_found', `Task not found: ${taskId}`);
   assertTaskCanStart(store, task);
   const runner = options.runner ?? runCommand;
   await checkProviderCapabilities(provider, runner, store.projectRoot);
 
-  const previous = { status: task.status, branch: task.branch };
+  const previousStatus = task.status;
+  const previousBranch = task.branch;
   const setup = await setupWorktree(provider, store, task, options, runner);
+
+  if (options.persistClaim === false) {
+    return {
+      task,
+      worktree: setup.worktree,
+      branch: setup.branch,
+      worktreeCreated: setup.created,
+      previousStatus,
+      previousBranch,
+    };
+  }
+
   const adapter = getAgentProvider(provider);
   const session = adapter.createSession();
   const updated = store.update(task.id, {
@@ -344,31 +374,61 @@ export const startTask = async (
     branch: setup.branch,
   });
 
+  emitStatusLine(options, updated, provider, setup);
+
+  return {
+    task: updated,
+    worktree: setup.worktree,
+    branch: setup.branch,
+    worktreeCreated: setup.created,
+    previousStatus,
+    previousBranch,
+  };
+};
+
+/** Starts a task in an agent CLI and updates task status, session, and branch metadata. */
+export const startTask = async (
+  store: TaskStore,
+  taskId: string,
+  options: TaskAgentCommandOptions = {},
+): Promise<TaskAgentCommandResult> => {
+  const provider = providerFromStartOptions(options);
+  const executablePath = providerExecutablePath(provider, options);
+  const runner = options.runner ?? runCommand;
+  const prepared = await prepareTaskWorktree(store, taskId, options);
+  const {
+    task: updated,
+    worktree,
+    branch,
+    worktreeCreated,
+    previousStatus,
+    previousBranch,
+  } = prepared;
+  const previous = { status: previousStatus, branch: previousBranch };
+
   const storedPlan = updated.plan ?? defaultTaskPlanPath(updated.id);
   const planPath = absoluteTaskPlanPath(store.projectRoot, storedPlan);
   const planContents = await planContentsFor(planPath);
-  const phase = await resolvePhase(task, planPath);
-
-  emitStatusLine(options, updated, provider, setup);
+  const phase = await resolvePhase(updated, planPath);
 
   const invocation = withExecutablePath(
     buildTaskStartInvocation(provider, {
       task: updated,
       projectRoot: store.projectRoot,
-      cwd: setup.worktree,
+      cwd: worktree,
       planPath,
       planContents,
-      session: session ?? updated.session,
+      session: updated.session,
       phase,
     }),
     executablePath,
   );
 
   const exitCode = await runAgentInvocation(invocation, options);
-  if (provider === 'claude' && setup.created === 'claude-managed') {
+  if (provider === 'claude' && worktreeCreated === 'claude-managed') {
     await verifyClaudeWorktreeAfterSession(
       store,
-      setup.branch,
+      branch,
       exitCode,
       previous,
       updated.id,

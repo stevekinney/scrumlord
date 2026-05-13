@@ -26,6 +26,11 @@ const taskPlanFilterOptions: HelpOption[] = [
   { name: '--unplanned', description: 'Only include tasks without a plan path.' },
 ];
 
+const taskListingOptions: HelpOption[] = [
+  ...taskPlanFilterOptions,
+  { name: '--count', description: 'Print only the number of matching tasks.' },
+];
+
 const taskFieldOptions: HelpOption[] = [
   { name: '--title', value: '<title>', description: 'Short task title.' },
   { name: '--description', value: '<markdown>', description: 'Markdown task description.' },
@@ -64,38 +69,38 @@ const topics: HelpTopic[] = [
   {
     path: ['available'],
     summary: 'List ready, unblocked tasks.',
-    usage: 'tasks available [--planned|--unplanned]',
+    usage: 'tasks available [--planned|--unplanned] [--count]',
     description:
       'Returns ready tasks that are not deleted, not archived, not blocked, and have no future start date.',
-    options: taskPlanFilterOptions,
+    options: taskListingOptions,
     examples: ['tasks available'],
   },
   {
     path: ['list'],
     summary: 'List tasks for graph reconciliation.',
-    usage: 'tasks list [--all] [--planned|--unplanned]',
+    usage: 'tasks list [--all] [--planned|--unplanned] [--count]',
     description:
       'Returns active tasks by default. Use --all to include archived and soft-deleted tasks when reconciling long documents against the full graph.',
     options: [
       { name: '--all', description: 'Include archived and deleted tasks.' },
-      ...taskPlanFilterOptions,
+      ...taskListingOptions,
     ],
     examples: ['tasks list', 'tasks list --all'],
   },
   {
     path: ['blocked'],
     summary: 'List currently blocked tasks.',
-    usage: 'tasks blocked [--planned|--unplanned]',
+    usage: 'tasks blocked [--planned|--unplanned] [--count]',
     description: 'Returns active tasks with at least one incomplete blocker.',
-    options: taskPlanFilterOptions,
+    options: taskListingOptions,
     examples: ['tasks blocked'],
   },
   {
     path: ['completed'],
     summary: 'List completed tasks.',
-    usage: 'tasks completed [--planned|--unplanned]',
+    usage: 'tasks completed [--planned|--unplanned] [--count]',
     description: 'Returns completed tasks that have not been soft-deleted.',
-    options: taskPlanFilterOptions,
+    options: taskListingOptions,
     examples: ['tasks completed'],
   },
   {
@@ -171,6 +176,61 @@ const topics: HelpTopic[] = [
     examples: ['tasks resume', 'tasks resume 8f7d6a'],
   },
   {
+    path: ['pipeline'],
+    summary: 'Drain the ready queue end-to-end.',
+    usage:
+      'tasks pipeline --cli <claude|codex> [--max <n>] [--recover[-then-run]] [--apply] [--resume <task-id>] [--dry-run] [--json] [--quiet]',
+    description:
+      'Claims tasks atomically, materializes worktrees, delegates each per-task run to the agent CLI, polls each pull request to merge, then continues. A single lockfile (tmp/pipeline.lock) protects against concurrent pipelines. Exit codes: 0 success, 1 stuck, 2 args/capability, 3 lock held, 4 manual recovery verdicts, 5 runtime failure, 130/143 signals.',
+    options: [
+      {
+        name: '--cli',
+        value: '<claude|codex>',
+        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
+      },
+      {
+        name: '--max',
+        value: '<n>',
+        description: 'Stop after n claim attempts (default unlimited).',
+      },
+      {
+        name: '--recover',
+        description: 'Run only the recovery sweep and exit (annotate-only without --apply).',
+      },
+      {
+        name: '--recover-then-run',
+        description: 'Sweep first, then drain. Refuses to start if any task is resumable.',
+      },
+      {
+        name: '--apply',
+        description:
+          'Mutate state during the recovery sweep. Without it, the sweep prints verdicts only.',
+      },
+      {
+        name: '--resume',
+        value: '<task-id>',
+        description: 'Resume one specific in-flight task through merge and exit.',
+      },
+      {
+        name: '--dry-run',
+        description:
+          'Preview a drain without writes, spawns, or lock files. Read-only GitHub queries only.',
+      },
+      { name: '--json', description: 'Emit the final summary as JSON on stdout.' },
+      {
+        name: '--quiet',
+        description:
+          'Suppress progress lines. Errors, warnings, recovery verdicts, and the summary always emit.',
+      },
+    ],
+    examples: [
+      'tasks pipeline --cli claude',
+      'tasks pipeline --cli codex --max 3',
+      'tasks pipeline --recover --apply',
+      'tasks pipeline --resume 8f7d6a --cli codex',
+    ],
+  },
+  {
     path: ['get'],
     summary: 'Fetch one task by ID.',
     usage: 'tasks get [task-id]',
@@ -181,73 +241,73 @@ const topics: HelpTopic[] = [
   {
     path: ['with-tag'],
     summary: 'List tasks with one tag.',
-    usage: 'tasks with-tag <tag> [--planned|--unplanned]',
+    usage: 'tasks with-tag <tag> [--planned|--unplanned] [--count]',
     description: 'Returns tasks containing the normalized tag.',
     arguments: ['<tag>: Tag to match.'],
-    options: taskPlanFilterOptions,
+    options: taskListingOptions,
     examples: ['tasks with-tag testing'],
   },
   {
     path: ['with-all-tags'],
     summary: 'List tasks containing every supplied tag.',
-    usage: 'tasks with-all-tags <tag...> [--planned|--unplanned]',
+    usage: 'tasks with-all-tags <tag...> [--planned|--unplanned] [--count]',
     description: 'Returns tasks that contain all provided tags.',
     arguments: ['<tag...>: One or more tags.'],
-    options: taskPlanFilterOptions,
+    options: taskListingOptions,
     examples: ['tasks with-all-tags frontend testing'],
   },
   {
     path: ['with-any-tag'],
     summary: 'List tasks containing any supplied tag.',
-    usage: 'tasks with-any-tag <tag...> [--planned|--unplanned]',
+    usage: 'tasks with-any-tag <tag...> [--planned|--unplanned] [--count]',
     description: 'Returns tasks that contain at least one provided tag.',
     arguments: ['<tag...>: One or more tags.'],
-    options: taskPlanFilterOptions,
+    options: taskListingOptions,
     examples: ['tasks with-any-tag frontend backend'],
   },
   {
     path: ['with-branch'],
     summary: 'List tasks assigned to a Git branch.',
-    usage: 'tasks with-branch <branch> [--planned|--unplanned]',
+    usage: 'tasks with-branch <branch> [--planned|--unplanned] [--count]',
     description: 'Returns tasks whose branch metadata matches the supplied branch.',
     arguments: ['<branch>: Git branch name.'],
-    options: taskPlanFilterOptions,
+    options: taskListingOptions,
     examples: ['tasks with-branch feature/task-graph'],
   },
   {
     path: ['blocked-by'],
     summary: 'List blockers for a task.',
-    usage: 'tasks blocked-by [task-id] [--planned|--unplanned]',
+    usage: 'tasks blocked-by [task-id] [--planned|--unplanned] [--count]',
     description: `Returns the tasks that block the supplied task. ${inferredTaskIdDescription}`,
     arguments: [optionalTaskIdArgument],
-    options: taskPlanFilterOptions,
+    options: taskListingOptions,
     examples: ['tasks blocked-by', 'tasks blocked-by 8f7d6a'],
   },
   {
     path: ['blocking'],
     summary: 'List tasks blocked by a task.',
-    usage: 'tasks blocking [task-id] [--planned|--unplanned]',
+    usage: 'tasks blocking [task-id] [--planned|--unplanned] [--count]',
     description: `Returns tasks that depend on the supplied task. ${inferredTaskIdDescription}`,
     arguments: [optionalTaskIdArgument],
-    options: taskPlanFilterOptions,
+    options: taskListingOptions,
     examples: ['tasks blocking', 'tasks blocking 8f7d6a'],
   },
   {
     path: ['priority'],
     summary: 'List tasks with a priority.',
-    usage: 'tasks priority <1|2|3> [--planned|--unplanned]',
+    usage: 'tasks priority <1|2|3> [--planned|--unplanned] [--count]',
     description: 'Returns tasks with the supplied priority. Higher numbers are more urgent.',
     arguments: ['<1|2|3>: Priority to match.'],
-    options: taskPlanFilterOptions,
+    options: taskListingOptions,
     examples: ['tasks priority 3'],
   },
   {
     path: ['with-priority'],
     summary: 'Alias for tasks priority.',
-    usage: 'tasks with-priority <1|2|3> [--planned|--unplanned]',
+    usage: 'tasks with-priority <1|2|3> [--planned|--unplanned] [--count]',
     description: 'Returns tasks with the supplied priority.',
     arguments: ['<1|2|3>: Priority to match.'],
-    options: taskPlanFilterOptions,
+    options: taskListingOptions,
     examples: ['tasks with-priority 2'],
   },
   {

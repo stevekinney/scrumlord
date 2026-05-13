@@ -17,20 +17,93 @@ export type CleanupTasksResult = {
   deleted: number;
 };
 
-/** Returns ready, unblocked tasks that can be started now. */
-export const availableTasks = (store: Pick<TaskStore, 'available'>): Task[] => {
-  return store.available();
+export type TaskPlanFilter = 'planned' | 'unplanned';
+
+export type TaskListingOptions = {
+  plan?: TaskPlanFilter;
 };
+
+export type CountTaskListingOptions = TaskListingOptions & {
+  count: true;
+};
+
+export type ListTasksOptions = TaskListingOptions & {
+  includeInactive?: boolean;
+};
+
+export type CountListTasksOptions = ListTasksOptions & {
+  count: true;
+};
+
+type TaskListingResultOptions = TaskListingOptions & {
+  count?: boolean;
+};
+
+const filterTasksByPlan = <TaskValue extends Task>(
+  tasks: TaskValue[],
+  options: TaskListingOptions,
+): TaskValue[] => {
+  if (!options.plan) return tasks;
+  return tasks.filter((task) =>
+    options.plan === 'planned' ? task.plan !== null : task.plan === null,
+  );
+};
+
+const taskListingResult = <TaskValue extends Task>(
+  tasks: TaskValue[],
+  options: TaskListingResultOptions,
+): TaskValue[] | number => {
+  const filteredTasks = filterTasksByPlan(tasks, options);
+  return options.count ? filteredTasks.length : filteredTasks;
+};
+
+/** Returns ready, unblocked tasks that can be started now. */
+export function availableTasks(
+  store: Pick<TaskStore, 'available'>,
+  options: CountTaskListingOptions,
+): number;
+export function availableTasks(
+  store: Pick<TaskStore, 'available'>,
+  options?: TaskListingOptions,
+): Task[];
+export function availableTasks(
+  store: Pick<TaskStore, 'available'>,
+  options: TaskListingResultOptions = {},
+): Task[] | number {
+  return taskListingResult(store.available(), options);
+}
 
 /** Returns active tasks that still have incomplete blockers. */
-export const blockedTasks = (store: Pick<TaskStore, 'blocked'>): Task[] => {
-  return store.blocked();
-};
+export function blockedTasks(
+  store: Pick<TaskStore, 'blocked'>,
+  options: CountTaskListingOptions,
+): number;
+export function blockedTasks(
+  store: Pick<TaskStore, 'blocked'>,
+  options?: TaskListingOptions,
+): Task[];
+export function blockedTasks(
+  store: Pick<TaskStore, 'blocked'>,
+  options: TaskListingResultOptions = {},
+): Task[] | number {
+  return taskListingResult(store.blocked(), options);
+}
 
 /** Returns completed tasks that have not been deleted. */
-export const completedTasks = (store: Pick<TaskStore, 'completed'>): Task[] => {
-  return store.completed();
-};
+export function completedTasks(
+  store: Pick<TaskStore, 'completed'>,
+  options: CountTaskListingOptions,
+): number;
+export function completedTasks(
+  store: Pick<TaskStore, 'completed'>,
+  options?: TaskListingOptions,
+): Task[];
+export function completedTasks(
+  store: Pick<TaskStore, 'completed'>,
+  options: TaskListingResultOptions = {},
+): Task[] | number {
+  return taskListingResult(store.completed(), options);
+}
 
 /** Returns a task by id or null when it does not exist. */
 export const getTask = (store: Pick<TaskStore, 'getTask'>, id: TaskIdentifier): Task | null => {
@@ -38,62 +111,153 @@ export const getTask = (store: Pick<TaskStore, 'getTask'>, id: TaskIdentifier): 
 };
 
 /** Returns active tasks, or all tasks when inactive records are requested. */
-export const listTasks = (
+export function listTasks(store: Pick<TaskStore, 'list'>, options: CountListTasksOptions): number;
+export function listTasks(store: Pick<TaskStore, 'list'>, options?: ListTasksOptions): Task[];
+export function listTasks(
   store: Pick<TaskStore, 'list'>,
-  options: { includeInactive?: boolean } = {},
-): Task[] => {
-  return store.list(options);
-};
+  options: ListTasksOptions & { count?: boolean } = {},
+): Task[] | number {
+  return taskListingResult(store.list(options), options);
+}
 
 /** Returns tasks with one normalized tag. */
-export const tasksWithTag = (store: Pick<TaskStore, 'withTag'>, tag: string): Task[] => {
-  return store.withTag(tag);
-};
+export function tasksWithTag(
+  store: Pick<TaskStore, 'withTag'>,
+  tag: string,
+  options: CountTaskListingOptions,
+): number;
+export function tasksWithTag(
+  store: Pick<TaskStore, 'withTag'>,
+  tag: string,
+  options?: TaskListingOptions,
+): Task[];
+export function tasksWithTag(
+  store: Pick<TaskStore, 'withTag'>,
+  tag: string,
+  options: TaskListingResultOptions = {},
+): Task[] | number {
+  return taskListingResult(store.withTag(tag), options);
+}
 
 /** Returns tasks that contain every supplied tag. */
-export const tasksWithAllTags = (
+export function tasksWithAllTags(
   store: Pick<TaskStore, 'withAllTags'>,
+  options: CountTaskListingOptions,
   ...tags: string[]
-): Task[] => {
-  return store.withAllTags(...tags);
-};
+): number;
+export function tasksWithAllTags(
+  store: Pick<TaskStore, 'withAllTags'>,
+  options: TaskListingOptions,
+  ...tags: string[]
+): Task[];
+export function tasksWithAllTags(store: Pick<TaskStore, 'withAllTags'>, ...tags: string[]): Task[];
+export function tasksWithAllTags(
+  store: Pick<TaskStore, 'withAllTags'>,
+  firstOptionOrTag: TaskListingResultOptions | string = {},
+  ...tags: string[]
+): Task[] | number {
+  const options = typeof firstOptionOrTag === 'string' ? {} : firstOptionOrTag;
+  const resolvedTags = typeof firstOptionOrTag === 'string' ? [firstOptionOrTag, ...tags] : tags;
+  return taskListingResult(store.withAllTags(...resolvedTags), options);
+}
 
 /** Returns tasks that contain any supplied tag. */
-export const tasksWithAnyTags = (
+export function tasksWithAnyTags(
   store: Pick<TaskStore, 'withAnyTag'>,
+  options: CountTaskListingOptions,
   ...tags: string[]
-): Task[] => {
-  return store.withAnyTag(...tags);
-};
+): number;
+export function tasksWithAnyTags(
+  store: Pick<TaskStore, 'withAnyTag'>,
+  options: TaskListingOptions,
+  ...tags: string[]
+): Task[];
+export function tasksWithAnyTags(store: Pick<TaskStore, 'withAnyTag'>, ...tags: string[]): Task[];
+export function tasksWithAnyTags(
+  store: Pick<TaskStore, 'withAnyTag'>,
+  firstOptionOrTag: TaskListingResultOptions | string = {},
+  ...tags: string[]
+): Task[] | number {
+  const options = typeof firstOptionOrTag === 'string' ? {} : firstOptionOrTag;
+  const resolvedTags = typeof firstOptionOrTag === 'string' ? [firstOptionOrTag, ...tags] : tags;
+  return taskListingResult(store.withAnyTag(...resolvedTags), options);
+}
 
 /** Returns tasks associated with one Git branch. */
-export const tasksWithBranch = (store: Pick<TaskStore, 'withBranch'>, branch: string): Task[] => {
-  return store.withBranch(branch);
-};
+export function tasksWithBranch(
+  store: Pick<TaskStore, 'withBranch'>,
+  branch: string,
+  options: CountTaskListingOptions,
+): number;
+export function tasksWithBranch(
+  store: Pick<TaskStore, 'withBranch'>,
+  branch: string,
+  options?: TaskListingOptions,
+): Task[];
+export function tasksWithBranch(
+  store: Pick<TaskStore, 'withBranch'>,
+  branch: string,
+  options: TaskListingResultOptions = {},
+): Task[] | number {
+  return taskListingResult(store.withBranch(branch), options);
+}
 
 /** Returns tasks blocking the supplied task. */
-export const tasksBlockedBy = (
+export function tasksBlockedBy(
   store: Pick<TaskStore, 'blockedBy'>,
   taskOrId: TaskReference,
-): Task[] => {
-  return store.blockedBy(taskOrId);
-};
+  options: CountTaskListingOptions,
+): number;
+export function tasksBlockedBy(
+  store: Pick<TaskStore, 'blockedBy'>,
+  taskOrId: TaskReference,
+  options?: TaskListingOptions,
+): Task[];
+export function tasksBlockedBy(
+  store: Pick<TaskStore, 'blockedBy'>,
+  taskOrId: TaskReference,
+  options: TaskListingResultOptions = {},
+): Task[] | number {
+  return taskListingResult(store.blockedBy(taskOrId), options);
+}
 
 /** Returns tasks blocked by the supplied task. */
-export const tasksBlocking = (
+export function tasksBlocking(
   store: Pick<TaskStore, 'blocking'>,
   taskOrId: TaskReference,
-): Task[] => {
-  return store.blocking(taskOrId);
-};
+  options: CountTaskListingOptions,
+): number;
+export function tasksBlocking(
+  store: Pick<TaskStore, 'blocking'>,
+  taskOrId: TaskReference,
+  options?: TaskListingOptions,
+): Task[];
+export function tasksBlocking(
+  store: Pick<TaskStore, 'blocking'>,
+  taskOrId: TaskReference,
+  options: TaskListingResultOptions = {},
+): Task[] | number {
+  return taskListingResult(store.blocking(taskOrId), options);
+}
 
 /** Returns tasks with the supplied priority. */
-export const tasksWithPriority = (
+export function tasksWithPriority(
   store: Pick<TaskStore, 'withPriority'>,
   priority: TaskPriority,
-): Task[] => {
-  return store.withPriority(priority);
-};
+  options: CountTaskListingOptions,
+): number;
+export function tasksWithPriority(
+  store: Pick<TaskStore, 'withPriority'>,
+  priority: TaskPriority,
+  options?: TaskListingOptions,
+): Task[];
+export function tasksWithPriority(
+  store: Pick<TaskStore, 'withPriority'>,
+  priority: TaskPriority,
+  options: TaskListingResultOptions = {},
+): Task[] | number {
+  return taskListingResult(store.withPriority(priority), options);
+}
 
 /** Creates a task. */
 export const createTask = (store: Pick<TaskStore, 'create'>, input: CreateTaskInput): Task => {

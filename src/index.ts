@@ -159,7 +159,14 @@ export type {
   WrittenSubagent,
   WrittenSubagentSkill,
 } from './subagents.js';
-export type { CleanupTasksResult } from './task-commands.js';
+export type {
+  CleanupTasksResult,
+  CountListTasksOptions,
+  CountTaskListingOptions,
+  ListTasksOptions,
+  TaskListingOptions,
+  TaskPlanFilter,
+} from './task-commands.js';
 export type { PullRequestOverviewItem } from './tasks-overview.js';
 export type {
   AddTaskProgressInput,

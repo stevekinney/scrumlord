@@ -41,6 +41,12 @@ const parseTaskList = (value: string): Task[] => {
   return parsed;
 };
 
+const parseCount = (value: string): number => {
+  const parsed: unknown = JSON.parse(value);
+  if (typeof parsed !== 'number') throw new Error('Expected command output to be a number.');
+  return parsed;
+};
+
 const expectSuccessfulCommand = async (root: string, command: string[]): Promise<Task> => {
   const result = await runTasksCli(command, { cwd: root });
   expect(result.exitCode).toBe(0);
@@ -63,14 +69,28 @@ const readTaskList = async (root: string, command: string[]): Promise<Task[]> =>
   return parseTaskList(result.stdout);
 };
 
+const readTaskCount = async (root: string, command: string[]): Promise<number> => {
+  const result = await runTasksCli([...command, '--count'], { cwd: root });
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe('');
+  return parseCount(result.stdout);
+};
+
 const expectPlanFilter = async (root: string, command: string[]): Promise<void> => {
   const plannedTasks = await readTaskList(root, [...command, '--planned']);
   const unplannedTasks = await readTaskList(root, [...command, '--unplanned']);
+  const allTasks = await readTaskList(root, command);
+  const countedTasks = await readTaskCount(root, command);
+  const countedPlannedTasks = await readTaskCount(root, [...command, '--planned']);
+  const countedUnplannedTasks = await readTaskCount(root, [...command, '--unplanned']);
 
   expect(plannedTasks.length).toBeGreaterThan(0);
   expect(unplannedTasks.length).toBeGreaterThan(0);
   expect(plannedTasks.every((task) => task.plan !== null)).toBe(true);
   expect(unplannedTasks.every((task) => task.plan === null)).toBe(true);
+  expect(countedTasks).toBe(allTasks.length);
+  expect(countedPlannedTasks).toBe(plannedTasks.length);
+  expect(countedUnplannedTasks).toBe(unplannedTasks.length);
 };
 
 afterEach(async () => {

@@ -18,23 +18,23 @@ const onePositional = { minPositionals: 1, maxPositionals: 1 };
 const optionalTaskId = { minPositionals: 0, maxPositionals: 1 };
 const optionalTaskIdWithOneArgument = { minPositionals: 1, maxPositionals: 2 };
 const optionalTaskIdWithTwoArguments = { minPositionals: 2, maxPositionals: 3 };
-const planFilterBooleanFlags = ['planned', 'unplanned'];
+const listingBooleanFlags = ['planned', 'unplanned', 'count'];
 const taskListingCommandSpecification = {
   ...noPositionals,
-  booleanFlags: planFilterBooleanFlags,
+  booleanFlags: listingBooleanFlags,
 };
 const onePositionalTaskListingCommandSpecification = {
   ...onePositional,
-  booleanFlags: planFilterBooleanFlags,
+  booleanFlags: listingBooleanFlags,
 };
 const optionalTaskIdTaskListingCommandSpecification = {
   ...optionalTaskId,
-  booleanFlags: planFilterBooleanFlags,
+  booleanFlags: listingBooleanFlags,
 };
 
 const commandSpecifications: Record<string, CommandSpecification> = {
   available: taskListingCommandSpecification,
-  list: { ...noPositionals, booleanFlags: ['all', ...planFilterBooleanFlags] },
+  list: { ...noPositionals, booleanFlags: ['all', ...listingBooleanFlags] },
   blocked: taskListingCommandSpecification,
   completed: taskListingCommandSpecification,
   init: noPositionals,
@@ -49,8 +49,8 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   ci: noPositionals,
   get: optionalTaskId,
   'with-tag': onePositionalTaskListingCommandSpecification,
-  'with-all-tags': { minPositionals: 1, booleanFlags: planFilterBooleanFlags },
-  'with-any-tag': { minPositionals: 1, booleanFlags: planFilterBooleanFlags },
+  'with-all-tags': { minPositionals: 1, booleanFlags: listingBooleanFlags },
+  'with-any-tag': { minPositionals: 1, booleanFlags: listingBooleanFlags },
   'with-branch': onePositionalTaskListingCommandSpecification,
   'blocked-by': optionalTaskIdTaskListingCommandSpecification,
   blocking: optionalTaskIdTaskListingCommandSpecification,
@@ -66,6 +66,12 @@ const commandSpecifications: Record<string, CommandSpecification> = {
     ...optionalTaskId,
     valueFlags: ['cli'],
     booleanFlags: ['no-worktree', 'force', 'quiet'],
+  },
+  pipeline: {
+    minPositionals: 0,
+    maxPositionals: 0,
+    valueFlags: ['cli', 'max', 'resume'],
+    booleanFlags: ['recover', 'recover-then-run', 'apply', 'quiet', 'dry-run', 'json'],
   },
   resume: optionalTaskId,
   'agent-hook': onePositional,

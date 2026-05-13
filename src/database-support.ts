@@ -72,14 +72,27 @@ export const availableTasksSql = `SELECT * FROM tasks
  ${availableTasksWhereSql}
  ORDER BY priority DESC, created_at ASC, id ASC`;
 
-export const nextTaskSql = `SELECT * FROM tasks
- ${availableTasksWhereSql}
- ORDER BY
+const nextTaskOrderSql = `ORDER BY
    CASE WHEN plan IS NULL THEN 1 ELSE 0 END,
    priority DESC,
    created_at ASC,
-   id ASC
+   id ASC`;
+
+export const nextTaskSql = `SELECT * FROM tasks
+ ${availableTasksWhereSql}
+ ${nextTaskOrderSql}
  LIMIT 1`;
+
+/**
+ * Returns the next batch of claimable tasks ordered the same way as `nextTaskSql`.
+ * Used by `TaskStore.listClaimCandidates` for `--dry-run` previews — no excludeIds
+ * are baked in; the caller filters in memory because SQLite `IN` does not bind a
+ * variable-length array via prepared statements without parameter expansion.
+ */
+export const listCandidatesSql = `SELECT * FROM tasks
+ ${availableTasksWhereSql}
+ ${nextTaskOrderSql}
+ LIMIT $limit`;
 
 export const blockedTasksSql = `SELECT DISTINCT tasks.* FROM tasks
  JOIN task_dependencies ON task_dependencies.task_id = tasks.id

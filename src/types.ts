@@ -97,6 +97,23 @@ export type UpdateTaskInput = Partial<
 
 export type DateInput = Date | string | null;
 
+/** Options for `TaskStore.claimNext`. */
+export type ClaimNextOptions = {
+  /** Pipeline run id recorded in the `pipeline:phase=claim` marker for ownership checks. */
+  runId: string;
+};
+
+/**
+ * Predicate evaluated against the current row inside `conditionalUpdate`'s
+ * transaction. The update only proceeds when every supplied field matches.
+ */
+export type ConditionalUpdatePredicate = {
+  ifStatus?: TaskStatus;
+  ifBranch?: string | null;
+  /** Match the run id parsed from the latest `pipeline:phase=...;run=<id>;...` marker. */
+  ifRunId?: string;
+};
+
 export type TaskStore = {
   readonly projectRoot: string;
   readonly databasePath: string;
@@ -118,6 +135,13 @@ export type TaskStore = {
   blocking(taskOrId: TaskReference): Task[];
   withPriority(priority: TaskPriority): Task[];
   next(): Task | null;
+  claimNext(options: ClaimNextOptions): Task | null;
+  listClaimCandidates(limit: number, excludeIds?: Set<TaskIdentifier>): Task[];
+  conditionalUpdate(
+    id: TaskIdentifier,
+    patch: UpdateTaskInput,
+    predicate: ConditionalUpdatePredicate,
+  ): Task | null;
   remaining(): number;
   cleanup(days: number): { deleted: number };
   addTag(id: TaskIdentifier, tag: string): Task;

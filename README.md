@@ -94,7 +94,7 @@ Help output uses Bun’s native `Bun.color()` ANSI formatting. JSON data and JSO
 - `tasks session [task-id]`: Provider, session, branch, derived worktree, plan path, session data path, and warnings for a task.
 - `tasks progress [task-id]`: Chronological progress entries recorded for a task.
 
-Task listing commands that return task arrays accept `--planned` to keep only tasks with a plan path and `--unplanned` to keep only tasks without one. The filters are mutually exclusive.
+Task listing commands that return task arrays accept `--planned` to keep only tasks with a plan path and `--unplanned` to keep only tasks without one. The filters are mutually exclusive. Add `--count` to any task array listing command to print only the number of matching tasks, for example `tasks available --planned --count`.
 
 Commands whose first positional argument is `[task-id]` can omit it. Scrumlord then uses the single active task assigned to the current Git branch, the same lookup exposed by `tasks current-task`. If no active task is assigned, the command fails with `current_task_not_found`; if more than one active task matches, it fails with `current_task_ambiguous`.
 
@@ -124,6 +124,7 @@ All flags use kebab case. Tags are trimmed and lowercased before storage. `branc
 
 - `tasks start [task-id] --cli <claude|codex>`: Start a task in an agent CLI. Scrumlord creates the worktree and branch (Claude: `claude --worktree`; Codex: `~/.codex/worktrees/<slug>-<short-id>` with a `<projectRoot>/tmp/worktrees/` fallback when the home location is unwritable) before launching the provider. The agent receives a JSON payload with `worktree`, `branch`, and `phase` (`start | resume-planning | resume-implementation`), and a system prompt that names the four-phase workflow: plan → implement → `committee-review` (which opens the PR) → `address-pr` (which drives it to merge). Pass `--no-worktree` to skip worktree creation (refused on the resolved base branch unless `--force`); pass `--quiet` to suppress the pre-launch status line. If `--cli` is omitted, Scrumlord uses `SCRUMLORD_CLI`; if neither is present, it fails before launching anything.
 - `tasks resume [task-id]`: Resume the recorded provider session from the derived worktree when available, falling back to the project root.
+- `tasks pipeline --cli <claude|codex>`: Drain the ready queue serially. For each task it claims atomically via `claimNext`, materializes the worktree (Claude `--worktree`; Codex managed dir), delegates the per-task run to the agent CLI (the Claude prompt invokes the `next-task` skill; the Codex prompt inlines the four-phase workflow), polls the task's pull request to merge, and continues to the next task. A single global lockfile at `tmp/pipeline.lock` prevents concurrent pipelines on the same checkout; stale lockfiles (dead PID or older than 6 hours) are reaped automatically. Flags: `--max <n>` caps claim attempts; `--recover` runs the recovery sweep and exits (annotate-only by default; pair with `--apply` to mutate); `--recover-then-run` sweeps first and refuses to drain while any task is in `resumable` state; `--resume <task-id>` resumes a single in-flight task; `--dry-run` previews would-be claims without mutating anything; `--quiet` suppresses progress lines (errors still emit); `--json` emits the structured summary on stdout. Exit codes: `0` success, `1` stuck, `2` argument/capability error, `3` lock held, `4` manual recovery verdicts present, `5` runtime git/GitHub failure during drain, `130/143` SIGINT/SIGTERM.
 - `tasks session [task-id]`: Return the task session report as JSON.
 - `tasks current-task`: Show the task for the current branch when you need to inspect the inferred ID directly.
 - `tasks add-progress [task-id] --message <markdown>`: Record what changed, what was learned, or why work is blocked. Recording progress moves `draft` or `ready` tasks to `in-progress`. Agent start prompts ask agents to use this after planning, major implementation steps, blockers, and handoffs.
@@ -244,6 +245,7 @@ MCP tool errors return `isError: true` with structured content shaped as `{ "err
 
 ```ts
 import {
+  availableTasks,
   createScrumlordMcpServer,
   createTaskStore,
   next,
@@ -264,6 +266,7 @@ const task = store.create({
 });
 
 console.log(store.available());
+console.log(availableTasks(store, { count: true }));
 console.log(next(store));
 console.log(remaining(store));
 console.log(store.taskSession(task.id));
@@ -296,7 +299,7 @@ The package root also exports companion types for every public function signatur
 - Command, color, setup, error, and Git status types: `ColorMode`, `CommandResult`, `CommandRunner`, `CurrentBranchTaskOptions`, `CreateTaskStoreOptions`, `InitializeProjectOptions`, `InitializeProjectResult`, `ScrumlordError`, `SetupAgentHooksOptions`, `SetupAgentHooksResult`, `SetupGitHooksOptions`, `SetupGitHooksResult`, `SetupProjectOptions`, `SetupProjectResult`, `SetupSelection`, `SetupStatus`, `SetupStatusProvider`, `SetupStatusSkill`, `SetupSubagentsOptions`, `SetupSubagentsResult`, `SkillTarget`, `SubagentScope`, `SyncGitStatusOptions`, `SyncGitStatusResult`, `SynchronizedPullRequestState`, `Theme`, `WhichExecutable`, `WrittenSkill`, `WrittenSubagent`, and `WrittenSubagentSkill`.
 - MCP types: `ScrumlordMcpServerOptions`.
 - GitHub types: `GitHubOptions`, `PullRequest`, `PullRequestCheck`, `PullRequestCheckConclusion`, `PullRequestCheckReport`, `PullRequestOverviewItem`, `PullRequestStatusReport`, and `ReviewComment`.
-- Task and store types: `AddTaskProgressInput`, `CleanupTasksResult`, `CreateTaskInput`, `DateInput`, `PersistedTaskSession`, `Task`, `TaskIdentifier`, `TaskProgress`, `TaskPriority`, `TaskReference`, `TaskSession`, `TaskStatus`, `TaskStore`, and `UpdateTaskInput`.
+- Task and store types: `AddTaskProgressInput`, `CleanupTasksResult`, `CountListTasksOptions`, `CountTaskListingOptions`, `CreateTaskInput`, `DateInput`, `ListTasksOptions`, `PersistedTaskSession`, `Task`, `TaskIdentifier`, `TaskListingOptions`, `TaskPlanFilter`, `TaskProgress`, `TaskPriority`, `TaskReference`, `TaskSession`, `TaskStatus`, `TaskStore`, and `UpdateTaskInput`.
 
 ### Task Store Methods
 

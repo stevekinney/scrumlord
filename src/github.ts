@@ -22,6 +22,9 @@ export type PullRequest = {
   headRefName: string;
   headSha: string | null;
   title: string | null;
+  state: 'OPEN' | 'CLOSED' | 'MERGED';
+  baseRefName: string;
+  mergedAt: string | null;
 };
 
 export type ReviewComment = {
@@ -74,6 +77,22 @@ const pullRequestHeadRefNameFrom = (
   return stringOrNull(record['headRefName']) ?? stringOrNull(head?.['ref']);
 };
 
+const pullRequestStateFrom = (value: Record<string, unknown>): 'OPEN' | 'CLOSED' | 'MERGED' => {
+  if (value['merged_at'] || value['mergedAt']) return 'MERGED';
+  const raw = value['state'];
+  if (raw === 'closed') return 'CLOSED';
+  if (raw === 'open') return 'OPEN';
+  if (raw === 'OPEN' || raw === 'CLOSED' || raw === 'MERGED') return raw;
+  return 'OPEN';
+};
+
+const pullRequestBaseRefFrom = (value: Record<string, unknown>): string => {
+  const base = nestedRecord(value, 'base');
+  if (base && typeof base['ref'] === 'string') return base['ref'];
+  if (typeof value['baseRefName'] === 'string') return value['baseRefName'];
+  return '';
+};
+
 const pullRequestFrom = (value: unknown): PullRequest | undefined => {
   if (!isRecord(value) || typeof value['number'] !== 'number') return undefined;
   const head = nestedRecord(value, 'head');
@@ -89,6 +108,9 @@ const pullRequestFrom = (value: unknown): PullRequest | undefined => {
     headRefName,
     headSha: stringOrNull(value['headSha']) ?? stringOrNull(head?.['sha']),
     title: stringOrNull(value['title']),
+    state: pullRequestStateFrom(value),
+    baseRefName: pullRequestBaseRefFrom(value),
+    mergedAt: stringOrNull(value['mergedAt']) ?? stringOrNull(value['merged_at']),
   };
 };
 
@@ -193,6 +215,38 @@ const repositoryParts = (repository: string): { owner: string; name: string } =>
   if (!owner || !name)
     throw new ScrumlordError('invalid_repository', `Invalid GitHub repository: ${repository}`);
   return { owner, name };
+};
+
+/**
+ * Returns every pull request whose head ref matches `branch`, regardless of
+ * state (open/closed/merged). Useful for pipeline-style flows that need to
+ * disambiguate the task's PR from arbitrary repository PRs.
+ */
+export const pullRequestsForBranch = async (
+  projectRoot: string,
+  repository: string,
+  branch: string,
+  options?: GitHubOptions,
+): Promise<PullRequest[]> => {
+  const { owner, name } = repositoryParts(repository);
+  const parsedPullRequests = await runGitHubRestGet(
+    projectRoot,
+    `repos/${owner}/${name}/pulls`,
+    { head: `${owner}:${branch}`, state: 'all', per_page: '100' },
+    options,
+    'pull_request_lookup_failed',
+    true,
+  );
+  if (!Array.isArray(parsedPullRequests)) {
+    throw new ScrumlordError(
+      'pull_request_lookup_invalid',
+      'Expected GitHub pull request list to return a JSON array.',
+    );
+  }
+  return parsedPullRequests.flatMap((value) => {
+    const pullRequest = pullRequestFrom(value);
+    return pullRequest ? [pullRequest] : [];
+  });
 };
 
 export const openPullRequests = async (
@@ -414,12 +468,19 @@ export const continuousIntegrationStatus = async (
   return await checksForPullRequest(projectRoot, pullRequest, options);
 };
 
+/**
+ * Returns full readiness state for a pull request. When `pullRequestNumber` is
+ * provided, the status is scoped to that PR; otherwise it falls back to the
+ * pull request inferred from the current branch (legacy behavior).
+ */
 export const pullRequestStatus = async (
   projectRoot: string,
-  options?: GitHubOptions,
+  options?: GitHubOptions & { pullRequestNumber?: number },
 ): Promise<PullRequestStatusReport> => {
-  const pullRequest = await currentPullRequest(projectRoot, options);
   const repository = await repositoryName(projectRoot, options);
+  const pullRequest = options?.pullRequestNumber
+    ? await pullRequestDetails(projectRoot, repository, options.pullRequestNumber, options)
+    : await currentPullRequest(projectRoot, options);
   const [reviewComments, checks] = await Promise.all([
     reviewCommentsForPullRequest(projectRoot, repository, pullRequest, options),
     checksForPullRequestInRepository(projectRoot, repository, pullRequest, options),

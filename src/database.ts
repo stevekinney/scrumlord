@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { Database } from 'bun:sqlite';
 import {
   availableTasksSql,
@@ -9,6 +10,7 @@ import {
   hydrateTaskProgress,
   hydrateTask,
   indexedBindings,
+  listCandidatesSql,
   nextTaskSql,
   normalizeTagSet,
   placeholders,
@@ -19,9 +21,12 @@ import {
   type TaskRow,
 } from './database-support.js';
 import { ScrumlordError } from './errors.js';
+import { formatPipelinePhaseMarker, parsePipelineRunId } from './pipeline-markers.js';
 import type {
   AddTaskProgressInput,
   AgentProvider,
+  ClaimNextOptions,
+  ConditionalUpdatePredicate,
   CreateTaskInput,
   PersistedTaskSession,
   Task,
@@ -228,6 +233,89 @@ export class SqliteTaskStore implements TaskStore {
   next(): Task | null {
     const now = this.#now().toISOString();
     return this.selectTasks(nextTaskSql, { now })[0] ?? null;
+  }
+
+  claimNext(options: ClaimNextOptions): Task | null {
+    const now = this.#now().toISOString();
+    let claimedId: TaskIdentifier | null = null;
+    const transaction = this.#database.transaction(() => {
+      const candidate = this.selectTasks(nextTaskSql, { now })[0];
+      if (!candidate) return;
+      claimedId = candidate.id;
+      const marker = formatPipelinePhaseMarker('claim', candidate.id, options.runId, now);
+      this.#database
+        .query<
+          unknown,
+          QueryBindings
+        >(`UPDATE tasks SET status = 'in-progress', last_modified_at = $lastModifiedAt WHERE id = $id`)
+        .run({ id: candidate.id, lastModifiedAt: now });
+      this.#database
+        .query<unknown, QueryBindings>(
+          `INSERT INTO task_progress (
+            id, task_id, message, created_at, provider, session
+          ) VALUES (
+            $id, $taskId, $message, $createdAt, $provider, $session
+          )`,
+        )
+        .run({
+          id: crypto.randomUUID(),
+          taskId: candidate.id,
+          message: marker,
+          createdAt: now,
+          provider: null,
+          session: null,
+        });
+    });
+    transaction();
+    return claimedId ? this.requireTask(claimedId) : null;
+  }
+
+  listClaimCandidates(limit: number, excludeIds: Set<TaskIdentifier> = new Set()): Task[] {
+    if (!Number.isInteger(limit) || limit <= 0) return [];
+    const now = this.#now().toISOString();
+    const overscan = Math.max(limit + excludeIds.size, limit);
+    const rows = this.selectTasks(listCandidatesSql, { now, limit: overscan });
+    const out: Task[] = [];
+    for (const row of rows) {
+      if (excludeIds.has(row.id)) continue;
+      out.push(row);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  conditionalUpdate(
+    id: TaskIdentifier,
+    patch: UpdateTaskInput,
+    predicate: ConditionalUpdatePredicate,
+  ): Task | null {
+    let result: Task | null = null;
+    const transaction = this.#database.transaction(() => {
+      const current = this.getTask(id);
+      if (!current) return;
+      if (predicate.ifStatus !== undefined && current.status !== predicate.ifStatus) return;
+      if (predicate.ifBranch !== undefined && current.branch !== predicate.ifBranch) return;
+      if (predicate.ifRunId !== undefined) {
+        const runId = this.latestPipelineRunId(id);
+        if (runId !== predicate.ifRunId) return;
+      }
+      result = this.update(id, patch);
+    });
+    transaction();
+    return result;
+  }
+
+  private latestPipelineRunId(id: TaskIdentifier): string | null {
+    const row = this.#database
+      .query<{ message: string }, QueryBindings>(
+        `SELECT message FROM task_progress
+         WHERE task_id = $id AND message LIKE 'pipeline:phase=%'
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1`,
+      )
+      .get({ id });
+    if (!row) return null;
+    return parsePipelineRunId(row.message);
   }
 
   remaining(): number {

@@ -165,6 +165,9 @@ describe('GitHub pull request overview', () => {
         headRefName: 'feature/tasks-overview',
         headSha: 'sha-overview',
         title: 'Build overview',
+        state: 'OPEN',
+        baseRefName: '',
+        mergedAt: null,
       });
       expect(firstOverviewItem.associatedTasks.map((item) => item.id)).toEqual([
         'task-documentation',
