@@ -188,6 +188,109 @@ The system prompt and the body are both in argv. For long plans + descriptions t
 
 **Action:** Split scrumlord's pipeline into discrete phase invocations, mirroring cinder. Pros: each phase has its own log line, its own timeout cap, its own failure mode, and the operator can resume at the boundary. Cons: more orchestration in the parent. Worth it.
 
+### 20. Commit count check before claiming PR
+
+**Cinder:** After the implementation agent exits, cinder runs `countCommitsAhead(worktree, baseBranch)` and logs `5 commit(s) on next/0a423b46`. If the count is zero, that's an immediate red flag — agent finished without committing anything, treat as stuck.
+
+**Scrumlord:** No commit-count check. If the agent finishes cleanly but never committed (a real failure mode — claude can think it's done and exit without `git commit`), we'll happily poll for a PR that will never exist and then fail with `pr_never_opened` after a 30s wait. Wasted time on a detectable error.
+
+**Action:** After the implementation agent exits with code 0, run `git rev-list --count <base>..HEAD` in the worktree. If 0, fail fast with `no_commits_after_agent` and skip PR polling entirely.
+
+### 21. Verify the PR exists immediately, not lazily during polling
+
+**Cinder:** First thing post-implementation: `findOpenPr(branch)` and logs `Found existing PR #70: <url>`. Failing this check means the next-phase `committee-review` skill didn't open one — handled as a recoverable state (cinder can `gh pr create` itself in some flows).
+
+**Scrumlord:** Enters the polling loop and does the PR lookup inside it, so the first PR-related log appears on round 1 of polling rather than as a discrete "PR exists" step.
+
+**Action:** Add a discrete `verifyPullRequestExists` step between agent exit and polling. Log the URL prominently. Defines a single failure mode (`pr_never_opened`) instead of conflating it with polling.
+
+### 22. Set status to `in-review` explicitly, not via sync-git-status inference
+
+**Cinder:** After confirming the PR, explicitly `tasks set-status in-review`. Visible state transition.
+
+**Scrumlord:** Relies on `tasks sync-git-status` inferring `in-review` from PR state. This works but isn't visible in the pipeline log — the operator can't tell when the task transitioned.
+
+**Action:** Have the pipeline explicitly move the task to `in-review` once the PR is verified, and log it: `[step] task moved to in-review`. The `sync-git-status` call remains as defense-in-depth.
+
+### 23. The agent's final status block on stdout is structured
+
+**Watched behavior:** When claude finishes (in this case, after `address-pr` consensus), it dumps a structured summary to stdout:
+```
+All exit conditions are met:
+- `unresolved_count: 0` …
+- `checks_all_terminal: true` …
+**Summary:** …
+<promise>PR feedback addressed and CI passing</promise>
+```
+
+This is rich data — task-level evidence that the agent considers itself done, which conditions it checked, etc.
+
+**Implications:** We could parse the `<promise>` tag or the bullet list as evidence-of-completion. We don't have to trust it, but having it in the pipeline log and the task progress is gold for post-mortem.
+
+**Action:** Capture the agent's final ~50 lines of stdout. Persist them to `tmp/pipeline-runs/<run-id>/<task-id>.tail` and surface the `<promise>` line (if present) in the pipeline log: `[info] agent reports: PR feedback addressed and CI passing`.
+
+### 25. "Not fully clean but no actionable feedback" — soft-accept escape hatch
+
+**Watched behavior:** Cinder waited 5 minutes for copilot-pull-request-reviewer, the bot never reviewed, but checks were green and threads resolved. Cinder logged:
+```
+[WARN] Bots never reviewed within budget: copilot-pull-request-reviewer — proceeding anyway
+[WARN] PR #70 not fully clean but has no actionable feedback — accepting
+```
+…and merged. The decision: if the only thing preventing merge is a bot that never showed up, but everything *actionable* is green, ship it.
+
+**Scrumlord:** Our `readyToMerge` is binary. If we add expected-bot tracking (improvement 7), we need this same fallback — otherwise a missing bot blocks merge forever.
+
+**Action:** When `bots-pending.length > 0` but `checks.failing == 0`, `checks.pending == 0`, and `unresolvedThreads == 0`, after the bot-wait budget is exhausted, log `WARN bots never reviewed, no actionable feedback — accepting` and proceed to merge. This is the "soft acceptance" path. Configurable via `SCRUMLORD_PIPELINE_REQUIRE_BOTS=strict` for repos that genuinely require bot signoff.
+
+### 26. Remove the worktree BEFORE merging
+
+**Watched behavior:**
+```
+[17:33:08] [PHASE] Removing worktree before merge
+[17:33:11] [PHASE] Merging PR #70
+```
+
+Cinder removes the per-task worktree *before* invoking `gh pr merge`. Two reasons: (a) `gh pr merge --delete-branch` will fail if a worktree still has that branch checked out, and (b) cleanup is owned by the pipeline, not by GitHub.
+
+**Scrumlord:** No worktree-removal step. We rely on `gh pr merge --delete-branch` to handle it, but the worktree on disk stays around forever, accumulating garbage. Eventually `git worktree list` becomes unmanageable.
+
+**Action:** Add an explicit `removeWorktreeBeforeMerge` step. Use `git worktree remove --force <path>` (Claude-managed worktrees are under `~/.claude/projects/...`, Codex under `~/.codex/worktrees/...`; both should be removable). After successful merge, also `git branch -D <branch>` on the main repo if the local ref still exists.
+
+### 27. Per-task lifecycle is observable in 5 distinct phase lines
+
+**Watched cinder summary for one task:**
+```
+[OK] 5 commit(s) on next/0a423b46
+[OK] Found existing PR #70: https://github.com/stevekinney/cinder/pull/70
+[PHASE] Setting 0a423b46 to in-review
+[PHASE] PR readiness check 1/5 for PR #70
+[PHASE] Removing worktree before merge
+[PHASE] Merging PR #70
+[PHASE] Marking 0a423b46 as completed
+[OK] Task 0a423b46 shipped — PR #70
+```
+
+Eight discrete events. Each one is a checkpoint the operator can grep for. The terminal `Task <id> shipped — PR #<n>` line is one-line success.
+
+**Scrumlord:** Our equivalent path emits the merge log, the success line, and the summary — but not commit count, not the explicit in-review transition, not the worktree-removal step. Less granular checkpoints.
+
+**Action:** Adopt cinder's 8-line per-task structure as the contract for what every task ships should look like. Failures should emit the same skeleton but with `[ERROR]` substituted at the failing point so the operator can scroll up and find exactly where it stopped.
+
+### 24. Bot-aware polling — first round shows the breakdown immediately
+
+**Cinder polling output:**
+```
+[PHASE] PR readiness check 1/5 for PR #70
+[INFO] 2 pass / 0 pending / 0 fail; 0 unresolved; awaiting copilot-pull-request-reviewer
+[INFO] Awaiting review bots (1/5): copilot-pull-request-reviewer
+```
+
+Round number, full quad on a single line, then the bot-wait counter on a separate line.
+
+**Scrumlord:** Round number not shown, snapshot format inconsistent (only fires the verbose line when checks aren't green), no bot tracking.
+
+**Action:** Already covered in improvements 7 and 10; this is the observed reference format to match.
+
 ### 19. Recovery sweep is per-task, with surviving lock detection
 
 **Cinder:** Each in-progress task has its own lock dir. Recovery checks for live PID inside each dir, classifies the task accordingly. A pipeline crash leaves stale dirs and the next recovery sweep reaps them and reclassifies.
