@@ -869,7 +869,7 @@ export const runOneTask = async (
   }
   if (Bun.env['SCRUMLORD_PIPELINE_PHASES'] === 'split' && !planPath) {
     log(resolved, 'step', 'phase: plan-only agent run', taskId);
-    const planInvocation = buildPlanOnlyInvocation(resolved.provider, taskId, branch, worktree);
+    const planInvocation = buildPlanOnlyInvocation(resolved.provider, taskId, worktree);
     const planAbort = new AbortController();
     const planResult = await resolved.spawnAgent(
       planInvocation,
@@ -892,7 +892,7 @@ export const runOneTask = async (
     );
   }
 
-  const invocation = buildPipelineInvocation(resolved.provider, taskId, branch, worktree);
+  const invocation = buildPipelineInvocation(resolved.provider, taskId, worktree);
   log(
     resolved,
     'info',
@@ -1147,7 +1147,6 @@ const countCommitsAhead = async (worktree: string, runner: CommandRunner): Promi
 const buildPipelineInvocation = (
   provider: AgentProvider,
   taskId: string,
-  branch: string,
   worktree: string,
 ): AgentInvocation => {
   const body = pipelinePrompt(provider, taskId);
@@ -1159,8 +1158,6 @@ const buildPipelineInvocation = (
         'claude',
         '-p',
         '--dangerously-skip-permissions',
-        '--worktree',
-        branch,
         '--append-system-prompt',
         PIPELINE_SYSTEM_PROMPT,
       ],
@@ -1190,13 +1187,12 @@ const buildPipelineInvocation = (
 const buildPlanOnlyInvocation = (
   provider: AgentProvider,
   taskId: string,
-  branch: string,
   worktree: string,
 ): AgentInvocation => {
   const body = planOnlyPrompt(taskId);
   if (provider === 'claude') {
     return {
-      command: ['claude', '-p', '--dangerously-skip-permissions', '--worktree', branch],
+      command: ['claude', '-p', '--dangerously-skip-permissions'],
       cwd: worktree,
       environment: {},
       stdin: body,
@@ -1215,12 +1211,11 @@ const buildAddressPrInvocation = (
   taskId: string,
   pullRequestNumber: number,
   worktree: string,
-  branch: string,
 ): AgentInvocation => {
   const body = addressPrPrompt(taskId, pullRequestNumber);
   if (provider === 'claude') {
     return {
-      command: ['claude', '-p', '--dangerously-skip-permissions', '--worktree', branch],
+      command: ['claude', '-p', '--dangerously-skip-permissions'],
       cwd: worktree,
       environment: {},
       stdin: body,
@@ -1491,7 +1486,6 @@ const pollPrUntilMerged = async (
         taskId,
         pullRequest.number,
         worktree,
-        branch,
       );
       const addressTranscriptDir = join(store.projectRoot, 'tmp', 'pipeline-runs', resolved.runId);
       mkdirSync(addressTranscriptDir, { recursive: true });
