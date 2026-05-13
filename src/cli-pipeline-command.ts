@@ -26,7 +26,15 @@ const resolveMode = (parsed: ParsedArguments): PipelineMode => {
 };
 
 const resolveMax = (parsed: ParsedArguments): number | undefined => {
+  const once = parsed.flags.has('once');
   const raw = flag(parsed.flags, 'max');
+  if (once && raw !== undefined && raw !== '1') {
+    throw new ScrumlordError(
+      'pipeline_once_conflict',
+      `--once is shorthand for --max 1 and conflicts with --max ${raw}.`,
+    );
+  }
+  if (once) return 1;
   if (raw === undefined) return undefined;
   const parsedNumber = Number(raw);
   if (!Number.isFinite(parsedNumber) || !Number.isInteger(parsedNumber) || parsedNumber < 1) {

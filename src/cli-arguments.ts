@@ -71,7 +71,7 @@ const commandSpecifications: Record<string, CommandSpecification> = {
     minPositionals: 0,
     maxPositionals: 0,
     valueFlags: ['cli', 'max', 'resume'],
-    booleanFlags: ['recover', 'recover-then-run', 'apply', 'quiet', 'dry-run', 'json'],
+    booleanFlags: ['recover', 'recover-then-run', 'apply', 'quiet', 'dry-run', 'json', 'once'],
   },
   resume: optionalTaskId,
   'agent-hook': onePositional,

@@ -194,6 +194,11 @@ const topics: HelpTopic[] = [
         description: 'Stop after n claim attempts (default unlimited).',
       },
       {
+        name: '--once',
+        description:
+          'Exit after one full task lifecycle attempt (alias for `--max 1`). Conflicts with any other --max value.',
+      },
+      {
         name: '--recover',
         description: 'Run only the recovery sweep and exit (annotate-only without --apply).',
       },
@@ -225,6 +230,7 @@ const topics: HelpTopic[] = [
     ],
     examples: [
       'tasks pipeline --cli claude',
+      'tasks pipeline --cli claude --once',
       'tasks pipeline --cli codex --max 3',
       'tasks pipeline --recover --apply',
       'tasks pipeline --resume 8f7d6a --cli codex',

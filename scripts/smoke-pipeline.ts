@@ -884,6 +884,52 @@ const scenarios: readonly Scenario[] = [
     },
   },
   {
+    name: 'once-three-tasks',
+    introducedInWorkstream: 'F',
+    assertsBehaviorFrom: 'F',
+    description: 'with --once (max=1) and three ready tasks, ships one and leaves two ready (#9)',
+    expectedExitCode: 0,
+    expectedStderrSubstrings: ['draining queue (max 1 attempts)', 'task completed'],
+    run: async ({ store, appendStderr }) => {
+      seedReadyTask(store, 'first task');
+      seedReadyTask(store, 'second task');
+      seedReadyTask(store, 'third task');
+      const currentBranch = (): string => {
+        const branched = store.list().find((task) => task.branch);
+        return branched?.branch ?? 'feature/main';
+      };
+      const summary = await runPipeline(store, {
+        provider: 'claude',
+        mode: 'drain',
+        skipPreflight: true,
+        runner: mockRunner({ mode: 'happy', currentBranch, prState: 'merged' }),
+        spawnAgent: recordingSpawnAgent([0]).spawn,
+        stderr: appendStderr,
+        now: () => Date.parse('2026-05-13T15:00:00Z'),
+        runId: 'smoke-once',
+        repository: 'owner/repo',
+        hostname: 'smoke-host',
+        colorMode: 'off',
+        max: 1, // The CLI maps --once to max:1; PipelineOptions takes it directly.
+        constants: {
+          CHECK_POLL_INTERVAL_MS: 1,
+          CHECK_POLL_MAX_ATTEMPTS: 1,
+          REVIEW_BOT_WAIT_MS: 1,
+          REVIEW_BOT_MAX_ATTEMPTS: 1,
+          ADDRESS_PR_MAX_ROUNDS: 1,
+          AGENT_IDLE_MS: 60_001,
+          AGENT_MAX_MS: 60_001,
+          LOCK_STALE_MS: 60_001,
+        },
+      });
+      return { summary };
+    },
+    storeAssertions: (store) => {
+      const remaining = store.available();
+      assert(remaining.length === 2, `expected 2 ready tasks remaining, got ${remaining.length}`);
+    },
+  },
+  {
     name: 'promise-tag',
     introducedInWorkstream: 'B-1',
     assertsBehaviorFrom: 'B-1',
