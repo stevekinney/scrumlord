@@ -86,6 +86,10 @@ type MockRunnerOptions = {
    * the merge step itself.
    */
   prState?: 'merged' | 'open';
+  /** Body the mock should return for the PR. Defaults to an empty string. */
+  prBody?: () => string;
+  /** Called when the mock receives `gh pr edit … --body <new>`. */
+  onPrEdit?: (number: number, newBody: string) => void;
 };
 
 const ghApiEndpoint = (joined: string, suffix: string): boolean => {
@@ -99,10 +103,11 @@ const mockRunner = (options: MockRunnerOptions): CommandRunner => {
     const joined = command.join(' ');
     const headParam = extractFParam(command, 'head');
     const branchFromHead = headParam?.split(':', 2)[1] ?? 'task/smoke';
+    const prBody = options.prBody ? options.prBody() : '';
     const buildPr = (): ReturnType<typeof buildMergedPullRequest> => {
       return prState === 'merged'
-        ? buildMergedPullRequest(branchFromHead)
-        : buildOpenPullRequest(branchFromHead);
+        ? buildMergedPullRequest(branchFromHead, prBody)
+        : buildOpenPullRequest(branchFromHead, prBody);
     };
     if (joined.endsWith('--help')) {
       return ok('Options:\n  --worktree [name]\n  -C, --cd <DIR>\n');
@@ -157,6 +162,14 @@ const mockRunner = (options: MockRunnerOptions): CommandRunner => {
     }
     if (joined.startsWith('gh auth status')) return ok('');
     if (joined.startsWith('gh pr merge')) return ok('');
+    // `gh pr edit <number> --body <new>` (used by the footer repair flag).
+    if (joined.startsWith('gh pr edit')) {
+      const number = Number(command[3]);
+      const bodyIndex = command.indexOf('--body');
+      const newBody = bodyIndex >= 0 ? (command[bodyIndex + 1] ?? '') : '';
+      options.onPrEdit?.(number, newBody);
+      return ok('');
+    }
     // `gh pr list --head <branch> --state all --json … --limit 1` (used by sync-git-status).
     if (joined.startsWith('gh pr list')) {
       if (mode === 'no-tasks') return ok(JSON.stringify([]));
@@ -179,7 +192,7 @@ const mockRunner = (options: MockRunnerOptions): CommandRunner => {
   };
 };
 
-const buildMergedPullRequest = (branch: string) => ({
+const buildMergedPullRequest = (branch: string, body = '') => ({
   number: 42,
   state: 'closed',
   url: 'https://github.test/pull/42',
@@ -187,9 +200,10 @@ const buildMergedPullRequest = (branch: string) => ({
   head: { ref: branch, sha: 'sha-42' },
   base: { ref: 'main' },
   merged_at: '2026-05-13T15:00:00Z',
+  body,
 });
 
-const buildOpenPullRequest = (branch: string) => ({
+const buildOpenPullRequest = (branch: string, body = '') => ({
   number: 42,
   state: 'open',
   url: 'https://github.test/pull/42',
@@ -197,6 +211,7 @@ const buildOpenPullRequest = (branch: string) => ({
   head: { ref: branch, sha: 'sha-42' },
   base: { ref: 'main' },
   merged_at: null,
+  body,
 });
 
 const extractFParam = (command: readonly string[], key: string): string | undefined => {
@@ -455,6 +470,165 @@ const scenarios: readonly Scenario[] = [
       // The body should not appear on argv. Use a stable substring from the
       // pipeline prompt to confirm.
       assert(!argv.includes(claudeInvocation.stdin), `body leaked into argv: ${argv}`);
+    },
+  },
+  {
+    name: 'wrong-task-pr',
+    introducedInWorkstream: 'B-2',
+    assertsBehaviorFrom: 'B-2',
+    description:
+      'with PR_IDENTITY=on, a PR whose body references a different task id is rejected (#5)',
+    expectedExitCode: 1,
+    expectedStderrSubstrings: ['no PR yet', 'pr_never_opened'],
+    run: async ({ store, appendStderr }) => {
+      seedReadyTask(store, 'identity task');
+      const currentBranch = (): string => {
+        const branched = store.list().find((task) => task.branch);
+        return branched?.branch ?? 'feature/main';
+      };
+      process.env['SCRUMLORD_PIPELINE_PR_IDENTITY'] = 'on';
+      try {
+        const summary = await runPipeline(store, {
+          provider: 'claude',
+          mode: 'drain',
+          skipPreflight: true,
+          runner: mockRunner({
+            mode: 'happy',
+            currentBranch,
+            prState: 'open',
+            prBody: () => 'pipeline-task-id: deadbeef-deadbeef-deadbeef',
+          }),
+          spawnAgent: recordingSpawnAgent([0]).spawn,
+          stderr: appendStderr,
+          now: () => Date.parse('2026-05-13T15:00:00Z'),
+          runId: 'smoke-wrong-pr',
+          repository: 'owner/repo',
+          hostname: 'smoke-host',
+          colorMode: 'off',
+          max: 1,
+          constants: {
+            CHECK_POLL_INTERVAL_MS: 1,
+            CHECK_POLL_MAX_ATTEMPTS: 1,
+            REVIEW_BOT_WAIT_MS: 1,
+            REVIEW_BOT_MAX_ATTEMPTS: 1,
+            ADDRESS_PR_MAX_ROUNDS: 1,
+            AGENT_IDLE_MS: 60_001,
+            AGENT_MAX_MS: 60_001,
+            LOCK_STALE_MS: 60_001,
+          },
+        });
+        return { summary };
+      } finally {
+        delete process.env['SCRUMLORD_PIPELINE_PR_IDENTITY'];
+      }
+    },
+  },
+  {
+    name: 'footer-missing',
+    introducedInWorkstream: 'B-2',
+    assertsBehaviorFrom: 'B-2',
+    description: 'with PR_FOOTER_VERIFY=on, a PR whose body is missing the footer fails fast (#6b)',
+    expectedExitCode: 1,
+    expectedStderrSubstrings: ['missing the pipeline-task-id footer', 'pr_footer_missing'],
+    run: async ({ store, appendStderr }) => {
+      seedReadyTask(store, 'verify task');
+      const currentBranch = (): string => {
+        const branched = store.list().find((task) => task.branch);
+        return branched?.branch ?? 'feature/main';
+      };
+      process.env['SCRUMLORD_PIPELINE_PR_FOOTER_VERIFY'] = 'on';
+      try {
+        const summary = await runPipeline(store, {
+          provider: 'claude',
+          mode: 'drain',
+          skipPreflight: true,
+          runner: mockRunner({
+            mode: 'happy',
+            currentBranch,
+            prState: 'open',
+            prBody: () => 'no footer here',
+          }),
+          spawnAgent: recordingSpawnAgent([0]).spawn,
+          stderr: appendStderr,
+          now: () => Date.parse('2026-05-13T15:00:00Z'),
+          runId: 'smoke-footer-missing',
+          repository: 'owner/repo',
+          hostname: 'smoke-host',
+          colorMode: 'off',
+          max: 1,
+          constants: {
+            CHECK_POLL_INTERVAL_MS: 1,
+            CHECK_POLL_MAX_ATTEMPTS: 1,
+            REVIEW_BOT_WAIT_MS: 1,
+            REVIEW_BOT_MAX_ATTEMPTS: 1,
+            ADDRESS_PR_MAX_ROUNDS: 1,
+            AGENT_IDLE_MS: 60_001,
+            AGENT_MAX_MS: 60_001,
+            LOCK_STALE_MS: 60_001,
+          },
+        });
+        return { summary };
+      } finally {
+        delete process.env['SCRUMLORD_PIPELINE_PR_FOOTER_VERIFY'];
+      }
+    },
+  },
+  {
+    name: 'footer-repair',
+    introducedInWorkstream: 'B-2',
+    assertsBehaviorFrom: 'B-2',
+    description:
+      'with PR_FOOTER_REPAIR=on and a missing footer, the pipeline calls gh pr edit to append (#6c)',
+    expectedExitCode: 0,
+    expectedStderrSubstrings: ['footer missing; appending pipeline-task-id:'],
+    run: async ({ store, appendStderr }) => {
+      const { id } = seedReadyTask(store, 'repair task');
+      const currentBranch = (): string => {
+        const branched = store.list().find((task) => task.branch);
+        return branched?.branch ?? 'feature/main';
+      };
+      const edits: Array<{ number: number; body: string }> = [];
+      process.env['SCRUMLORD_PIPELINE_PR_FOOTER_REPAIR'] = 'on';
+      try {
+        const summary = await runPipeline(store, {
+          provider: 'claude',
+          mode: 'drain',
+          skipPreflight: true,
+          runner: mockRunner({
+            mode: 'happy',
+            currentBranch,
+            prState: 'merged',
+            prBody: () => 'Original PR body',
+            onPrEdit: (number, body) => edits.push({ number, body }),
+          }),
+          spawnAgent: recordingSpawnAgent([0]).spawn,
+          stderr: appendStderr,
+          now: () => Date.parse('2026-05-13T15:00:00Z'),
+          runId: 'smoke-footer-repair',
+          repository: 'owner/repo',
+          hostname: 'smoke-host',
+          colorMode: 'off',
+          max: 1,
+          constants: {
+            CHECK_POLL_INTERVAL_MS: 1,
+            CHECK_POLL_MAX_ATTEMPTS: 1,
+            REVIEW_BOT_WAIT_MS: 1,
+            REVIEW_BOT_MAX_ATTEMPTS: 1,
+            ADDRESS_PR_MAX_ROUNDS: 1,
+            AGENT_IDLE_MS: 60_001,
+            AGENT_MAX_MS: 60_001,
+            LOCK_STALE_MS: 60_001,
+          },
+        });
+        assert(edits.length === 1, `expected 1 edit, got ${edits.length}`);
+        assert(
+          edits[0]!.body.includes(`pipeline-task-id: ${id}`),
+          `edit body missing footer: ${edits[0]!.body}`,
+        );
+        return { summary };
+      } finally {
+        delete process.env['SCRUMLORD_PIPELINE_PR_FOOTER_REPAIR'];
+      }
     },
   },
   {

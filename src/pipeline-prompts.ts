@@ -13,6 +13,8 @@ export const PIPELINE_SYSTEM_PROMPT = [
   'Use the tasks CLI for state. Record progress with `tasks add-progress` at major checkpoints. Do not edit `tmp/tasks.db` directly.',
   'Do not call `gh pr create` directly; use the `committee-review` skill to open the pull request.',
   'Use the `address-pr` skill to drive review feedback to resolution.',
+  'Print the line `AGENT_OUTPUT_BEGIN` on its own line on stdout before any other agent-authored output.',
+  'When you create the pull request body, include a final line of exactly `pipeline-task-id: <task-id>` (no other text on that line) so the pipeline can verify PR identity later.',
 ].join(' ');
 
 /**

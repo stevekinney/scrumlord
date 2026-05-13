@@ -25,6 +25,12 @@ export type PullRequest = {
   state: 'OPEN' | 'CLOSED' | 'MERGED';
   baseRefName: string;
   mergedAt: string | null;
+  /**
+   * PR body. Only populated when the upstream call requests it; lookups
+   * that match by branch alone leave this `null`. Used by the pipeline's
+   * structured-footer identity check.
+   */
+  body: string | null;
 };
 
 export type ReviewComment = {
@@ -111,6 +117,7 @@ const pullRequestFrom = (value: unknown): PullRequest | undefined => {
     state: pullRequestStateFrom(value),
     baseRefName: pullRequestBaseRefFrom(value),
     mergedAt: stringOrNull(value['mergedAt']) ?? stringOrNull(value['merged_at']),
+    body: stringOrNull(value['body']),
   };
 };
 

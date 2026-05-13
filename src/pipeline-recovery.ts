@@ -8,6 +8,8 @@ export type PipelinePullRequest = {
   baseRefName: string;
   mergedAt: string | null;
   url: string;
+  /** PR body — used by the structured-footer identity check. */
+  body: string | null;
 };
 
 /**

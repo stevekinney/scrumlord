@@ -20,6 +20,11 @@ import {
   type RecoveryOutcome,
   type RecoveryVerdict,
 } from './pipeline-recovery.js';
+import {
+  buildRepairedPullRequestBody,
+  isFlagOn,
+  parsePullRequestFooter,
+} from './pipeline-pr-footer.js';
 import { PIPELINE_SYSTEM_PROMPT, addressPrPrompt, pipelinePrompt } from './pipeline-prompts.js';
 import type { AgentProvider, Task, TaskStore } from './types.js';
 import { deriveBranchAndShortId, repoCommonDir, resolveBaseBranch } from './worktree.js';
@@ -654,6 +659,7 @@ export const pullRequestForTask = async (
   task: Task,
   runner: CommandRunner,
   repository: string | null,
+  options: { environment?: Record<string, string | undefined> } = {},
 ): Promise<
   | { kind: 'found'; pullRequest: PipelinePullRequest }
   | { kind: 'none' }
@@ -664,7 +670,7 @@ export const pullRequestForTask = async (
   try {
     const repo = repository ?? (await repositoryName(projectRoot, { runner }));
     const prs = await pullRequestsForBranch(projectRoot, repo, task.branch, { runner });
-    const matching: PipelinePullRequest[] = prs
+    let matching: PipelinePullRequest[] = prs
       .filter((pr) => pr.headRefName === task.branch)
       .map((pr) => ({
         number: pr.number,
@@ -672,7 +678,17 @@ export const pullRequestForTask = async (
         baseRefName: pr.baseRefName,
         mergedAt: pr.mergedAt,
         url: pr.url,
+        body: pr.body,
       }));
+    // Structured-footer identity filter. Default off. When on, only PRs
+    // whose body contains `pipeline-task-id: <task.id>` survive; mismatches
+    // and missing footers are rejected. This prevents attaching to a PR
+    // whose branch happens to collide with `task.branch` but whose body
+    // identifies a different task.
+    const env = options.environment ?? Bun.env;
+    if (isFlagOn(env, 'SCRUMLORD_PIPELINE_PR_IDENTITY')) {
+      matching = matching.filter((pr) => parsePullRequestFooter(pr.body, task.id).kind === 'match');
+    }
     if (matching.length === 0) return { kind: 'none' };
     if (matching.length === 1) return { kind: 'found', pullRequest: matching[0]! };
     return { kind: 'multiple', pullRequests: matching };
@@ -680,6 +696,70 @@ export const pullRequestForTask = async (
     const reason = error instanceof Error ? error.message : String(error);
     return { kind: 'unavailable', reason };
   }
+};
+
+/**
+ * Implements the PR-body footer verify/repair state machine for a single
+ * pull request. See `src/pipeline-pr-footer.ts` for the truth table.
+ *
+ *   verify off + repair off : never called (caller short-circuits)
+ *   verify on  + repair off : fail on missing / mismatch
+ *   verify off + repair on  : append when missing, log warning if still missing
+ *   verify on  + repair on  : append, re-read, re-verify; mismatch still fails
+ *
+ * Mismatched footers are never auto-repaired because mismatch is an
+ * identity bug we want to surface, not silently rewrite.
+ */
+const applyFooterStateMachine = async (input: {
+  pullRequest: PipelinePullRequest;
+  taskId: string;
+  verify: boolean;
+  repair: boolean;
+  repository: string | null;
+  projectRoot: string;
+  runner: CommandRunner;
+  log: (level: LogLevel, message: string) => void;
+}): Promise<{ kind: 'ok' } | { kind: 'fail'; reason: string }> => {
+  const initial = parsePullRequestFooter(input.pullRequest.body, input.taskId);
+  if (initial.kind === 'mismatch') {
+    input.log(
+      'error',
+      `PR #${input.pullRequest.number} footer references task ${initial.foundTaskId}, expected ${input.taskId}`,
+    );
+    return { kind: 'fail', reason: 'pr_footer_mismatch' };
+  }
+  if (initial.kind === 'match') return { kind: 'ok' };
+  // initial.kind === 'missing'
+  if (!input.repair) {
+    if (input.verify) {
+      input.log('error', `PR #${input.pullRequest.number} is missing the pipeline-task-id footer`);
+      return { kind: 'fail', reason: 'pr_footer_missing' };
+    }
+    return { kind: 'ok' };
+  }
+  // Repair on, footer missing → append.
+  const repaired = buildRepairedPullRequestBody(input.pullRequest.body, input.taskId);
+  input.log(
+    'warning',
+    `PR #${input.pullRequest.number} footer missing; appending pipeline-task-id: ${input.taskId}`,
+  );
+  const editResult = await input.runner(
+    ['gh', 'pr', 'edit', String(input.pullRequest.number), '--body', repaired],
+    input.projectRoot,
+  );
+  if (editResult.exitCode !== 0) {
+    input.log('error', `gh pr edit failed: ${editResult.stderr.trim()}`);
+    if (input.verify) return { kind: 'fail', reason: 'pr_footer_repair_failed' };
+    return { kind: 'ok' };
+  }
+  if (!input.verify) return { kind: 'ok' };
+  // Re-fetch and re-parse to confirm the append took.
+  const recheck = parsePullRequestFooter(repaired, input.taskId);
+  if (recheck.kind !== 'match') {
+    input.log('error', `PR #${input.pullRequest.number} footer still missing after repair`);
+    return { kind: 'fail', reason: 'pr_footer_missing' };
+  }
+  return { kind: 'ok' };
 };
 
 /** Merges a PR if it is ready but not yet merged. No-ops when already merged. */
@@ -944,6 +1024,26 @@ const pollPrUntilMerged = async (
       log(resolved, 'success', `PR #${pullRequest.number} found`, taskId);
       resolved.stderr(pullRequest.url);
       prRecorded = true;
+
+      // Footer verify/repair state machine. Default off for both flags.
+      const env = Bun.env;
+      const verify = isFlagOn(env, 'SCRUMLORD_PIPELINE_PR_FOOTER_VERIFY');
+      const repair = isFlagOn(env, 'SCRUMLORD_PIPELINE_PR_FOOTER_REPAIR');
+      if (verify || repair) {
+        const footerCheck = await applyFooterStateMachine({
+          pullRequest,
+          taskId,
+          verify,
+          repair,
+          repository: resolved.repository,
+          projectRoot: store.projectRoot,
+          runner: resolved.runner,
+          log: (level, message) => log(resolved, level, message, taskId),
+        });
+        if (footerCheck.kind === 'fail') {
+          return failed(taskId, branch, pullRequest.number, footerCheck.reason);
+        }
+      }
     }
 
     // Already-merged success branch — checked first.
@@ -1002,6 +1102,7 @@ const pollPrUntilMerged = async (
             baseRefName: status.pullRequest.baseRefName,
             mergedAt: status.pullRequest.mergedAt,
             url: status.pullRequest.url,
+            body: status.pullRequest.body,
           },
           resolved.runner,
         );
@@ -1284,6 +1385,7 @@ const gatherRecoveryInputs = async (
           baseRefName: pr.baseRefName,
           mergedAt: pr.mergedAt,
           url: pr.url,
+          body: pr.body,
         }));
     } catch {
       candidatePullRequests = 'unknown';
