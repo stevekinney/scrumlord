@@ -123,6 +123,41 @@ const migrations: readonly Migration[] = [
     requiresOwnTransaction: true,
     run: runNormalizePlanPaths,
   },
+  {
+    version: 7,
+    name: 'add_progress_event_metadata',
+    sql: `
+      ALTER TABLE task_progress ADD COLUMN event TEXT
+        CHECK (event IS NULL OR event IN ('session_start', 'session_stop', 'session_end', 'tool_failed', 'commit'));
+      ALTER TABLE task_progress ADD COLUMN tool TEXT;
+      ALTER TABLE task_progress ADD COLUMN cwd TEXT;
+      ALTER TABLE task_progress ADD COLUMN transcript_path TEXT;
+      ALTER TABLE task_progress ADD COLUMN commit_sha TEXT;
+
+      CREATE UNIQUE INDEX task_progress_commit_sha_unique
+        ON task_progress(task_id, commit_sha) WHERE commit_sha IS NOT NULL;
+
+      CREATE TRIGGER task_progress_event_metadata_insert
+        BEFORE INSERT ON task_progress
+        FOR EACH ROW
+        WHEN (NEW.commit_sha IS NOT NULL AND NEW.event IS NOT 'commit')
+          OR (NEW.tool IS NOT NULL AND NEW.event IS NOT 'tool_failed')
+          OR (NEW.transcript_path IS NOT NULL AND NEW.event IS NOT 'session_start')
+        BEGIN
+          SELECT RAISE(ABORT, 'task_progress_event_metadata_mismatch');
+        END;
+
+      CREATE TRIGGER task_progress_event_metadata_update
+        BEFORE UPDATE ON task_progress
+        FOR EACH ROW
+        WHEN (NEW.commit_sha IS NOT NULL AND NEW.event IS NOT 'commit')
+          OR (NEW.tool IS NOT NULL AND NEW.event IS NOT 'tool_failed')
+          OR (NEW.transcript_path IS NOT NULL AND NEW.event IS NOT 'session_start')
+        BEGIN
+          SELECT RAISE(ABORT, 'task_progress_event_metadata_mismatch');
+        END;
+    `,
+  },
 ];
 
 /**

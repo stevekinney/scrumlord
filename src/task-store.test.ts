@@ -174,6 +174,7 @@ describe('createTaskStore', () => {
       { version: 4 },
       { version: 5 },
       { version: 6 },
+      { version: 7 },
     ]);
     migrationDatabase.close();
     expect(future.id).toBe('future');
@@ -194,6 +195,11 @@ describe('createTaskStore', () => {
       createdAt: '2026-05-11T12:00:00.000Z',
       provider: 'codex',
       session: 'codex-session',
+      event: null,
+      tool: null,
+      cwd: null,
+      transcriptPath: null,
+      commitSha: null,
     });
 
     setCurrentDate(new Date('2026-05-11T13:00:00.000Z'));

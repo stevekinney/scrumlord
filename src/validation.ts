@@ -2,12 +2,13 @@ import { ScrumlordError } from './errors.js';
 import type {
   AgentProvider,
   DateInput,
+  ProgressEvent,
   TaskIdentifier,
   TaskPriority,
   TaskReference,
   TaskStatus,
 } from './types.js';
-import { agentProviderNames, taskPriorities, taskStatuses } from './types.js';
+import { agentProviderNames, progressEvents, taskPriorities, taskStatuses } from './types.js';
 
 const isTaskPriority = (priority: number): priority is TaskPriority => {
   return taskPriorities.some((value) => value === priority);
@@ -47,6 +48,18 @@ export const parseAgentProvider = (provider: string): AgentProvider => {
   throw new ScrumlordError(
     'invalid_provider',
     `Provider must be one of: ${agentProviderNames.join(', ')}.`,
+  );
+};
+
+const isProgressEvent = (event: string): event is ProgressEvent => {
+  return progressEvents.some((value) => value === event);
+};
+
+export const parseProgressEvent = (event: string): ProgressEvent => {
+  if (isProgressEvent(event)) return event;
+  throw new ScrumlordError(
+    'invalid_progress_event',
+    `Progress event must be one of: ${progressEvents.join(', ')}.`,
   );
 };
 

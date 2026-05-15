@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runAgentHook } from './agent-hook';
+import { redactCommand, runAgentHook, toolCallFailed } from './agent-hook';
 import type { CommandRunner } from './command-runner';
 import type { AgentProvider, Task, TaskReference, TaskStore, UpdateTaskInput } from './types';
 
@@ -93,7 +93,22 @@ const store = (projectRoot: string, tasks: Task[], calls: string[]): TaskStore =
   },
   taskSession: unexpected,
   progress: unexpected,
-  addProgress: unexpected,
+  addProgress(id: string, input: { message: string; event?: string | null }) {
+    calls.push(`addProgress:${id}:${input.event ?? 'null'}:${input.message}`);
+    return {
+      id: crypto.randomUUID(),
+      taskId: id,
+      message: input.message,
+      createdAt: new Date().toISOString(),
+      provider: null,
+      session: null,
+      event: null,
+      tool: null,
+      cwd: null,
+      transcriptPath: null,
+      commitSha: null,
+    };
+  },
   close() {},
 });
 
@@ -224,7 +239,7 @@ describe('runAgentHook', () => {
       }),
     );
 
-    expect(result.actions).toEqual(['set-plan']);
+    expect(result.actions).toEqual(['set-plan', 'record-progress']);
     expect(calls).toContain('withSession:codex:codex-session');
     expect(await Bun.file(join(root, 'tmp/tasks/task-id/PLAN.md')).text()).toBe('# Codex plan');
   });
@@ -265,5 +280,244 @@ describe('runAgentHook', () => {
       skipped: null,
       context: null,
     });
+  });
+
+  it('records session_start progress and transcript_path on SessionStart', async () => {
+    const root = await temporaryDirectory();
+    const calls: string[] = [];
+    const result = await runAgentHook(
+      store(root, [task('task-id', { branch: 'feature/current' })], calls),
+      'claude',
+      JSON.stringify({
+        hook_event_name: 'SessionStart',
+        session_id: 'sess-1',
+        source: 'resume',
+        transcript_path: '/home/user/.claude/projects/foo/transcript.jsonl',
+      }),
+      { runner: branchRunner('feature/current') },
+    );
+
+    expect(result.actions).toContain('record-progress');
+    const progressCall = calls.find((c) => c.startsWith('addProgress:task-id:session_start:'));
+    expect(progressCall).toContain('session_start (source=resume)');
+  });
+
+  it('records session_stop on Stop and skips on stop_hook_active re-entry', async () => {
+    const root = await temporaryDirectory();
+    const calls: string[] = [];
+    const result = await runAgentHook(
+      store(root, [task('task-id', { branch: 'feature/current' })], calls),
+      'claude',
+      JSON.stringify({ hook_event_name: 'Stop', session_id: 'sess-1' }),
+      { runner: branchRunner('feature/current') },
+    );
+
+    expect(result.actions).toContain('record-progress');
+
+    const calls2: string[] = [];
+    const resultReentry = await runAgentHook(
+      store(root, [task('task-id', { branch: 'feature/current' })], calls2),
+      'claude',
+      JSON.stringify({ hook_event_name: 'Stop', session_id: 'sess-1', stop_hook_active: true }),
+      { runner: branchRunner('feature/current') },
+    );
+
+    expect(resultReentry.actions).not.toContain('record-progress');
+  });
+
+  it('records session_end with reason on SessionEnd', async () => {
+    const root = await temporaryDirectory();
+    const calls: string[] = [];
+    const result = await runAgentHook(
+      store(root, [task('task-id', { branch: 'feature/current' })], calls),
+      'claude',
+      JSON.stringify({
+        hook_event_name: 'SessionEnd',
+        session_id: 'sess-1',
+        reason: 'prompt_input_exit',
+      }),
+      { runner: branchRunner('feature/current') },
+    );
+
+    expect(result.actions).toContain('record-progress');
+    const progressCall = calls.find((c) => c.startsWith('addProgress:task-id:session_end:'));
+    expect(progressCall).toContain('prompt_input_exit');
+  });
+
+  it('records subagent-stopped action without a DB write on SubagentStop', async () => {
+    const root = await temporaryDirectory();
+    const calls: string[] = [];
+    const result = await runAgentHook(
+      store(root, [task('task-id', { branch: 'feature/current' })], calls),
+      'claude',
+      JSON.stringify({ hook_event_name: 'SubagentStop', session_id: 'sess-1' }),
+      { runner: branchRunner('feature/current') },
+    );
+
+    expect(result.actions).toContain('subagent-stopped');
+    expect(calls.some((c) => c.startsWith('addProgress:'))).toBe(false);
+  });
+
+  it('records tool_failed progress with redacted command on PostToolUse failure', async () => {
+    const root = await temporaryDirectory();
+    const calls: string[] = [];
+    const result = await runAgentHook(
+      store(root, [task('task-id', { branch: 'feature/current' })], calls),
+      'claude',
+      JSON.stringify({
+        hook_event_name: 'PostToolUse',
+        tool_name: 'Bash',
+        tool_input: {
+          command: 'curl -H "Authorization: Bearer secret123" https://api.example.com',
+        },
+        tool_response: { success: false },
+      }),
+      { runner: branchRunner('feature/current') },
+    );
+
+    expect(result.actions).toContain('record-progress');
+    const progressCall = calls.find((c) => c.startsWith('addProgress:task-id:tool_failed:'));
+    expect(progressCall).toContain('<redacted>');
+    expect(progressCall).not.toContain('secret123');
+  });
+
+  it('does not record progress for successful PostToolUse', async () => {
+    const root = await temporaryDirectory();
+    const calls: string[] = [];
+    await runAgentHook(
+      store(root, [task('task-id', { branch: 'feature/current' })], calls),
+      'claude',
+      JSON.stringify({
+        hook_event_name: 'PostToolUse',
+        tool_name: 'Bash',
+        tool_input: { command: 'ls' },
+        tool_response: { success: true, stdout: 'file.txt' },
+      }),
+      { runner: branchRunner('feature/current') },
+    );
+
+    expect(calls.some((c) => c.startsWith('addProgress:'))).toBe(false);
+  });
+
+  it('emits cwd-drift action when payload cwd differs from CLAUDE_PROJECT_DIR', async () => {
+    const root = await temporaryDirectory();
+    const calls: string[] = [];
+    const result = await runAgentHook(
+      store(root, [task('task-id', { branch: 'feature/current' })], calls),
+      'claude',
+      JSON.stringify({ hook_event_name: 'Stop', session_id: 'sess-1', cwd: '/other/dir' }),
+      {
+        runner: branchRunner('feature/current'),
+        environment: { SCRUMLORD_TASK_ID: 'task-id', CLAUDE_PROJECT_DIR: '/project/root' },
+      },
+    );
+
+    expect(result.actions.some((a) => a.startsWith('cwd-drift:'))).toBe(true);
+  });
+
+  it('does not emit cwd-drift when cwd matches CLAUDE_PROJECT_DIR', async () => {
+    const root = await temporaryDirectory();
+    const calls: string[] = [];
+    const result = await runAgentHook(
+      store(root, [task('task-id', { branch: 'feature/current' })], calls),
+      'claude',
+      JSON.stringify({ hook_event_name: 'Stop', session_id: 'sess-1', cwd: '/project/root' }),
+      {
+        runner: branchRunner('feature/current'),
+        environment: { SCRUMLORD_TASK_ID: 'task-id', CLAUDE_PROJECT_DIR: '/project/root' },
+      },
+    );
+
+    expect(result.actions.some((a) => a.startsWith('cwd-drift:'))).toBe(false);
+  });
+});
+
+describe('toolCallFailed', () => {
+  it('returns false when success is boolean true', () => {
+    expect(toolCallFailed({ tool_response: { success: true } })).toBe(false);
+  });
+
+  it('returns true when success is boolean false', () => {
+    expect(toolCallFailed({ tool_response: { success: false } })).toBe(true);
+  });
+
+  it('treats string "false" as success (not a boolean)', () => {
+    expect(toolCallFailed({ tool_response: { success: 'false' } })).toBe(false);
+  });
+
+  it('returns true when exit_code is nonzero', () => {
+    expect(toolCallFailed({ tool_response: { exit_code: 1 } })).toBe(true);
+  });
+
+  it('returns false when exit_code is zero', () => {
+    expect(toolCallFailed({ tool_response: { exit_code: 0 } })).toBe(false);
+  });
+
+  it('returns true when stderr present and stdout absent', () => {
+    expect(toolCallFailed({ tool_response: { stderr: 'error' } })).toBe(true);
+  });
+
+  it('returns false when stdout present (even with stderr)', () => {
+    expect(toolCallFailed({ tool_response: { stderr: 'warning', stdout: 'output' } })).toBe(false);
+  });
+
+  it('returns false when no tool_response', () => {
+    expect(toolCallFailed({})).toBe(false);
+  });
+});
+
+describe('redactCommand', () => {
+  it('redacts Authorization: Bearer <value>', () => {
+    const result = redactCommand(
+      'curl -H "Authorization: Bearer mysecret" https://api.example.com',
+    );
+    expect(result).toContain('Authorization: Bearer <redacted>');
+    expect(result).not.toContain('mysecret');
+  });
+
+  it('redacts Authorization: <value> (no scheme)', () => {
+    const result = redactCommand('curl -H "Authorization: mysecret"');
+    expect(result).toContain('Authorization: <redacted>');
+    expect(result).not.toContain('mysecret');
+  });
+
+  it('redacts Proxy-Authorization header', () => {
+    const result = redactCommand('curl -H "Proxy-Authorization: Bearer proxy-secret"');
+    expect(result).toContain('Proxy-Authorization: Bearer <redacted>');
+    expect(result).not.toContain('proxy-secret');
+  });
+
+  it('redacts --token <value>', () => {
+    const result = redactCommand('gh api --token mytoken123');
+    expect(result).toContain('--token <redacted>');
+    expect(result).not.toContain('mytoken123');
+  });
+
+  it('redacts --password=<value>', () => {
+    const result = redactCommand('login --password=hunter2');
+    expect(result).toContain('--password=<redacted>');
+    expect(result).not.toContain('hunter2');
+  });
+
+  it('redacts --password "quoted value"', () => {
+    const result = redactCommand('login --password "a b c"');
+    expect(result).not.toContain('a b c');
+  });
+
+  it('redacts GITHUB_TOKEN=<value>', () => {
+    const result = redactCommand('GITHUB_TOKEN=abc123 curl https://api.github.com');
+    expect(result).toContain('GITHUB_TOKEN=<redacted>');
+    expect(result).not.toContain('abc123');
+  });
+
+  it('redacts lowercase my_token=<value>', () => {
+    const result = redactCommand('my_token=secret123 run-deploy');
+    expect(result).toContain('my_token=<redacted>');
+    expect(result).not.toContain('secret123');
+  });
+
+  it('leaves commands without secrets untouched', () => {
+    const input = 'git status --short';
+    expect(redactCommand(input)).toBe(input);
   });
 });

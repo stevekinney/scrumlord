@@ -276,9 +276,11 @@ export class SqliteTaskStore implements TaskStore {
       this.#database
         .query<unknown, QueryBindings>(
           `INSERT INTO task_progress (
-            id, task_id, message, created_at, provider, session
+            id, task_id, message, created_at, provider, session,
+            event, tool, cwd, transcript_path, commit_sha
           ) VALUES (
-            $id, $taskId, $message, $createdAt, $provider, $session
+            $id, $taskId, $message, $createdAt, $provider, $session,
+            $event, $tool, $cwd, $transcriptPath, $commitSha
           )`,
         )
         .run({
@@ -288,6 +290,11 @@ export class SqliteTaskStore implements TaskStore {
           createdAt: now,
           provider: null,
           session: null,
+          event: null,
+          tool: null,
+          cwd: null,
+          transcriptPath: null,
+          commitSha: null,
         });
     });
     transaction();
@@ -563,9 +570,11 @@ export class SqliteTaskStore implements TaskStore {
       this.#database
         .query<unknown, QueryBindings>(
           `INSERT INTO task_progress (
-            id, task_id, message, created_at, provider, session
+            id, task_id, message, created_at, provider, session,
+            event, tool, cwd, transcript_path, commit_sha
           ) VALUES (
-            $id, $taskId, $message, $createdAt, $provider, $session
+            $id, $taskId, $message, $createdAt, $provider, $session,
+            $event, $tool, $cwd, $transcriptPath, $commitSha
           )`,
         )
         .run(bindings);

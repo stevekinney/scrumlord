@@ -106,7 +106,7 @@ describe('setupGitHooks', () => {
         '  jobs:',
         '    # scrumlord:begin',
         '    - name: tasks-sync-git-status',
-        '      run: tasks sync-git-status --quiet',
+        '      run: tasks sync-git-status --quiet --with-progress',
         '    # scrumlord:end',
         'post-merge:',
         '  jobs:',

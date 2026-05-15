@@ -50,6 +50,11 @@ export type TaskProgressRow = {
   created_at: string;
   provider: AgentProvider | null;
   session: string | null;
+  event: string | null;
+  tool: string | null;
+  cwd: string | null;
+  transcript_path: string | null;
+  commit_sha: string | null;
 };
 
 export type QueryBindings = Record<string, string | number | null>;
@@ -306,6 +311,11 @@ export const createTaskProgressBindings = (
     createdAt: now,
     provider,
     session,
+    event: input.event ?? null,
+    tool: input.tool ?? null,
+    cwd: input.cwd ?? null,
+    transcriptPath: input.transcriptPath ?? null,
+    commitSha: input.commitSha ?? null,
   };
 };
 
@@ -354,6 +364,11 @@ export const hydrateTaskProgress = (row: TaskProgressRow): TaskProgress => ({
   createdAt: row.created_at,
   provider: row.provider,
   session: row.session,
+  event: (row.event as TaskProgress['event']) ?? null,
+  tool: row.tool,
+  cwd: row.cwd,
+  transcriptPath: row.transcript_path,
+  commitSha: row.commit_sha,
 });
 
 export const hasBlockerPath = (database: Database, start: string, target: string): boolean => {
