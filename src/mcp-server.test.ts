@@ -37,12 +37,9 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   provider: null,
   session: null,
   tags: [],
-  parent: null,
-  subtasks: [],
   blockedBy: [],
   blocking: [],
   lastModifiedAt: '2026-05-11T00:00:00.000Z',
-  archived: false,
   deleted: false,
   ...overrides,
 });
@@ -93,12 +90,6 @@ const failingAvailableStore = (calls: string[]): TaskStore => ({
   },
   delete(id) {
     return task(id, { deleted: true });
-  },
-  archive(id) {
-    return task(id, { archived: true });
-  },
-  restore(id) {
-    return task(id);
   },
   getTask(id) {
     return task(id);
@@ -153,12 +144,6 @@ const failingAvailableStore = (calls: string[]): TaskStore => ({
     return task(id, { tags: [tag] });
   },
   removeTag(id) {
-    return task(id);
-  },
-  setParent(id, parent) {
-    return task(id, { parent: typeof parent === 'string' ? parent : parent.id });
-  },
-  clearParent(id) {
     return task(id);
   },
   addBlocker(id, blockedBy) {
@@ -276,12 +261,6 @@ describe('createScrumlordMcpServer', () => {
         ),
       ).toBe(true);
 
-      await callTool(client, 'scrumlord_set_parent', { id: 'feature', parent: 'parent' });
-      expect(await callTool(client, 'scrumlord_get_task', { id: 'feature' })).toMatchObject({
-        task: expect.objectContaining({ parent: 'parent' }),
-      });
-      await callTool(client, 'scrumlord_clear_parent', { id: 'feature' });
-
       await callTool(client, 'scrumlord_remove_blocker', { id: 'feature', blockedBy: 'blocker' });
       await callTool(client, 'scrumlord_add_blocker', { id: 'feature', blockedBy: 'blocker' });
       expect(
@@ -372,8 +351,6 @@ describe('createScrumlordMcpServer', () => {
           'feature',
         ),
       ).toBe(true);
-      await callTool(client, 'scrumlord_restore_task', { id: 'feature' });
-      await callTool(client, 'scrumlord_archive_task', { id: 'feature' });
       expect(await callTool(client, 'scrumlord_cleanup_tasks', { days: 0 })).toMatchObject({
         deleted: expect.any(Number),
       });

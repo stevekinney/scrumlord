@@ -71,7 +71,7 @@ const topics: HelpTopic[] = [
     summary: 'List ready, unblocked tasks.',
     usage: 'tasks available [--planned|--unplanned] [--count]',
     description:
-      'Returns ready tasks that are not deleted, not archived, not blocked, and have no future start date.',
+      'Returns ready tasks that are not deleted, not blocked, and have no future start date.',
     options: taskListingOptions,
     examples: ['tasks available'],
   },
@@ -80,11 +80,8 @@ const topics: HelpTopic[] = [
     summary: 'List tasks for graph reconciliation.',
     usage: 'tasks list [--all] [--planned|--unplanned] [--count]',
     description:
-      'Returns active tasks by default. Use --all to include archived and soft-deleted tasks when reconciling long documents against the full graph.',
-    options: [
-      { name: '--all', description: 'Include archived and deleted tasks.' },
-      ...taskListingOptions,
-    ],
+      'Returns active tasks by default. Use --all to include soft-deleted tasks when reconciling long documents against the full graph.',
+    options: [{ name: '--all', description: 'Include soft-deleted tasks.' }, ...taskListingOptions],
     examples: ['tasks list', 'tasks list --all'],
   },
   {
@@ -124,7 +121,7 @@ const topics: HelpTopic[] = [
     summary: 'Count remaining tasks.',
     usage: 'tasks remaining',
     description:
-      'Returns the number of active tasks that are not completed, in-progress, deleted, or archived. Future-start tasks are included.',
+      'Returns the number of active tasks that are not completed, in-progress, or deleted. Future-start tasks are included.',
     examples: ['tasks remaining'],
   },
   {
@@ -348,7 +345,6 @@ const topics: HelpTopic[] = [
     arguments: [optionalTaskIdArgument],
     options: [
       ...taskFieldOptions,
-      { name: '--archived', value: '<true|false>', description: 'Set archive state.' },
       { name: '--deleted', value: '<true|false>', description: 'Set soft-delete state.' },
     ],
     examples: [
@@ -460,22 +456,6 @@ const topics: HelpTopic[] = [
     examples: ['tasks delete', 'tasks delete 8f7d6a'],
   },
   {
-    path: ['archive'],
-    summary: 'Archive a task.',
-    usage: 'tasks archive [task-id]',
-    description: `Marks a task as archived. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
-    examples: ['tasks archive', 'tasks archive 8f7d6a'],
-  },
-  {
-    path: ['restore'],
-    summary: 'Restore a deleted or archived task.',
-    usage: 'tasks restore [task-id]',
-    description: `Clears deleted and archived flags for a task. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
-    examples: ['tasks restore', 'tasks restore 8f7d6a'],
-  },
-  {
     path: ['add-tag'],
     summary: 'Add a tag to a task.',
     usage: 'tasks add-tag [task-id] <tag>',
@@ -490,22 +470,6 @@ const topics: HelpTopic[] = [
     description: `Removes a normalized tag from a task. ${inferredTaskIdDescription}`,
     arguments: [optionalTaskIdArgument, '<tag>: Tag to remove.'],
     examples: ['tasks remove-tag testing', 'tasks remove-tag 8f7d6a testing'],
-  },
-  {
-    path: ['set-parent'],
-    summary: 'Assign a parent task.',
-    usage: 'tasks set-parent [task-id] <parent-task-id>',
-    description: `Sets the parent relationship for a task. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument, '<parent-task-id>: Parent task.'],
-    examples: ['tasks set-parent parent-id', 'tasks set-parent child-id parent-id'],
-  },
-  {
-    path: ['clear-parent'],
-    summary: 'Clear a parent task.',
-    usage: 'tasks clear-parent [task-id]',
-    description: `Removes the parent relationship from a task. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
-    examples: ['tasks clear-parent', 'tasks clear-parent child-id'],
   },
   {
     path: ['add-blocker'],
@@ -528,10 +492,10 @@ const topics: HelpTopic[] = [
   },
   {
     path: ['cleanup'],
-    summary: 'Permanently remove old completed or archived tasks.',
+    summary: 'Remove old completed or soft-deleted tasks.',
     usage: 'tasks cleanup <days>',
     description:
-      'Deletes completed or archived tasks whose last modified timestamp is older than the supplied number of days.',
+      'Soft-deletes aged completed tasks by default, or physically removes completed and soft-deleted tasks (with FK cascades) when --hard is supplied. The age cutoff is the supplied number of days.',
     arguments: ['<days>: Non-negative integer age threshold.'],
     examples: ['tasks cleanup 30'],
   },

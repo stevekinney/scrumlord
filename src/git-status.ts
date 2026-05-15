@@ -111,7 +111,7 @@ const currentPullRequest = async (
 };
 
 const isInactiveTask = (task: Task): boolean => {
-  return task.deleted || task.archived || task.status === 'completed';
+  return task.deleted || task.status === 'completed';
 };
 
 const isStartableTask = (task: Task): boolean => {

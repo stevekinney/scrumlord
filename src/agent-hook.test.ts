@@ -28,12 +28,9 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   provider: null,
   session: null,
   tags: [],
-  parent: null,
-  subtasks: [],
   blockedBy: [],
   blocking: [],
   lastModifiedAt: '2026-05-11T00:00:00.000Z',
-  archived: false,
   deleted: false,
   ...overrides,
 });
@@ -54,8 +51,6 @@ const store = (projectRoot: string, tasks: Task[], calls: string[]): TaskStore =
     return task(id, input);
   },
   delete: unexpected,
-  archive: unexpected,
-  restore: unexpected,
   getTask(id: string) {
     calls.push(`getTask:${id}`);
     return tasks.find((item) => item.id === id) ?? null;
@@ -82,7 +77,6 @@ const store = (projectRoot: string, tasks: Task[], calls: string[]): TaskStore =
     calls.push(`setParent:${id}:${referenceId(parent)}`);
     return task(id);
   },
-  clearParent: unexpected,
   addBlocker: unexpected,
   removeBlocker: unexpected,
   setPlan(id: string, plan: string | null) {

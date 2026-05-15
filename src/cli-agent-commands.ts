@@ -114,12 +114,11 @@ const runAgentInvocation = async (
 const incompleteBlockers = (store: TaskStore, task: Task): Task[] => {
   return store
     .blockedBy(task.id)
-    .filter((blocker) => blocker.status !== 'completed' && !blocker.deleted && !blocker.archived);
+    .filter((blocker) => blocker.status !== 'completed' && !blocker.deleted);
 };
 
 const assertTaskCanStart = (store: TaskStore, task: Task): void => {
   if (task.deleted) throw new ScrumlordError('task_deleted', `Task is deleted: ${task.id}`);
-  if (task.archived) throw new ScrumlordError('task_archived', `Task is archived: ${task.id}`);
   if (task.status === 'completed') {
     throw new ScrumlordError('task_completed', `Task is already completed: ${task.id}`);
   }

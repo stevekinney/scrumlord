@@ -54,12 +54,9 @@ export type Task = {
   provider: AgentProvider | null;
   session: string | null;
   tags: string[];
-  parent: TaskIdentifier | null;
-  subtasks: TaskIdentifier[];
   blockedBy: TaskIdentifier[];
   blocking: TaskIdentifier[];
   lastModifiedAt: string;
-  archived: boolean;
   deleted: boolean;
 };
 
@@ -78,21 +75,16 @@ export type CreateTaskInput = {
   provider?: AgentProvider | null;
   session?: string | null;
   tags?: string[];
-  parent?: TaskReference | null;
   blockedBy?: TaskReference[];
 };
 
 export type UpdateTaskInput = Partial<
-  Pick<
-    Task,
-    'title' | 'status' | 'description' | 'archived' | 'deleted' | 'plan' | 'provider' | 'session'
-  >
+  Pick<Task, 'title' | 'status' | 'description' | 'deleted' | 'plan' | 'provider' | 'session'>
 > & {
   priority?: TaskPriority;
   startDate?: DateInput;
   dueDate?: DateInput;
   branch?: string | null;
-  parent?: TaskReference | null;
 };
 
 export type DateInput = Date | string | null;
@@ -114,14 +106,24 @@ export type ConditionalUpdatePredicate = {
   ifRunId?: string;
 };
 
+/** Options for `TaskStore.cleanup`. */
+export type CleanupOptions = {
+  /** When true, physically delete rows (with FK cascades) instead of soft-deleting. */
+  hard?: boolean;
+};
+
+/** Options for `TaskStore.delete`. */
+export type DeleteOptions = {
+  /** When true, physically delete the row (with FK cascades) instead of soft-deleting. */
+  hard?: boolean;
+};
+
 export type TaskStore = {
   readonly projectRoot: string;
   readonly databasePath: string;
   create(input: CreateTaskInput): Task;
   update(id: TaskIdentifier, input: UpdateTaskInput): Task;
-  delete(id: TaskIdentifier): Task;
-  archive(id: TaskIdentifier): Task;
-  restore(id: TaskIdentifier): Task;
+  delete(id: TaskIdentifier, options?: DeleteOptions): Task | null;
   getTask(id: TaskIdentifier): Task | null;
   list(options?: { includeInactive?: boolean }): Task[];
   available(): Task[];
@@ -144,10 +146,10 @@ export type TaskStore = {
   ): Task | null;
   remaining(): number;
   /**
-   * Returns a count of active (non-deleted, non-archived) tasks grouped by
-   * status. Used by the pipeline to render a "ready-queue breakdown" line
-   * when the drain finds nothing to claim, so the operator can see whether
-   * the queue is empty because everything is blocked, in-progress, etc.
+   * Returns a count of active (non-deleted) tasks grouped by status. Used by
+   * the pipeline to render a "ready-queue breakdown" line when the drain
+   * finds nothing to claim, so the operator can see whether the queue is
+   * empty because everything is blocked, in-progress, etc.
    */
   summarizeReadyQueue(): {
     draft: number;
@@ -157,11 +159,9 @@ export type TaskStore = {
     completed: number;
     blocked: number;
   };
-  cleanup(days: number): { deleted: number };
+  cleanup(days: number, options?: CleanupOptions): { deleted: number };
   addTag(id: TaskIdentifier, tag: string): Task;
   removeTag(id: TaskIdentifier, tag: string): Task;
-  setParent(id: TaskIdentifier, parent: TaskReference): Task;
-  clearParent(id: TaskIdentifier): Task;
   addBlocker(id: TaskIdentifier, blockedBy: TaskReference): Task;
   removeBlocker(id: TaskIdentifier, blockedBy: TaskReference): Task;
   setPlan(id: TaskIdentifier, plan: string | null): Task;

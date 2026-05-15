@@ -2,11 +2,9 @@ import { describe, expect, it } from 'bun:test';
 import {
   addTaskBlocker,
   addTaskTag,
-  archiveTask,
   availableTasks,
   blockedTasks,
   cleanupTasks,
-  clearTaskParent,
   completedTasks,
   createTask,
   deleteTask,
@@ -17,8 +15,6 @@ import {
   remaining,
   removeTaskBlocker,
   removeTaskTag,
-  restoreTask,
-  setTaskParent,
   setTaskPlan,
   setTaskSession,
   tasksBlockedBy,
@@ -48,12 +44,9 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   provider: null,
   session: null,
   tags: [],
-  parent: null,
-  subtasks: [],
   blockedBy: [],
   blocking: [],
   lastModifiedAt: '2026-05-11T00:00:00.000Z',
-  archived: false,
   deleted: false,
   ...overrides,
 });
@@ -79,17 +72,9 @@ const fakeStore = (calls: string[]): TaskStore => ({
     calls.push(`update:${id}:${input.title ?? ''}`);
     return task(id, input);
   },
-  delete(id) {
-    calls.push(`delete:${id}`);
-    return task(id, { deleted: true });
-  },
-  archive(id) {
-    calls.push(`archive:${id}`);
-    return task(id, { archived: true });
-  },
-  restore(id) {
-    calls.push(`restore:${id}`);
-    return task(id);
+  delete(id, options) {
+    calls.push(`delete:${id}${options?.hard ? ':hard' : ''}`);
+    return options?.hard ? null : task(id, { deleted: true });
   },
   getTask(id) {
     calls.push(`getTask:${id}`);
@@ -147,8 +132,8 @@ const fakeStore = (calls: string[]): TaskStore => ({
     calls.push('remaining');
     return 3;
   },
-  cleanup(days) {
-    calls.push(`cleanup:${days}`);
+  cleanup(days, options) {
+    calls.push(`cleanup:${days}${options?.hard ? ':hard' : ''}`);
     return { deleted: days };
   },
   addTag(id, tag) {
@@ -157,14 +142,6 @@ const fakeStore = (calls: string[]): TaskStore => ({
   },
   removeTag(id, tag) {
     calls.push(`removeTag:${id}:${tag}`);
-    return task(id);
-  },
-  setParent(id, parent) {
-    calls.push(`setParent:${id}:${referenceId(parent)}`);
-    return task(id, { parent: referenceId(parent) });
-  },
-  clearParent(id) {
-    calls.push(`clearParent:${id}`);
     return task(id);
   },
   addBlocker(id, blockedBy) {
@@ -239,13 +216,10 @@ describe('library task command methods', () => {
     expect(remaining(store)).toBe(3);
     expect(createTask(store, { title: 'Created task' }).title).toBe('Created task');
     expect(updateTask(store, 'task-id', { title: 'Updated task' }).title).toBe('Updated task');
-    expect(deleteTask(store, 'task-id').deleted).toBe(true);
-    expect(archiveTask(store, 'task-id').archived).toBe(true);
-    expect(restoreTask(store, 'task-id').id).toBe('task-id');
+    expect(deleteTask(store, 'task-id')?.deleted).toBe(true);
+    expect(deleteTask(store, 'task-id', { hard: true })).toBeNull();
     expect(addTaskTag(store, 'task-id', 'frontend').tags).toEqual(['frontend']);
     expect(removeTaskTag(store, 'task-id', 'frontend').id).toBe('task-id');
-    expect(setTaskParent(store, 'task-id', 'parent-id').parent).toBe('parent-id');
-    expect(clearTaskParent(store, 'task-id').id).toBe('task-id');
     expect(addTaskBlocker(store, 'task-id', 'blocker-id').id).toBe('task-id');
     expect(removeTaskBlocker(store, 'task-id', 'blocker-id').id).toBe('task-id');
     expect(setTaskPlan(store, 'task-id', 'tmp/tasks/task-id/PLAN.md').plan).toBe(
@@ -255,6 +229,7 @@ describe('library task command methods', () => {
     expect(firstTask(tasksWithSession(store, 'codex', 'session')).session).toBe('session');
     expect(persistedTaskSession(store, 'task-id').session).toBe('codex-session');
     expect(cleanupTasks(store, 30)).toEqual({ deleted: 30 });
+    expect(cleanupTasks(store, 30, { hard: true })).toEqual({ deleted: 30 });
 
     expect(calls).toContain('available');
     expect(calls).toContain('list:active');
@@ -262,5 +237,7 @@ describe('library task command methods', () => {
     expect(calls).toContain('withAllTags:frontend,backend');
     expect(calls).toContain('setSession:task-id:codex:session');
     expect(calls).toContain('cleanup:30');
+    expect(calls).toContain('cleanup:30:hard');
+    expect(calls).toContain('delete:task-id:hard');
   });
 });

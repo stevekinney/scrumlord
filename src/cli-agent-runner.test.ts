@@ -37,12 +37,9 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   provider: null,
   session: null,
   tags: [],
-  parent: null,
-  subtasks: [],
   blockedBy: [],
   blocking: [],
   lastModifiedAt: '2026-05-11T00:00:00.000Z',
-  archived: false,
   deleted: false,
   ...overrides,
 });
@@ -60,8 +57,6 @@ const fakeStore = (calls: string[]): TaskStore => ({
     return task(id, input);
   },
   delete: (id) => task(id),
-  archive: (id) => task(id),
-  restore: (id) => task(id),
   getTask(id) {
     calls.push(`get:${id}`);
     return task(id);
@@ -82,8 +77,6 @@ const fakeStore = (calls: string[]): TaskStore => ({
   cleanup: (days) => ({ deleted: days }),
   addTag: (id) => task(id),
   removeTag: (id) => task(id),
-  setParent: (id, parent) => task(id, { parent: referenceId(parent) }),
-  clearParent: (id) => task(id),
   addBlocker: (id) => task(id),
   removeBlocker: (id) => task(id),
   setPlan(id, plan) {
@@ -221,7 +214,6 @@ describe('runTasksCli agent session commands', () => {
 
     for (const [overrides, code] of [
       [{ deleted: true }, 'task_deleted'],
-      [{ archived: true }, 'task_archived'],
       [{ status: 'completed' }, 'task_completed'],
       [{ startDate: '9999-01-01T00:00:00.000Z' }, 'task_not_started'],
     ] as const) {

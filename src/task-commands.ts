@@ -273,19 +273,13 @@ export const updateTask = (
   return store.update(id, input);
 };
 
-/** Soft-deletes a task. */
-export const deleteTask = (store: Pick<TaskStore, 'delete'>, id: TaskIdentifier): Task => {
-  return store.delete(id);
-};
-
-/** Archives a task. */
-export const archiveTask = (store: Pick<TaskStore, 'archive'>, id: TaskIdentifier): Task => {
-  return store.archive(id);
-};
-
-/** Restores a deleted or archived task. */
-export const restoreTask = (store: Pick<TaskStore, 'restore'>, id: TaskIdentifier): Task => {
-  return store.restore(id);
+/** Soft-deletes a task, or hard-deletes when options.hard is true. */
+export const deleteTask = (
+  store: Pick<TaskStore, 'delete'>,
+  id: TaskIdentifier,
+  options: { hard?: boolean } = {},
+): Task | null => {
+  return store.delete(id, options);
 };
 
 /** Adds a tag to a task. */
@@ -327,23 +321,6 @@ export const setTaskBranch = (
 /** Clears the Git branch associated with a task. */
 export const clearTaskBranch = (store: Pick<TaskStore, 'update'>, id: TaskIdentifier): Task => {
   return store.update(id, { branch: null });
-};
-
-/** Assigns a parent task. */
-export const setTaskParent = (
-  store: Pick<TaskStore, 'setParent'>,
-  id: TaskIdentifier,
-  parent: TaskReference,
-): Task => {
-  return store.setParent(id, parent);
-};
-
-/** Clears a task parent. */
-export const clearTaskParent = (
-  store: Pick<TaskStore, 'clearParent'>,
-  id: TaskIdentifier,
-): Task => {
-  return store.clearParent(id);
 };
 
 /** Adds a dependency blocker. */
@@ -427,10 +404,11 @@ export const addTaskProgress = (
   return store.addProgress(id, input);
 };
 
-/** Permanently removes old completed or archived tasks. */
+/** Removes aged completed tasks. Soft-deletes by default; physically deletes with options.hard. */
 export const cleanupTasks = (
   store: Pick<TaskStore, 'cleanup'>,
   days: number,
+  options: { hard?: boolean } = {},
 ): CleanupTasksResult => {
-  return store.cleanup(days);
+  return store.cleanup(days, options);
 };

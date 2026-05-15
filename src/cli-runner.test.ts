@@ -28,12 +28,9 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   provider: null,
   session: null,
   tags: [],
-  parent: null,
-  subtasks: [],
   blockedBy: [],
   blocking: [],
   lastModifiedAt: '2026-05-11T00:00:00.000Z',
-  archived: false,
   deleted: false,
   ...overrides,
 });
@@ -75,17 +72,9 @@ const fakeStore = (calls: string[]): TaskStore => ({
     calls.push(...updateCallDescriptions(id, input));
     return task(id);
   },
-  delete(id) {
-    calls.push(`delete:${id}`);
-    return task(id);
-  },
-  archive(id) {
-    calls.push(`archive:${id}`);
-    return task(id);
-  },
-  restore(id) {
-    calls.push(`restore:${id}`);
-    return task(id);
+  delete(id, options) {
+    calls.push(`delete:${id}${options?.hard ? ':hard' : ''}`);
+    return options?.hard ? null : task(id);
   },
   getTask(id) {
     calls.push(`get:${id}`);
@@ -147,8 +136,8 @@ const fakeStore = (calls: string[]): TaskStore => ({
     calls.push('remaining');
     return 3;
   },
-  cleanup(days) {
-    calls.push(`cleanup:${days}`);
+  cleanup(days, options) {
+    calls.push(`cleanup:${days}${options?.hard ? ':hard' : ''}`);
     return { deleted: days };
   },
   addTag(id, tag) {
@@ -157,14 +146,6 @@ const fakeStore = (calls: string[]): TaskStore => ({
   },
   removeTag(id, tag) {
     calls.push(`removeTag:${id}:${tag}`);
-    return task(id);
-  },
-  setParent(id, parent) {
-    calls.push(`setParent:${id}:${referenceId(parent)}`);
-    return task(id);
-  },
-  clearParent(id) {
-    calls.push(`clearParent:${id}`);
     return task(id);
   },
   addBlocker(id, blockedBy) {
@@ -272,12 +253,8 @@ describe('runTasksCli', () => {
         '2026-05-11',
         '--due-date',
         '2026-05-12',
-        '--archived',
-        'false',
         '--deleted',
         'false',
-        '--parent',
-        'parent-id',
         '--branch',
         'feature/task-graph',
         '--plan',
@@ -295,12 +272,8 @@ describe('runTasksCli', () => {
       ['set-session', 'task-id', 'codex', 'codex-session'],
       ['clear-session', 'task-id'],
       ['delete', 'task-id'],
-      ['archive', 'task-id'],
-      ['restore', 'task-id'],
       ['add-tag', 'task-id', 'frontend'],
       ['remove-tag', 'task-id', 'frontend'],
-      ['set-parent', 'task-id', 'parent-id'],
-      ['clear-parent', 'task-id'],
       ['add-blocker', 'task-id', 'blocker-id'],
       ['remove-blocker', 'task-id', 'blocker-id'],
       ['cleanup', '12'],

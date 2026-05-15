@@ -39,9 +39,7 @@ export type TaskRow = {
   provider: AgentProvider | null;
   session: string | null;
   last_modified_at: string;
-  archived: number;
   deleted: number;
-  parent_id: string | null;
 };
 
 export type TaskProgressRow = {
@@ -57,7 +55,6 @@ export type QueryBindings = Record<string, string | number | null>;
 
 const availableTasksWhereSql = `WHERE status = 'ready'
   AND deleted = 0
-  AND archived = 0
   AND (start_date IS NULL OR start_date <= $now)
   AND NOT EXISTS (
     SELECT 1 FROM task_dependencies
@@ -65,7 +62,6 @@ const availableTasksWhereSql = `WHERE status = 'ready'
     WHERE task_dependencies.task_id = tasks.id
       AND blocker.status != 'completed'
       AND blocker.deleted = 0
-      AND blocker.archived = 0
   )`;
 
 export const availableTasksSql = `SELECT * FROM tasks
@@ -98,15 +94,12 @@ export const blockedTasksSql = `SELECT DISTINCT tasks.* FROM tasks
  JOIN task_dependencies ON task_dependencies.task_id = tasks.id
  JOIN tasks AS blocker ON blocker.id = task_dependencies.blocked_by_task_id
  WHERE tasks.deleted = 0
-   AND tasks.archived = 0
    AND blocker.status != 'completed'
    AND blocker.deleted = 0
-   AND blocker.archived = 0
  ORDER BY tasks.priority DESC, tasks.created_at ASC, tasks.id ASC`;
 
 export const remainingTasksSql = `SELECT count(*) AS count FROM tasks
  WHERE deleted = 0
-   AND archived = 0
    AND status NOT IN ('completed', 'in-progress')`;
 
 export const booleanToInteger = (value: boolean): number => (value ? 1 : 0);
@@ -284,7 +277,6 @@ export const updateTaskBindings = (
     plan: updatedPlan(projectRoot, input, current),
     provider,
     session,
-    archived: updatedBoolean(input.archived, current.archived),
     deleted: updatedBoolean(input.deleted, current.deleted),
     lastModifiedAt: now,
   };
@@ -330,7 +322,7 @@ export const indexedBindings = (values: string[], extra: QueryBindings = {}): Qu
   }, extra);
 };
 
-export type TaskRelationships = Pick<Task, 'tags' | 'subtasks' | 'blockedBy' | 'blocking'>;
+export type TaskRelationships = Pick<Task, 'tags' | 'blockedBy' | 'blocking'>;
 
 export const hydrateTask = (row: TaskRow, relationships: TaskRelationships): Task => ({
   id: row.id,
@@ -345,9 +337,7 @@ export const hydrateTask = (row: TaskRow, relationships: TaskRelationships): Tas
   plan: row.plan,
   provider: row.provider,
   session: row.session,
-  parent: row.parent_id,
   lastModifiedAt: row.last_modified_at,
-  archived: row.archived === 1,
   deleted: row.deleted === 1,
   ...relationships,
 });
@@ -360,22 +350,6 @@ export const hydrateTaskProgress = (row: TaskProgressRow): TaskProgress => ({
   provider: row.provider,
   session: row.session,
 });
-
-export const hasParentPath = (database: Database, start: string, target: string): boolean => {
-  return Boolean(
-    database
-      .query<{ id: string }, QueryBindings>(
-        `WITH RECURSIVE parents(id) AS (
-          SELECT parent_id FROM tasks WHERE id = $start AND parent_id IS NOT NULL
-          UNION
-          SELECT tasks.parent_id FROM tasks JOIN parents ON tasks.id = parents.id
-          WHERE tasks.parent_id IS NOT NULL
-        )
-        SELECT id FROM parents WHERE id = $target LIMIT 1`,
-      )
-      .get({ start, target }),
-  );
-};
 
 export const hasBlockerPath = (database: Database, start: string, target: string): boolean => {
   return Boolean(

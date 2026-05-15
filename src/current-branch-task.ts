@@ -8,7 +8,7 @@ export type CurrentBranchTaskOptions = {
 };
 
 const activeTask = (task: Task): boolean => {
-  return !task.deleted && !task.archived && task.status !== 'completed';
+  return !task.deleted && task.status !== 'completed';
 };
 
 /** Returns the single active task assigned to the current Git branch. */

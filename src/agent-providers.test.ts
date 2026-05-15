@@ -59,12 +59,9 @@ describe('agent providers', () => {
       provider: null,
       session: null,
       tags: [],
-      parent: null,
-      subtasks: [],
       blockedBy: [],
       blocking: [],
       lastModifiedAt: '2026-05-11T00:00:00.000Z',
-      archived: false,
       deleted: false,
     };
     const startContext = {

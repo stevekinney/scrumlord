@@ -65,7 +65,6 @@ const createSeededStore = async (): Promise<{
     plan: join(store.projectRoot, 'tmp', 'tasks', 'blocked', 'PLAN.md'),
     provider: 'codex',
     session: 'codex-session',
-    parent,
     blockedBy: [blocker],
     tags: ['frontend', 'backend'],
   });
@@ -138,7 +137,6 @@ describe('createTaskStore', () => {
 
     expect(store.getTask(blocked.id)).toMatchObject({
       id: 'blocked',
-      parent: 'parent',
       branch: 'feature/task-graph',
       plan: 'tmp/tasks/blocked/PLAN.md',
       provider: 'codex',
@@ -146,7 +144,7 @@ describe('createTaskStore', () => {
       tags: ['backend', 'frontend'],
       blockedBy: ['blocker'],
     });
-    expect(store.getTask(parent.id)?.subtasks).toEqual(['blocked']);
+    expect(parent.id).toBe('parent');
     expect(store.getTask(blocker.id)?.blocking).toEqual(['blocked']);
     expect(taskIds(store.list())).toEqual(['blocked', 'future', 'blocker', 'parent']);
     expect(taskIds(store.available())).toEqual(['blocker', 'parent']);
@@ -166,7 +164,7 @@ describe('createTaskStore', () => {
     const migrationDatabase = new Database(join(root, 'tmp', 'tasks.db'), { readonly: true });
     expect(
       migrationDatabase.query<{ version: number }, []>('SELECT version FROM task_migrations').all(),
-    ).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }]);
+    ).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }]);
     migrationDatabase.close();
     expect(future.id).toBe('future');
     store.close();
@@ -289,21 +287,15 @@ describe('createTaskStore', () => {
     expect(store.getTask(future.id)?.tags).toEqual(['backend']);
     store.removeTag(future.id, 'backend');
     expect(store.getTask(future.id)?.tags).toEqual([]);
-    store.setParent(future.id, parent.id);
-    expect(store.getTask(future.id)?.parent).toBe(parent.id);
-    store.clearParent(future.id);
-    expect(store.getTask(future.id)?.parent).toBeNull();
     store.addBlocker(future.id, parent.id);
     expect(taskIds(store.blockedBy(future.id))).toEqual(['parent']);
     store.removeBlocker(future.id, parent.id);
     expect(store.blockedBy(future.id)).toEqual([]);
 
-    expect(store.delete(future.id).deleted).toBe(true);
-    expect(store.restore(future.id).deleted).toBe(false);
-    expect(store.archive(future.id).archived).toBe(true);
-    expect(taskIds(store.list())).not.toContain(future.id);
+    const softDeleted = store.delete(future.id);
+    expect(softDeleted?.deleted).toBe(true);
+    store.update(future.id, { deleted: false });
     expect(taskIds(store.list({ includeInactive: true }))).toContain(future.id);
-    expect(store.restore(future.id).archived).toBe(false);
     store.close();
   });
 
@@ -398,7 +390,6 @@ describe('createTaskStore', () => {
   it('rejects invalid storage inputs and cleans old completed tasks', async () => {
     const { store, blocker, parent, blocked, setCurrentDate } = await createSeededStore();
 
-    expect(() => store.setParent(parent.id, blocked.id)).toThrow(ScrumlordError);
     expect(() => store.addBlocker(blocker.id, blocked.id)).toThrow(ScrumlordError);
     expect(() => store.update('missing', { title: 'Nope' })).toThrow(ScrumlordError);
     expect(() => store.create({ title: '   ' })).toThrow(ScrumlordError);
@@ -427,11 +418,21 @@ describe('createTaskStore', () => {
 
     setCurrentDate(new Date('2026-01-01T00:00:00.000Z'));
     store.create({ id: 'old-completed', title: 'Old completed', status: 'completed' });
-    store.archive(store.create({ id: 'old-archived', title: 'Old archived' }).id);
+    const alreadyDeleted = store.create({ id: 'old-deleted', title: 'Old deleted' });
+    store.delete(alreadyDeleted.id);
     setCurrentDate(new Date('2026-05-11T12:00:00.000Z'));
-    expect(store.cleanup(30)).toEqual({ deleted: 2 });
+    expect(store.cleanup(30)).toEqual({ deleted: 1 });
+    expect(store.getTask('old-completed')?.deleted).toBe(true);
+    // hard cleanup uses last_modified_at < cutoff. old-completed was just
+    // soft-deleted with last_modified_at = now, so it is OUTSIDE the cutoff.
+    // Only old-deleted (last_modified_at = 2026-01-01) is physically removed.
+    expect(store.cleanup(30, { hard: true })).toEqual({ deleted: 1 });
+    expect(store.getTask('old-completed')?.deleted).toBe(true);
+    expect(store.getTask('old-deleted')).toBeNull();
+    // After enough time passes, old-completed becomes hard-deletable too.
+    setCurrentDate(new Date('2027-01-01T00:00:00.000Z'));
+    expect(store.cleanup(30, { hard: true })).toEqual({ deleted: 1 });
     expect(store.getTask('old-completed')).toBeNull();
-    expect(store.getTask('old-archived')).toBeNull();
     store.close();
   });
 
@@ -471,7 +472,6 @@ describe('createTaskStore', () => {
     store.create({ id: 'draft', title: 'Draft task', status: 'draft' });
     store.create({ id: 'active', title: 'Active task', status: 'in-progress' });
     store.create({ id: 'done', title: 'Done task', status: 'completed' });
-    store.archive(store.create({ id: 'archived', title: 'Archived task' }).id);
     store.delete(store.create({ id: 'deleted', title: 'Deleted task' }).id);
 
     expect(store.remaining()).toBe(4);
@@ -481,7 +481,7 @@ describe('createTaskStore', () => {
     store.update(ready.id, { status: 'in-progress' });
     expect(store.remaining()).toBe(3);
 
-    store.archive(future.id);
+    store.delete(future.id);
     expect(store.remaining()).toBe(2);
 
     store.update(review.id, { status: 'completed' });

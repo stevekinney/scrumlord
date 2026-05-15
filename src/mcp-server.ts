@@ -9,12 +9,10 @@ import {
   addTaskBlocker,
   addTaskProgress,
   addTaskTag,
-  archiveTask,
   availableTasks,
   blockedTasks,
   cleanupTasks,
   clearTaskBranch,
-  clearTaskParent,
   clearTaskPlan,
   clearTaskSession,
   completedTasks,
@@ -25,9 +23,7 @@ import {
   persistedTaskSession,
   removeTaskBlocker,
   removeTaskTag,
-  restoreTask,
   setTaskBranch,
-  setTaskParent,
   setTaskPlan,
   setTaskSession,
   setTaskStatus,
@@ -122,10 +118,6 @@ const dependencyInputSchema = z.object({
   id: z.string().min(1),
   blockedBy: z.string().min(1),
 });
-const parentInputSchema = z.object({
-  id: z.string().min(1),
-  parent: z.string().min(1),
-});
 const taskTagInputSchema = z.object({
   id: z.string().min(1),
   tag: z.string(),
@@ -172,7 +164,6 @@ const createTaskInputSchema = z.object({
   provider: z.string().nullable().optional(),
   session: z.string().nullable().optional(),
   tags: z.array(z.string()).optional(),
-  parent: z.string().nullable().optional(),
   blockedBy: z.array(z.string()).optional(),
 });
 
@@ -188,8 +179,6 @@ const updateTaskInputSchema = z.object({
   plan: z.string().nullable().optional(),
   provider: z.string().nullable().optional(),
   session: z.string().nullable().optional(),
-  parent: z.string().nullable().optional(),
-  archived: z.boolean().optional(),
   deleted: z.boolean().optional(),
 });
 
@@ -275,7 +264,6 @@ const createTaskInputFromTool = (input: z.infer<typeof createTaskInputSchema>): 
   assignDefined(taskInput, 'provider', parseOptionalAgentProvider(input.provider));
   assignDefined(taskInput, 'session', input.session);
   assignDefined(taskInput, 'tags', input.tags);
-  assignDefined(taskInput, 'parent', input.parent);
   assignDefined(taskInput, 'blockedBy', input.blockedBy);
 
   return taskInput;
@@ -293,8 +281,6 @@ const updateTaskInputFromTool = (input: z.infer<typeof updateTaskInputSchema>): 
   assignDefined(taskInput, 'plan', input.plan);
   assignDefined(taskInput, 'provider', parseOptionalAgentProvider(input.provider));
   assignDefined(taskInput, 'session', input.session);
-  assignDefined(taskInput, 'parent', input.parent);
-  assignDefined(taskInput, 'archived', input.archived);
   assignDefined(taskInput, 'deleted', input.deleted);
 
   return taskInput;
@@ -531,24 +517,6 @@ const registerMutationTools = (server: McpServer, options: ScrumlordMcpServerOpt
     handler: (input, store) => taskResult(deleteTask(store, input.id)),
   });
   registerInputTool(server, options, {
-    name: 'scrumlord_archive_task',
-    title: 'Archive Task',
-    description: 'Archive a task.',
-    inputSchema: taskIdInputSchema,
-    outputSchema: taskResultSchema,
-    annotations: mutationAnnotations,
-    handler: (input, store) => taskResult(archiveTask(store, input.id)),
-  });
-  registerInputTool(server, options, {
-    name: 'scrumlord_restore_task',
-    title: 'Restore Task',
-    description: 'Restore a deleted or archived task.',
-    inputSchema: taskIdInputSchema,
-    outputSchema: taskResultSchema,
-    annotations: mutationAnnotations,
-    handler: (input, store) => taskResult(restoreTask(store, input.id)),
-  });
-  registerInputTool(server, options, {
     name: 'scrumlord_add_tag',
     title: 'Add Tag',
     description: 'Add a normalized tag to a task.',
@@ -593,24 +561,6 @@ const registerMutationTools = (server: McpServer, options: ScrumlordMcpServerOpt
     outputSchema: taskResultSchema,
     annotations: mutationAnnotations,
     handler: (input, store) => taskResult(clearTaskBranch(store, input.id)),
-  });
-  registerInputTool(server, options, {
-    name: 'scrumlord_set_parent',
-    title: 'Set Parent',
-    description: 'Assign a parent task.',
-    inputSchema: parentInputSchema,
-    outputSchema: taskResultSchema,
-    annotations: mutationAnnotations,
-    handler: (input, store) => taskResult(setTaskParent(store, input.id, input.parent)),
-  });
-  registerInputTool(server, options, {
-    name: 'scrumlord_clear_parent',
-    title: 'Clear Parent',
-    description: 'Clear a task parent.',
-    inputSchema: taskIdInputSchema,
-    outputSchema: taskResultSchema,
-    annotations: mutationAnnotations,
-    handler: (input, store) => taskResult(clearTaskParent(store, input.id)),
   });
   registerInputTool(server, options, {
     name: 'scrumlord_add_blocker',
@@ -687,7 +637,8 @@ const registerMutationTools = (server: McpServer, options: ScrumlordMcpServerOpt
   registerInputTool(server, options, {
     name: 'scrumlord_cleanup_tasks',
     title: 'Cleanup Tasks',
-    description: 'Permanently remove old completed or archived tasks.',
+    description:
+      'Soft-delete aged completed tasks; pass options.hard to physically delete completed or soft-deleted tasks with FK cascades.',
     inputSchema: cleanupInputSchema,
     outputSchema: cleanupResultSchema,
     annotations: destructiveMutationAnnotations,

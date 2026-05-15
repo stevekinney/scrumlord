@@ -75,7 +75,7 @@ const planFromPayload = (provider: AgentProvider, payload: HookRecord): string |
 };
 
 const activeTask = (task: Task): boolean => {
-  return !task.deleted && !task.archived && task.status !== 'completed';
+  return !task.deleted && task.status !== 'completed';
 };
 
 const exactlyOne = (tasks: Task[]): Task | null => {
@@ -153,7 +153,6 @@ const promptContextForTask = (task: Task): string => {
     `provider: ${task.provider ?? 'not recorded'}`,
     `session: ${task.session ?? 'not recorded'}`,
     `tags: ${listValue(task.tags)}`,
-    `parent: ${task.parent ?? 'none'}`,
     `blocked by: ${listValue(task.blockedBy)}`,
     `blocking: ${listValue(task.blocking)}`,
     maybeLine('description', task.description),

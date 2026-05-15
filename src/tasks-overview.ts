@@ -38,15 +38,13 @@ const overviewContinuousIntegrationStatus = (
 };
 
 const shouldMoveTaskToReview = (task: Task): boolean => {
-  return (
-    !task.archived && !task.deleted && task.status !== 'completed' && task.status !== 'in-review'
-  );
+  return !task.deleted && task.status !== 'completed' && task.status !== 'in-review';
 };
 
 const synchronizePullRequestTasks = (store: TaskStore, pullRequest: PullRequest): Task[] => {
   return store
     .withBranch(pullRequest.headRefName)
-    .filter((task) => !task.archived && !task.deleted)
+    .filter((task) => !task.deleted)
     .map((task) =>
       shouldMoveTaskToReview(task) ? store.update(task.id, { status: 'in-review' }) : task,
     );

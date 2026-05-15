@@ -809,7 +809,7 @@ export const runOneTask = async (
   if (!current) {
     return failed(taskId, null, null, 'task_disappeared');
   }
-  if (current.status === 'completed' || current.deleted || current.archived) {
+  if (current.status === 'completed' || current.deleted) {
     return skipped(taskId, current.branch, null, `terminal_state:${describeTerminal(current)}`);
   }
 
@@ -1589,7 +1589,6 @@ const syncAndRefresh = async (
 
 const describeTerminal = (task: Task): string => {
   if (task.deleted) return 'deleted';
-  if (task.archived) return 'archived';
   return task.status;
 };
 

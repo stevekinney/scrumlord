@@ -9,12 +9,10 @@ import {
   addTaskBlocker,
   addTaskProgress,
   addTaskTag,
-  archiveTask,
   availableTasks,
   blockedTasks,
   cleanupTasks,
   clearTaskBranch,
-  clearTaskParent,
   clearTaskPlan,
   clearTaskSession,
   completedTasks,
@@ -24,9 +22,7 @@ import {
   listTasks,
   removeTaskBlocker,
   removeTaskTag,
-  restoreTask,
   setTaskBranch,
-  setTaskParent,
   setTaskPlan,
   setTaskSession,
   setTaskStatus,
@@ -86,8 +82,6 @@ const applyOptionalCreateFlags = (input: CreateTaskInput, flags: Map<string, str
     input.provider = provider.trim() ? parseAgentProvider(provider) : null;
   const session = flag(flags, 'session');
   if (session !== undefined) input.session = session;
-  const parent = flag(flags, 'parent');
-  if (parent !== undefined) input.parent = parent;
 };
 
 const createInputFromFlags = (flags: Map<string, string[]>): CreateTaskInput => {
@@ -152,9 +146,7 @@ const applyDateUpdateFlags = (input: UpdateTaskInput, flags: Map<string, string[
 };
 
 const applyBooleanUpdateFlags = (input: UpdateTaskInput, flags: Map<string, string[]>): void => {
-  for (const name of ['archived', 'deleted'] as const) {
-    if (flags.has(name)) input[name] = flag(flags, name) !== 'false';
-  }
+  if (flags.has('deleted')) input.deleted = flag(flags, 'deleted') !== 'false';
 };
 
 const updateInputFromFlags = (flags: Map<string, string[]>): UpdateTaskInput => {
@@ -165,7 +157,6 @@ const updateInputFromFlags = (flags: Map<string, string[]>): UpdateTaskInput => 
   applyBooleanUpdateFlags(input, flags);
 
   if (flags.has('branch')) input.branch = flag(flags, 'branch') ?? null;
-  if (flags.has('parent')) input.parent = flag(flags, 'parent') ?? null;
   return input;
 };
 
@@ -307,8 +298,6 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
   'clear-session': async (store, parsed) =>
     clearTaskSession(store, await taskIdFromArguments(store, parsed)),
   delete: async (store, parsed) => deleteTask(store, await taskIdFromArguments(store, parsed)),
-  archive: async (store, parsed) => archiveTask(store, await taskIdFromArguments(store, parsed)),
-  restore: async (store, parsed) => restoreTask(store, await taskIdFromArguments(store, parsed)),
   'add-tag': async (store, parsed) =>
     addTaskTag(
       store,
@@ -321,14 +310,6 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
       await taskIdFromArguments(store, parsed, 1),
       requiredTaskCommandArgument(parsed, 1, 'tag'),
     ),
-  'set-parent': async (store, parsed) =>
-    setTaskParent(
-      store,
-      await taskIdFromArguments(store, parsed, 1),
-      requiredTaskCommandArgument(parsed, 1, 'parent id'),
-    ),
-  'clear-parent': async (store, parsed) =>
-    clearTaskParent(store, await taskIdFromArguments(store, parsed)),
   'add-blocker': async (store, parsed) =>
     addTaskBlocker(
       store,
