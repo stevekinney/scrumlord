@@ -263,7 +263,7 @@ describe('runTasksCli boundary commands', () => {
 
     const setupResult = await runTasksCli(['setup', '--skills'], { cwd: root });
     expect(JSON.parse(setupResult.stdout).map((entry: { target: string }) => entry.target)).toEqual(
-      ['codex', 'claude', 'cursor'],
+      ['codex', 'claude'],
     );
 
     const setupGitHooksResult = await runTasksCli(['setup', '--git-hooks'], {

@@ -182,7 +182,7 @@ describe('runAgentHook', () => {
 
     expect(result).toEqual({
       taskId: 'task-id',
-      actions: ['set-session', 'set-branch', 'set-plan'],
+      actions: ['session-recorded', 'branch-recorded', 'plan-recorded'],
       skipped: null,
       context: null,
     });
@@ -222,7 +222,7 @@ describe('runAgentHook', () => {
     expect(result.context).toContain('id: task-id');
     expect(result.context).toContain('title: Record task progress');
     expect(result.context).toContain('plan: tmp/tasks/task-id/PLAN.md');
-    expect(result.context).toContain('tasks add-progress --message "<note>"');
+    expect(result.context).toContain('tasks progress add --message "<note>"');
     expect(calls).toContain('withBranch:feature/current');
   });
 
@@ -239,7 +239,7 @@ describe('runAgentHook', () => {
       }),
     );
 
-    expect(result.actions).toEqual(['set-plan', 'record-progress']);
+    expect(result.actions).toEqual(['plan-recorded', 'record-progress']);
     expect(calls).toContain('withSession:codex:codex-session');
     expect(await Bun.file(join(root, 'tmp/tasks/task-id/PLAN.md')).text()).toBe('# Codex plan');
   });
@@ -257,7 +257,7 @@ describe('runAgentHook', () => {
       { runner: branchRunner('feature/current') },
     );
 
-    expect(result.actions).toEqual(['sync-git-status']);
+    expect(result.actions).toEqual(['github-synchronized']);
     expect(calls).toContain('withBranch:feature/current');
     expect(calls).toContain('update:task-id::in-progress');
   });

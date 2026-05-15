@@ -34,7 +34,7 @@ const emptySuccess = (): CliResult => ({ exitCode: 0, stdout: '', stderr: '' });
 const storeCommands = new Set([
   ...taskStoreCommands,
   'overview',
-  'sync-git-status',
+  'pr',
   'start',
   'resume',
   'agent-hook',
@@ -56,14 +56,15 @@ const runStoreCommand = async (
   parsed: ParsedArguments,
   options: CliOptions,
 ): Promise<unknown> => {
-  if (parsed.command === 'sync-git-status') {
-    const withProgress = parsed.flags.has('with-progress');
-    if (options.syncGitStatus) return await options.syncGitStatus(store);
-    return await syncGitStatus(store, { withProgress });
-  }
-
   if (parsed.command === 'overview') {
     const github = await githubModule(options);
+    if (parsed.flags.has('sync')) {
+      const syncResult = await (options.syncGitStatus
+        ? options.syncGitStatus(store)
+        : syncGitStatus(store));
+      const items = await github.tasksOverview(store);
+      return { items, sync: syncResult };
+    }
     return await github.tasksOverview(store);
   }
 
@@ -81,24 +82,48 @@ const githubModule = async (options: CliOptions): Promise<NonNullable<CliOptions
 
 type PullRequestFlagRule = { when: boolean; message: string };
 
+const commentsRules = (
+  url: boolean,
+  open: boolean,
+  commentsLike: boolean,
+  resolved: boolean,
+  all: boolean,
+): PullRequestFlagRule[] => [
+  { when: url && (open || commentsLike), message: '--url cannot be combined with other pr flags.' },
+  {
+    when: open && commentsLike,
+    message: '--open cannot be combined with --comments / --resolved / --all.',
+  },
+  { when: (resolved || all) && !commentsLike, message: '--resolved and --all require --comments.' },
+  { when: resolved && all, message: '--resolved and --all are mutually exclusive.' },
+];
+
+const syncRules = (
+  sync: boolean,
+  quiet: boolean,
+  url: boolean,
+  open: boolean,
+  commentsLike: boolean,
+): PullRequestFlagRule[] => [
+  { when: quiet && !sync, message: '--quiet requires --sync.' },
+  {
+    when: sync && (url || open || commentsLike),
+    message: '--sync cannot be combined with --url, --open, --comments, --resolved, or --all.',
+  },
+];
+
 const pullRequestFlagRules = (flags: ParsedArguments['flags']): PullRequestFlagRule[] => {
   const url = flags.has('url');
   const open = flags.has('open');
   const comments = flags.has('comments');
   const resolved = flags.has('resolved');
   const all = flags.has('all');
+  const sync = flags.has('sync');
+  const quiet = flags.has('quiet');
   const commentsLike = comments || resolved || all;
   return [
-    {
-      when: url && (open || commentsLike),
-      message: '--url cannot be combined with other pr flags.',
-    },
-    {
-      when: open && commentsLike,
-      message: '--open cannot be combined with --comments / --resolved / --all.',
-    },
-    { when: (resolved || all) && !comments, message: '--resolved and --all require --comments.' },
-    { when: resolved && all, message: '--resolved and --all are mutually exclusive.' },
+    ...commentsRules(url, open, commentsLike, resolved, all),
+    ...syncRules(sync, quiet, url, open, commentsLike),
   ];
 };
 
@@ -125,6 +150,36 @@ const runPullRequestBoundaryCommand: BoundaryCommandHandler = async (parsed, opt
     return success(await github.unresolvedReviewComments(root));
   }
   return success(await github.pullRequestStatus(root));
+};
+
+const runPullRequestSyncCommand = async (
+  store: TaskStore,
+  parsed: ParsedArguments,
+  options: CliOptions,
+): Promise<CliResult> => {
+  const quiet = parsed.flags.has('quiet');
+  const root = store.projectRoot;
+
+  const syncResult = await (options.syncGitStatus
+    ? options.syncGitStatus(store)
+    : syncGitStatus(store));
+
+  const github = await githubModule(options);
+  let pullRequest: unknown = null;
+  try {
+    pullRequest = await github.pullRequestStatus(root);
+  } catch (error) {
+    if (error instanceof ScrumlordError && error.code === 'pull_request_not_found') {
+      pullRequest = null;
+    } else if (quiet) {
+      pullRequest = null;
+    } else {
+      throw error;
+    }
+  }
+
+  if (quiet) return emptySuccess();
+  return success({ pullRequest, sync: syncResult });
 };
 
 const runRepositoryBoundaryCommand: BoundaryCommandHandler = async (parsed, options) => {
@@ -223,6 +278,11 @@ const runBoundaryCommand = async (
   parsed: ParsedArguments,
   options: CliOptions,
 ): Promise<CliResult | undefined> => {
+  if (parsed.command === 'pr' && parsed.flags.has('sync')) {
+    // Validate flags early so invalid combos fail before the store opens
+    validatePullRequestFlags(parsed);
+    return undefined;
+  }
   const handler = parsed.command ? boundaryCommandHandlers[parsed.command] : undefined;
   return handler ? await handler(parsed, options) : undefined;
 };
@@ -234,7 +294,6 @@ const openStore = async (options: CliOptions): Promise<TaskStore> => {
 
 const storeCommandResult = (parsed: ParsedArguments, value: unknown): CliResult => {
   if (parsed.command === 'next' && value === null) return emptySuccess();
-  if (parsed.command === 'sync-git-status' && parsed.flags.has('quiet')) return emptySuccess();
   return success(value);
 };
 
@@ -246,6 +305,9 @@ const runOpenedStoreCommand = async (
   if (parsed.command === 'start') return await runStartCommand(store, parsed, options);
   if (parsed.command === 'resume') return await runResumeCommand(store, parsed, options);
   if (parsed.command === 'pipeline') return await runPipelineCommand(store, parsed, options);
+  if (parsed.command === 'pr' && parsed.flags.has('sync')) {
+    return await runPullRequestSyncCommand(store, parsed, options);
+  }
   return storeCommandResult(parsed, await runStoreCommand(store, parsed, options));
 };
 

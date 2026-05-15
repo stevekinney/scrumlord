@@ -39,7 +39,7 @@ export type SetupStatus = {
   projectRoot: string | null;
   databaseExists: boolean;
   providers: Record<AgentProvider, SetupStatusProvider>;
-  skillPaths: Record<'codex' | 'claude' | 'cursor', SetupStatusSkill>;
+  skillPaths: Record<'codex' | 'claude', SetupStatusSkill>;
   hooks: {
     lefthookConfigurationExists: boolean;
     agentHookWrapperExists: boolean;
@@ -119,21 +119,20 @@ const requireProviderExecutable = (provider: AgentProvider, which: WhichExecutab
   }
 };
 
-const localSkillPath = (projectRoot: string | null, target: 'codex' | 'claude' | 'cursor') => {
+const localSkillPath = (projectRoot: string | null, target: 'codex' | 'claude') => {
   if (!projectRoot) return null;
   if (target === 'codex') return join(projectRoot, '.agents', 'skills', 'tasks', 'SKILL.md');
-  if (target === 'claude') return join(projectRoot, '.claude', 'skills', 'tasks', 'SKILL.md');
-  return join(projectRoot, '.cursor', 'rules', 'tasks.md');
+  return join(projectRoot, '.claude', 'skills', 'tasks', 'SKILL.md');
 };
 
-const globalSkillPath = (homeDirectory: string, target: 'codex' | 'claude' | 'cursor') => {
+const globalSkillPath = (homeDirectory: string, target: 'codex' | 'claude') => {
   return join(homeDirectory, `.${target}`, 'skills', 'tasks', 'SKILL.md');
 };
 
 const statusSkill = (
   projectRoot: string | null,
   homeDirectory: string,
-  target: 'codex' | 'claude' | 'cursor',
+  target: 'codex' | 'claude',
 ): SetupStatusSkill => {
   const localPath = localSkillPath(projectRoot, target);
   const globalPath = globalSkillPath(homeDirectory, target);
@@ -212,7 +211,6 @@ const setupStatusSkills = (
 ): SetupStatus['skillPaths'] => ({
   codex: statusSkill(projectRoot, homeDirectory, 'codex'),
   claude: statusSkill(projectRoot, homeDirectory, 'claude'),
-  cursor: statusSkill(projectRoot, homeDirectory, 'cursor'),
 });
 
 /** Reads setup state without creating the Scrumlord database or writing files. */

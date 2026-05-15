@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import skillBody from './skills/tasks.md';
 
-export type SkillTarget = 'codex' | 'claude' | 'cursor';
+export type SkillTarget = 'codex' | 'claude';
 
 export type WrittenSkill = {
   target: SkillTarget;
@@ -12,10 +12,9 @@ export type WrittenSkill = {
 const targets: Record<SkillTarget, string> = {
   codex: '.agents/skills/tasks/SKILL.md',
   claude: '.claude/skills/tasks/SKILL.md',
-  cursor: '.cursor/rules/tasks.md',
 };
 
-export const skillTargets: SkillTarget[] = ['codex', 'claude', 'cursor'];
+export const skillTargets: SkillTarget[] = ['codex', 'claude'];
 
 export const setupSkills = async (
   projectRoot: string,

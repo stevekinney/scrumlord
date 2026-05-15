@@ -2,7 +2,7 @@ import { resolveTaskSession } from './agent-providers.js';
 import { providerFromStartCommand } from './cli-agent-commands.js';
 import { flag, flagList, required, type ParsedArguments } from './cli-arguments.js';
 import { requiredTaskCommandArgument, taskIdFromArguments } from './cli-task-id.js';
-import { progressInputFromFlags } from './cli-progress.js';
+import { progressInputFromContext } from './cli-progress.js';
 import { currentBranchTask } from './current-branch-task.js';
 import { ScrumlordError } from './errors.js';
 import {
@@ -22,10 +22,6 @@ import {
   listTasks,
   removeTaskBlocker,
   removeTaskTag,
-  setTaskBranch,
-  setTaskPlan,
-  setTaskSession,
-  setTaskStatus,
   type CountListTasksOptions,
   type CountTaskListingOptions,
   type ListTasksOptions,
@@ -251,53 +247,51 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
       await taskIdFromArguments(store, parsed),
       options.environment ? { environment: options.environment } : {},
     ),
-  progress: async (store, parsed) => taskProgress(store, await taskIdFromArguments(store, parsed)),
+  progress: async (store, parsed, options) => {
+    const subcommand = parsed.positionals[0];
+    if (subcommand === 'list') {
+      const adjustedParsed = { ...parsed, positionals: parsed.positionals.slice(1) };
+      return taskProgress(store, await taskIdFromArguments(store, adjustedParsed));
+    }
+    if (subcommand === 'add') {
+      const adjustedParsed = { ...parsed, positionals: parsed.positionals.slice(1) };
+      const taskId = await taskIdFromArguments(store, adjustedParsed);
+      const task = store.getTask(taskId);
+      return addTaskProgress(
+        store,
+        taskId,
+        progressInputFromContext({
+          flags: parsed.flags,
+          ...(options.environment !== undefined ? { environment: options.environment } : {}),
+          ...(task !== null ? { task } : {}),
+        }),
+      );
+    }
+    throw new ScrumlordError(
+      'invalid_progress_subcommand',
+      'tasks progress subcommand must be list or add.',
+    );
+  },
+  clear: async (store, parsed) => {
+    const property = parsed.positionals[0] as string;
+    const adjustedParsed = { ...parsed, positionals: parsed.positionals.slice(1) };
+    const taskId = await taskIdFromArguments(store, adjustedParsed);
+    if (property === 'branch') return clearTaskBranch(store, taskId);
+    if (property === 'plan') return clearTaskPlan(store, taskId);
+    if (property === 'session') return clearTaskSession(store, taskId);
+    if (property === 'start-date') return updateTask(store, taskId, { startDate: null });
+    if (property === 'due-date') return updateTask(store, taskId, { dueDate: null });
+    throw new ScrumlordError(
+      'invalid_clear_property',
+      'tasks clear expects one of branch|plan|session|start-date|due-date.',
+    );
+  },
   current: async (store) => await currentBranchTask(store),
   next: (store) => next(store),
   remaining: (store) => remaining(store),
   create: (store, parsed) => createTask(store, createInputFromFlags(parsed.flags)),
   update: async (store, parsed) =>
     updateTask(store, await taskIdFromArguments(store, parsed), updateInputFromFlags(parsed.flags)),
-  'add-progress': async (store, parsed, options) =>
-    addTaskProgress(
-      store,
-      await taskIdFromArguments(store, parsed),
-      progressInputFromFlags(
-        parsed.flags,
-        options.environment ? { environment: options.environment } : {},
-      ),
-    ),
-  'set-status': async (store, parsed) =>
-    setTaskStatus(
-      store,
-      await taskIdFromArguments(store, parsed, 1),
-      parseStatus(requiredTaskCommandArgument(parsed, 1, 'status')),
-    ),
-  'set-branch': async (store, parsed) =>
-    setTaskBranch(
-      store,
-      await taskIdFromArguments(store, parsed, 1),
-      requiredTaskCommandArgument(parsed, 1, 'branch'),
-    ),
-  'clear-branch': async (store, parsed) =>
-    clearTaskBranch(store, await taskIdFromArguments(store, parsed)),
-  'set-plan': async (store, parsed) =>
-    setTaskPlan(
-      store,
-      await taskIdFromArguments(store, parsed, 1),
-      requiredTaskCommandArgument(parsed, 1, 'plan'),
-    ),
-  'clear-plan': async (store, parsed) =>
-    clearTaskPlan(store, await taskIdFromArguments(store, parsed)),
-  'set-session': async (store, parsed) =>
-    setTaskSession(
-      store,
-      await taskIdFromArguments(store, parsed, 2),
-      parseAgentProvider(requiredTaskCommandArgument(parsed, 2, 'provider')),
-      requiredTaskCommandArgument(parsed, 2, 'session', 1),
-    ),
-  'clear-session': async (store, parsed) =>
-    clearTaskSession(store, await taskIdFromArguments(store, parsed)),
   delete: async (store, parsed) =>
     deleteTask(store, await taskIdFromArguments(store, parsed), {
       hard: parsed.flags.has('hard'),
@@ -332,6 +326,27 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
 
 export const taskStoreCommands = new Set(Object.keys(storeCommandHandlers));
 
+const validateProgressListFlags = (flags: Map<string, string[]>): void => {
+  for (const flagName of ['message', 'provider', 'session'] as const) {
+    if (flags.has(flagName)) {
+      throw new ScrumlordError(
+        'invalid_progress_flag',
+        `--${flagName} is not valid for progress list.`,
+      );
+    }
+  }
+};
+
+const validateProgressAddFlags = (flags: Map<string, string[]>): void => {
+  const explicitProvider = flags.get('provider')?.at(-1);
+  if (explicitProvider !== undefined && explicitProvider.trim()) {
+    parseAgentProvider(explicitProvider);
+  }
+  if (!flags.has('message')) {
+    throw new ScrumlordError('missing_progress_message', '--message is required.');
+  }
+};
+
 const storeCommandInputValidators: Partial<Record<string, StoreCommandInputValidator>> = {
   create: (parsed) => {
     createInputFromFlags(parsed.flags);
@@ -339,20 +354,36 @@ const storeCommandInputValidators: Partial<Record<string, StoreCommandInputValid
   update: (parsed) => {
     updateInputFromFlags(parsed.flags);
   },
-  'add-progress': (parsed, options) => {
-    progressInputFromFlags(
-      parsed.flags,
-      options.environment ? { environment: options.environment } : {},
-    );
+  progress: (parsed) => {
+    const subcommand = parsed.positionals[0];
+    if (!subcommand) {
+      throw new ScrumlordError(
+        'missing_subcommand',
+        'tasks progress requires a subcommand: list or add.',
+      );
+    }
+    if (subcommand !== 'list' && subcommand !== 'add') {
+      throw new ScrumlordError(
+        'invalid_progress_subcommand',
+        'tasks progress subcommand must be list or add.',
+      );
+    }
+    if (subcommand === 'list') validateProgressListFlags(parsed.flags);
+    if (subcommand === 'add') validateProgressAddFlags(parsed.flags);
+  },
+  clear: (parsed) => {
+    const property = parsed.positionals[0];
+    if (!property) return; // caught by validatePositionals
+    const valid = new Set(['branch', 'plan', 'session', 'start-date', 'due-date']);
+    if (!valid.has(property)) {
+      throw new ScrumlordError(
+        'invalid_clear_property',
+        'tasks clear expects one of branch|plan|session|start-date|due-date.',
+      );
+    }
   },
   cleanup: (parsed) => {
     cleanupDaysFrom(parsed);
-  },
-  'set-status': (parsed) => {
-    parseStatus(requiredTaskCommandArgument(parsed, 1, 'status'));
-  },
-  'set-session': (parsed) => {
-    parseAgentProvider(requiredTaskCommandArgument(parsed, 2, 'provider'));
   },
   start: (parsed, options) => {
     providerFromStartCommand(parsed, options);

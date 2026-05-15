@@ -39,10 +39,10 @@ describe('initializeProject', () => {
     expect(result.projectRoot).toBe(root);
     expect(result.databasePath).toBe(join(root, 'tmp', 'tasks.db'));
     expect(existsSync(result.databasePath)).toBe(true);
-    expect(result.skills.map((skill) => skill.target)).toEqual(['codex', 'claude', 'cursor']);
+    expect(result.skills.map((skill) => skill.target)).toEqual(['codex', 'claude']);
     expect(existsSync(join(root, '.agents/skills/tasks/SKILL.md'))).toBe(true);
     expect(existsSync(join(root, '.claude/skills/tasks/SKILL.md'))).toBe(true);
-    expect(existsSync(join(root, '.cursor/rules/tasks.md'))).toBe(true);
+    expect(existsSync(join(root, '.cursor/rules/tasks.md'))).toBe(false);
     expect(result.gitHooks).toEqual({
       configurationPath: null,
       changed: false,

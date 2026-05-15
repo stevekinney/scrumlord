@@ -157,7 +157,7 @@ const promptContextForTask = (task: Task): string => {
     `blocking: ${listValue(task.blocking)}`,
     maybeLine('description', task.description),
     'Use branch-local task commands without a task ID when acting on this task; pass an explicit ID for any other task.',
-    'Before resuming or handing off, inspect `tasks progress`; after meaningful work, run `tasks add-progress --message "<note>"`.',
+    'Before resuming or handing off, inspect `tasks progress list`; after meaningful work, run `tasks progress add --message "<note>"`.',
     '</scrumlord-current-task>',
   ].filter((line): line is string => Boolean(line));
 
@@ -187,7 +187,7 @@ const writePlan = async (
   mkdirSync(dirname(planPath), { recursive: true });
   await Bun.write(planPath, planText);
   store.setPlan(task.id, storedPlanPath);
-  actions.push('set-plan');
+  actions.push('plan-recorded');
 };
 
 const recordHookSession = (
@@ -200,7 +200,7 @@ const recordHookSession = (
   if (!session) return;
   if (task.provider === provider && task.session === session) return;
   store.setSession(task.id, provider, session);
-  actions.push('set-session');
+  actions.push('session-recorded');
 };
 
 const synchronizeHookBranch = async (
@@ -215,7 +215,7 @@ const synchronizeHookBranch = async (
     const branch = await currentGitBranch(store.projectRoot, options.runner ?? runCommand);
     if (task.branch === branch) return;
     store.update(task.id, { branch });
-    actions.push('set-branch');
+    actions.push('branch-recorded');
   } catch {
     actions.push('branch-unavailable');
   }
@@ -229,7 +229,7 @@ const synchronizeHookGitStatus = async (
 ): Promise<void> => {
   if (!synchronizationCommand(command)) return;
   await syncGitStatus(store, options.runner ? { runner: options.runner } : {});
-  actions.push('sync-git-status');
+  actions.push('github-synchronized');
 };
 
 const captureHookPlan = async (

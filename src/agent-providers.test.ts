@@ -80,7 +80,7 @@ describe('agent providers', () => {
     );
     expect(buildTaskStartInvocation('claude', startContext).command).toContain('--permission-mode');
     expect(buildTaskStartInvocation('claude', startContext).command.join('\n')).toContain(
-      'tasks add-progress',
+      'tasks progress add',
     );
     expect(
       buildTaskResumeInvocation('claude', { cwd: '/worktree', session: 'session-id' }),
@@ -99,7 +99,7 @@ describe('agent providers', () => {
       expect.stringContaining('/plan'),
     ]);
     expect(buildTaskStartInvocation('codex', startContext).command.join('\n')).toContain(
-      'tasks add-progress',
+      'tasks progress add',
     );
     expect(buildTaskResumeInvocation('codex', { cwd: '/worktree', session: 'session-id' })).toEqual(
       {

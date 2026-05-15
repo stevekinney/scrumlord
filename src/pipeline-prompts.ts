@@ -10,7 +10,7 @@ export const PIPELINE_SYSTEM_PROMPT = [
   'A per-task git worktree has already been created and the task row is already `in-progress`.',
   'Your contract: drive the task all the way to a merged pull request, or exit non-zero with `STUCK: <reason>` on stderr if you cannot.',
   'Do not stop at "ready to merge" — the pipeline considers the task complete only when the pull request is merged into the base branch.',
-  'Use the tasks CLI for state. Record progress with `tasks add-progress` at major checkpoints. Do not edit `tmp/tasks.db` directly.',
+  'Use the tasks CLI for state. Record progress with `tasks progress add` at major checkpoints. Do not edit `tmp/tasks.db` directly.',
   'Do not call `gh pr create` directly; use the `committee-review` skill to open the pull request.',
   'Use the `address-pr` skill to drive review feedback to resolution.',
   'Print the line `AGENT_OUTPUT_BEGIN` on its own line on stdout before any other agent-authored output.',
@@ -34,12 +34,12 @@ export const pipelinePrompt = (provider: AgentProvider, taskId: string): string 
   return [
     `You are working on Scrumlord task \`${taskId}\`. Drive it through the four phases:`,
     '',
-    '1. Plan. Read any existing plan at the task plan path. If none exists or the plan is incomplete, write one to `tmp/tasks/<task-id>/PLAN.md` and run `tasks set-plan <task-id> <path>`. Record progress with `tasks add-progress`.',
+    '1. Plan. Read any existing plan at the task plan path. If none exists or the plan is incomplete, write one to `tmp/tasks/<task-id>/PLAN.md` and run `tasks update <task-id> --plan <path>`. Record progress with `tasks progress add`.',
     '2. Implement against the plan. Run the project verify commands (`bun test`, `bun run typecheck`, `bun run lint`) and fix anything you break. Commit your work; never skip hooks.',
     '3. Open the pull request via the `committee-review` skill — never call `gh pr create` yourself.',
     '4. Drive the pull request to merge via the `address-pr` skill. The task is not done until the pull request is merged.',
     '',
-    'Run `tasks sync-git-status --quiet` whenever GitHub state may have changed.',
+    'Run `tasks pr --sync` whenever GitHub state may have changed.',
     'If you cannot proceed, exit non-zero with `STUCK: <reason>` on stderr.',
   ].join('\n');
 };
@@ -47,7 +47,7 @@ export const pipelinePrompt = (provider: AgentProvider, taskId: string): string 
 /**
  * Builds the plan-only prompt used by the W-E phase split. The agent's
  * single contract is: write a plan to `tmp/tasks/<task-id>/PLAN.md`, run
- * `tasks set-plan <task-id> <path>`, then exit. No implementation, no
+ * `tasks update <task-id> --plan <path>`, then exit. No implementation, no
  * PR, no merge. Used when `SCRUMLORD_PIPELINE_PHASES=split` and the
  * task has no plan yet.
  */
@@ -57,7 +57,7 @@ export const planOnlyPrompt = (taskId: string): string => {
     'Your single contract:',
     '',
     `1. Write a concrete implementation plan to \`tmp/tasks/${taskId}/PLAN.md\`. Include: files to touch, the change in each, the verification approach, and any risks.`,
-    `2. Run \`tasks set-plan ${taskId} tmp/tasks/${taskId}/PLAN.md\` so the pipeline records the plan path.`,
+    `2. Run \`tasks update ${taskId} --plan tmp/tasks/${taskId}/PLAN.md\` so the pipeline records the plan path.`,
     '3. Exit cleanly.',
     '',
     'Do NOT implement the task. Do NOT open a pull request. Do NOT merge anything.',

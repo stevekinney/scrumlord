@@ -8,7 +8,7 @@ export const setupAgentPrompt = `You are installing or refreshing the Scrumlord 
 Run these commands in order from the project root:
 
 1. \`tasks init\` — create the task database if it does not yet exist.
-2. \`tasks setup --skills --project\` — write the tasks skill into .claude/skills, .agents/skills, and .cursor/rules.
+2. \`tasks setup --skills --project\` — write the tasks skill into .claude/skills and .agents/skills.
 3. \`tasks setup --subagents --project\` — write the scrumlord-task-manager subagent locally.
 4. \`tasks setup --git-hooks\` — install the project lefthook block between the # scrumlord:begin and # scrumlord:end markers.
 5. \`tasks setup --agent-hooks --user\` — write user-level Claude and Codex hook configuration to ~/.claude/settings.json and ~/.codex/.

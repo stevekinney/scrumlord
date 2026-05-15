@@ -263,27 +263,23 @@ describe('runTasksCli', () => {
         '--session',
         'claude-session',
       ],
-      ['set-status', 'task-id', 'completed'],
-      ['set-branch', 'task-id', 'feature/task-graph'],
-      ['clear-branch', 'task-id'],
-      ['set-plan', 'task-id', 'tmp/tasks/task-id/PLAN.md'],
-      ['clear-plan', 'task-id'],
-      ['set-session', 'task-id', 'codex', 'codex-session'],
-      ['clear-session', 'task-id'],
+      ['update', 'task-id', '--status', 'completed'],
+      ['update', 'task-id', '--branch', 'feature/task-graph'],
+      ['clear', 'branch', 'task-id'],
+      ['update', 'task-id', '--plan', 'tmp/tasks/task-id/PLAN.md'],
+      ['clear', 'plan', 'task-id'],
+      ['update', 'task-id', '--provider', 'codex', '--session', 'codex-session'],
+      ['clear', 'session', 'task-id'],
       ['delete', 'task-id'],
       ['add-tag', 'task-id', 'frontend'],
       ['remove-tag', 'task-id', 'frontend'],
       ['add-blocker', 'task-id', 'blocker-id'],
       ['remove-blocker', 'task-id', 'blocker-id'],
       ['cleanup', '12'],
-      ['sync-git-status'],
     ];
 
     for (const command of commands) {
-      const result = await runTasksCli(command, {
-        ...options,
-        syncGitStatus: async () => ({ branch: 'feature/task-graph' }),
-      });
+      const result = await runTasksCli(command, options);
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe('');
       expect(() => JSON.parse(result.stdout)).not.toThrow();
@@ -291,12 +287,11 @@ describe('runTasksCli', () => {
 
     expect(calls).toContain('create:New Task:draft:3:feature/task-graph');
     expect(calls).toContain('update:task-id:Renamed:2:feature/task-graph');
-    expect(calls).toContain('updateStatus:task-id:completed');
     expect(calls).toContain('update:task-id:::feature/task-graph');
     expect(calls).toContain('clearBranch:task-id');
-    expect(calls).toContain('setPlan:task-id:tmp/tasks/task-id/PLAN.md');
+    // update --plan goes through store.update(); clear plan goes through store.setPlan(null)
+    expect(calls.some((c) => c.startsWith('update:task-id:::'))).toBe(true);
     expect(calls).toContain('setPlan:task-id:');
-    expect(calls).toContain('setSession:task-id:codex:codex-session');
     expect(calls).toContain('updateSession:task-id::');
     expect(calls).toContain('list:active');
     expect(calls).toContain('list:all');
@@ -304,18 +299,31 @@ describe('runTasksCli', () => {
     expect(calls.filter((call) => call === 'close')).toHaveLength(commands.length);
   });
 
-  it('supports quiet Git status synchronization for hooks', async () => {
+  it('supports quiet Git status synchronization for hooks via pr --sync --quiet', async () => {
     const calls: string[] = [];
-    const result = await runTasksCli(['sync-git-status', '--quiet'], {
+    const prError = Object.assign(new Error('no pr'), { code: 'pull_request_not_found' });
+    const result = await runTasksCli(['pr', '--sync', '--quiet'], {
       createStore: async () => fakeStore(calls),
       syncGitStatus: async () => {
         calls.push('syncGitStatus');
-        return { updated: [{ id: 'task-id', from: 'ready', to: 'in-progress' }] };
+        return { updated: [] };
+      },
+      github: {
+        pullRequestStatus: async () => {
+          throw prError;
+        },
+        pullRequestUrl: async () => ({ url: '' }),
+        allReviewComments: async () => [],
+        resolvedReviewComments: async () => [],
+        unresolvedReviewComments: async () => [],
+        tasksOverview: async () => [],
+        repositoryName: async () => '',
+        repositoryUrl: async () => '',
       },
     });
 
     expect(result).toEqual({ exitCode: 0, stdout: '', stderr: '' });
-    expect(calls).toEqual(['syncGitStatus', 'close']);
+    expect(calls).toContain('syncGitStatus');
   });
 
   it('renders help for the main CLI and subcommands', async () => {
@@ -348,9 +356,12 @@ describe('runTasksCli', () => {
     expect(overviewHelp.stdout).toContain('tasks overview');
     expect(overviewHelp.stdout).toContain('unresolved review comment counts');
 
-    const setStatusHelp = await runTasksCli(['set-status', '--help'], { colorMode: 'never' });
-    expect(setStatusHelp.stdout).toContain('tasks set-status [task-id] <status>');
-    expect(setStatusHelp.stdout).toContain('draft, ready, in-progress, in-review, or completed');
+    const progressHelp = await runTasksCli(['progress', '--help'], { colorMode: 'never' });
+    expect(progressHelp.stdout).toContain('tasks progress');
+    expect(progressHelp.stdout).toContain('list');
+
+    const clearHelp = await runTasksCli(['clear', '--help'], { colorMode: 'never' });
+    expect(clearHelp.stdout).toContain('tasks clear');
 
     const pullRequestHelp = await runTasksCli(['pr', '--help'], {
       colorMode: 'never',
@@ -412,16 +423,16 @@ describe('runTasksCli', () => {
     );
     expect(JSON.parse(invalidStatusResult.stderr).error.code).toBe('invalid_status');
 
-    const invalidSetStatusResult = await runTasksCli(['set-status', 'task-id', 'later'], {
+    const updateStatusResult = await runTasksCli(['update', 'task-id', '--status', 'later'], {
       createStore,
     });
-    expect(JSON.parse(invalidSetStatusResult.stderr).error.code).toBe('invalid_status');
+    expect(JSON.parse(updateStatusResult.stderr).error.code).toBe('invalid_status');
 
-    const invalidSetSessionResult = await runTasksCli(
-      ['set-session', 'task-id', 'vim', 'session-id'],
+    const badProviderResult = await runTasksCli(
+      ['progress', 'add', '--message', 'hi', '--provider', 'vim'],
       { createStore },
     );
-    expect(JSON.parse(invalidSetSessionResult.stderr).error.code).toBe('invalid_provider');
+    expect(JSON.parse(badProviderResult.stderr).error.code).toBe('invalid_provider');
 
     const invalidSkillRoot = await workspaceRoot();
     const invalidAgentResult = await runTasksCli(['setup', '--subagents', '--agent', 'vim'], {

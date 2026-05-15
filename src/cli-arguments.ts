@@ -17,7 +17,6 @@ const noPositionals = { minPositionals: 0, maxPositionals: 0 };
 const onePositional = { minPositionals: 1, maxPositionals: 1 };
 const optionalTaskId = { minPositionals: 0, maxPositionals: 1 };
 const optionalTaskIdWithOneArgument = { minPositionals: 1, maxPositionals: 2 };
-const optionalTaskIdWithTwoArguments = { minPositionals: 2, maxPositionals: 3 };
 const listingBooleanFlags = ['planned', 'unplanned', 'count'];
 const taskListingCommandSpecification = {
   ...noPositionals,
@@ -38,7 +37,7 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   blocked: taskListingCommandSpecification,
   completed: taskListingCommandSpecification,
   init: noPositionals,
-  overview: noPositionals,
+  overview: { ...noPositionals, booleanFlags: ['sync'] },
   help: { minPositionals: 0, maxPositionals: 2 },
   current: noPositionals,
   next: noPositionals,
@@ -47,7 +46,7 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   pr: {
     minPositionals: 0,
     maxPositionals: 0,
-    booleanFlags: ['open', 'url', 'comments', 'resolved', 'all'],
+    booleanFlags: ['open', 'url', 'comments', 'resolved', 'all', 'sync', 'quiet'],
   },
   get: optionalTaskId,
   tagged: { minPositionals: 1, booleanFlags: ['all', ...listingBooleanFlags] },
@@ -57,11 +56,12 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   priority: onePositionalTaskListingCommandSpecification,
   'with-priority': onePositionalTaskListingCommandSpecification,
   session: optionalTaskId,
-  progress: optionalTaskId,
-  'add-progress': {
-    ...optionalTaskId,
-    valueFlags: ['message', 'provider', 'session', 'event', 'tool', 'cwd'],
+  progress: {
+    minPositionals: 0,
+    maxPositionals: 2,
+    valueFlags: ['message', 'provider', 'session'],
   },
+  clear: { minPositionals: 1, maxPositionals: 2 },
   start: {
     ...optionalTaskId,
     valueFlags: ['cli'],
@@ -76,13 +76,6 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   resume: optionalTaskId,
   'agent-hook': onePositional,
   delete: { ...optionalTaskId, booleanFlags: ['hard'] },
-  'set-status': optionalTaskIdWithOneArgument,
-  'set-branch': optionalTaskIdWithOneArgument,
-  'clear-branch': optionalTaskId,
-  'set-plan': optionalTaskIdWithOneArgument,
-  'clear-plan': optionalTaskId,
-  'set-session': optionalTaskIdWithTwoArguments,
-  'clear-session': optionalTaskId,
   cleanup: { ...onePositional, booleanFlags: ['hard'] },
   create: {
     ...noPositionals,
@@ -123,7 +116,6 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   'remove-tag': optionalTaskIdWithOneArgument,
   'add-blocker': optionalTaskIdWithOneArgument,
   'remove-blocker': optionalTaskIdWithOneArgument,
-  'sync-git-status': { ...noPositionals, booleanFlags: ['quiet', 'with-progress'] },
   setup: {
     minPositionals: 0,
     maxPositionals: 1,
@@ -211,6 +203,11 @@ export const isHelpRequest = (parsed: ParsedArguments): boolean => {
 export const helpPath = (parsed: ParsedArguments): string[] => {
   if (parsed.command === 'help') return parsed.positionals;
   if (parsed.command === 'setup' && parsed.positionals[0] === 'status') return ['setup', 'status'];
+  if (parsed.command === 'progress') {
+    const sub = parsed.positionals[0];
+    if (sub === 'list' || sub === 'add') return ['progress', sub];
+    return ['progress'];
+  }
   return [parsed.command ?? ''];
 };
 

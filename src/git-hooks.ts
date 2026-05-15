@@ -18,15 +18,15 @@ export type SetupGitHooksOptions = {
 
 const managedHooks = ['post-checkout', 'post-commit', 'post-merge', 'pre-push'] as const;
 const managedCommands: Record<(typeof managedHooks)[number], string> = {
-  'post-checkout': 'tasks sync-git-status --quiet',
-  'post-commit': 'tasks sync-git-status --quiet --with-progress',
-  'post-merge': 'tasks sync-git-status --quiet',
-  'pre-push': 'tasks sync-git-status --quiet',
+  'post-checkout': 'tasks pr --sync --quiet',
+  'post-commit': 'tasks pr --sync --quiet',
+  'post-merge': 'tasks pr --sync --quiet',
+  'pre-push': 'tasks pr --sync --quiet',
 };
 
 const buildManagedBlock = (hook: (typeof managedHooks)[number]): string[] => [
   '    # scrumlord:begin',
-  '    - name: tasks-sync-git-status',
+  '    - name: tasks-pr-sync',
   `      run: ${managedCommands[hook]}`,
   '    # scrumlord:end',
 ];

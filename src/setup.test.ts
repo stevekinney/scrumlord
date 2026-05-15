@@ -74,7 +74,8 @@ describe('setup status and selection', () => {
     expect(status.providers.codex.localSubagentPath).toBe(
       join(root, '.codex/agents/scrumlord-task-manager.toml'),
     );
-    expect(status.skillPaths.cursor.localPath).toBe(join(root, '.cursor/rules/tasks.md'));
+    expect(status.skillPaths.codex.localPath).toBe(join(root, '.agents/skills/tasks/SKILL.md'));
+    expect(status.skillPaths.claude.localPath).toBe(join(root, '.claude/skills/tasks/SKILL.md'));
     expect(status.hooks.lefthookConfigurationExists).toBe(true);
     expect(status.hooks.codexConfigurationExists).toBe(true);
     expect(status.hooks.agentHookWrapperExists).toBe(false);

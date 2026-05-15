@@ -146,11 +146,63 @@ const topics: HelpTopic[] = [
   },
   {
     path: ['progress'],
+    summary: 'Inspect or record task progress.',
+    usage: 'tasks progress <list|add> [options]',
+    description:
+      'Namespaced command for listing or recording task progress entries. Use `tasks progress list` to view entries and `tasks progress add` to append a new one.',
+    examples: ['tasks progress list', 'tasks progress add --message "Plan approved"'],
+  },
+  {
+    path: ['progress', 'list'],
     summary: 'List progress entries for a task.',
-    usage: 'tasks progress [task-id]',
+    usage: 'tasks progress list [task-id]',
     description: `Returns chronological progress entries recorded for the task, including provider and session metadata when available. ${inferredTaskIdDescription}`,
     arguments: [optionalTaskIdArgument],
-    examples: ['tasks progress', 'tasks progress 8f7d6a'],
+    examples: ['tasks progress list', 'tasks progress list 8f7d6a'],
+  },
+  {
+    path: ['progress', 'add'],
+    summary: 'Record task progress.',
+    usage:
+      'tasks progress add [task-id] --message <markdown> [--provider <claude|codex>] [--session <id>]',
+    description: `Appends a progress entry to a task and moves draft or ready tasks to in-progress. When --provider or --session are omitted, Scrumlord infers them in this order: SCRUMLORD_CLI, then CLAUDECODE=1 → claude, then CODEX_SESSION_ID → codex, then CLAUDE_SESSION_ID → claude, then the task's stored session when the stored provider matches. The stored session is never paired with a different provider. CLAUDE_PROJECT_DIR is used as the default cwd. ${inferredTaskIdDescription}`,
+    arguments: [optionalTaskIdArgument],
+    options: [
+      { name: '--message', value: '<markdown>', description: 'Progress note to append.' },
+      {
+        name: '--provider',
+        value: '<claude|codex>',
+        description: 'Agent provider. Inferred from environment when omitted.',
+      },
+      {
+        name: '--session',
+        value: '<id>',
+        description:
+          'Provider-specific session identifier. Inferred from environment when omitted.',
+      },
+    ],
+    examples: [
+      'tasks progress add --message "Wrote failing regression test"',
+      'tasks progress add 8f7d6a --message "Wrote failing regression test"',
+      'tasks progress add 8f7d6a --message "Blocked on CI" --provider codex --session 019e-session',
+    ],
+  },
+  {
+    path: ['clear'],
+    summary: 'Clear a task property.',
+    usage: 'tasks clear <branch|plan|session|start-date|due-date> [task-id]',
+    description: `Clears a single nullable field on a task. Clearing session removes both provider and session together. ${inferredTaskIdDescription}`,
+    arguments: [
+      '<branch|plan|session|start-date|due-date>: Property to clear.',
+      optionalTaskIdArgument,
+    ],
+    examples: [
+      'tasks clear branch',
+      'tasks clear plan 8f7d6a',
+      'tasks clear session',
+      'tasks clear start-date 8f7d6a',
+      'tasks clear due-date',
+    ],
   },
   {
     path: ['start'],
@@ -336,113 +388,9 @@ const topics: HelpTopic[] = [
     examples: [
       'tasks update 8f7d6a --due-date 2026-05-20 --priority 2',
       'tasks update 8f7d6a --title "Write regression tests"',
-    ],
-  },
-  {
-    path: ['set-status'],
-    summary: 'Transition a task status.',
-    usage: 'tasks set-status [task-id] <status>',
-    description: `Sets a task status to draft, ready, in-progress, in-review, or completed and refreshes the last modified timestamp. ${inferredTaskIdDescription}`,
-    arguments: [
-      optionalTaskIdArgument,
-      '<status>: New status: draft, ready, in-progress, in-review, or completed.',
-    ],
-    examples: [
-      'tasks set-status in-progress',
-      'tasks set-status 8f7d6a in-progress',
-      'tasks set-status 8f7d6a completed',
-    ],
-  },
-  {
-    path: ['set-branch'],
-    summary: 'Assign a task branch.',
-    usage: 'tasks set-branch [task-id] <branch>',
-    description: `Sets the Git branch associated with a task and moves draft or ready tasks to in-progress. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument, '<branch>: Git branch name.'],
-    examples: ['tasks set-branch feature/task-graph', 'tasks set-branch 8f7d6a feature/task-graph'],
-  },
-  {
-    path: ['clear-branch'],
-    summary: 'Clear a task branch.',
-    usage: 'tasks clear-branch [task-id]',
-    description: `Clears the Git branch associated with a task. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
-    examples: ['tasks clear-branch', 'tasks clear-branch 8f7d6a'],
-  },
-  {
-    path: ['set-plan'],
-    summary: 'Assign a task plan path.',
-    usage: 'tasks set-plan [task-id] <path>',
-    description: `Sets the task plan path. The path must resolve to an existing file; relative paths resolve against the project root. The stored value is always absolute. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument, '<path>: Plan file path.'],
-    examples: [
-      'tasks set-plan tmp/tasks/8f7d6a/PLAN.md',
-      'tasks set-plan 8f7d6a tmp/tasks/8f7d6a/PLAN.md',
-    ],
-  },
-  {
-    path: ['clear-plan'],
-    summary: 'Clear a task plan path.',
-    usage: 'tasks clear-plan [task-id]',
-    description: `Clears the task plan path. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
-    examples: ['tasks clear-plan', 'tasks clear-plan 8f7d6a'],
-  },
-  {
-    path: ['set-session'],
-    summary: 'Assign task session metadata.',
-    usage: 'tasks set-session [task-id] <claude|codex> <session-id>',
-    description: `Sets provider and session metadata for a task. ${inferredTaskIdDescription}`,
-    arguments: [
-      optionalTaskIdArgument,
-      '<claude|codex>: Agent provider.',
-      '<session-id>: Provider-specific session identifier.',
-    ],
-    examples: [
-      'tasks set-session codex 019e-session',
-      'tasks set-session 8f7d6a codex 019e-session',
-    ],
-  },
-  {
-    path: ['clear-session'],
-    summary: 'Clear task session metadata.',
-    usage: 'tasks clear-session [task-id]',
-    description: `Clears provider and session metadata for a task. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
-    examples: ['tasks clear-session', 'tasks clear-session 8f7d6a'],
-  },
-  {
-    path: ['add-progress'],
-    summary: 'Record task progress.',
-    usage:
-      'tasks add-progress [task-id] --message <markdown> [--provider <claude|codex>] [--session <id>] [--cwd <path>]',
-    description: `Appends a progress entry to a task and moves draft or ready tasks to in-progress. When provider or session are omitted, Scrumlord infers them from the environment: CODEX_SESSION_ID sets provider=codex and session; CLAUDECODE=1 sets provider=claude. CLAUDE_PROJECT_DIR is used as the default cwd. Explicit flags always win. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
-    options: [
-      { name: '--message', value: '<markdown>', description: 'Progress note to append.' },
-      {
-        name: '--provider',
-        value: '<claude|codex>',
-        description:
-          'Agent provider responsible for the progress entry. Defaults to env-derived value when omitted.',
-      },
-      {
-        name: '--session',
-        value: '<id>',
-        description:
-          'Provider-specific session identifier. Defaults to CODEX_SESSION_ID when omitted.',
-      },
-      {
-        name: '--cwd',
-        value: '<path>',
-        description:
-          'Working directory to record with the entry. Defaults to CLAUDE_PROJECT_DIR, then process.cwd().',
-      },
-    ],
-    examples: [
-      'tasks add-progress --message "Wrote failing regression test"',
-      'tasks add-progress 8f7d6a --message "Wrote failing regression test"',
-      'tasks add-progress 8f7d6a --message "Blocked on CI" --provider codex --session 019e-session',
+      'tasks update 8f7d6a --status in-progress',
+      'tasks update 8f7d6a --branch feature/x',
+      'tasks update 8f7d6a --plan tmp/plans/8f7d6a.md',
     ],
   },
   {
@@ -510,32 +458,19 @@ const topics: HelpTopic[] = [
     examples: ['tasks cleanup 30', 'tasks cleanup 30 --hard'],
   },
   {
-    path: ['sync-git-status'],
-    summary: 'Synchronize branch-bound tasks with Git and GitHub.',
-    usage: 'tasks sync-git-status [--quiet] [--with-progress]',
-    description:
-      'Moves draft or ready branch tasks to in-progress, open pull request tasks to in-review, and merged pull request tasks to completed.',
-    options: [
-      { name: '--quiet', description: 'Suppress JSON output for hook usage.' },
-      {
-        name: '--with-progress',
-        description:
-          'Record a commit progress entry for the HEAD commit on the active task. Enabled by default in the managed post-commit hook.',
-      },
-    ],
-    examples: [
-      'tasks sync-git-status',
-      'tasks sync-git-status --quiet',
-      'tasks sync-git-status --quiet --with-progress',
-    ],
-  },
-  {
     path: ['overview'],
     summary: 'List open pull requests with task readiness.',
-    usage: 'tasks overview',
+    usage: 'tasks overview [--sync]',
     description:
-      'Returns open pull requests with CI status, unresolved review comment counts, and tasks whose branch matches the pull request head branch. Matching active tasks move to in-review.',
-    examples: ['tasks overview'],
+      'Returns open pull requests with CI status, unresolved review comment counts, and tasks whose branch matches the pull request head branch. Matching active tasks move to in-review. With --sync, also runs syncGitStatus for the current branch before the per-PR iteration, and wraps output as { items, sync }. Does not perform a per-PR sync of branches you do not have checked out.',
+    options: [
+      {
+        name: '--sync',
+        description:
+          'Runs syncGitStatus for the current branch in addition to the per-open-PR in-review reconciliation already performed by overview. Does not perform a per-PR sync of branches you do not have checked out.',
+      },
+    ],
+    examples: ['tasks overview', 'tasks overview --sync'],
   },
   {
     path: ['setup'],
@@ -597,9 +532,9 @@ const topics: HelpTopic[] = [
   {
     path: ['pr'],
     summary: 'Show pull request status, URL, or review comments.',
-    usage: 'tasks pr [--url|--open|--comments [--resolved|--all]]',
+    usage: 'tasks pr [--sync [--quiet] | --url | --open | --comments [--resolved|--all]]',
     description:
-      'Returns the full PR readiness report by default (PR metadata, checks, review comments with bodies, readyToMerge). --url returns the URL as a raw string; --open launches the browser; --comments returns unresolved review comments (with --resolved or --all to filter the thread state). Each review comment includes its body and an isResolved boolean.',
+      'Returns the full PR readiness report by default (PR metadata, checks, review comments with bodies, readyToMerge). --url returns the URL as a raw string; --open launches the browser; --comments returns unresolved review comments (with --resolved or --all to filter the thread state). --sync runs syncGitStatus first, then fetches PR status; output is { pullRequest, sync }. With --sync --quiet, all output is suppressed (suitable for hooks). --quiet requires --sync.',
     options: [
       { name: '--url', description: 'Return the pull request URL as a raw string.' },
       { name: '--open', description: 'Open the pull request URL in the system browser.' },
@@ -612,8 +547,24 @@ const topics: HelpTopic[] = [
         name: '--all',
         description: 'With --comments, return every review comment regardless of thread state.',
       },
+      {
+        name: '--sync',
+        description:
+          'Run syncGitStatus first, then fetch PR status. Returns { pullRequest, sync }. Under --quiet, PR-fetch errors are swallowed so hooks degrade gracefully.',
+      },
+      {
+        name: '--quiet',
+        description: 'Suppress all output (requires --sync). Suitable for Lefthook hooks.',
+      },
     ],
-    examples: ['tasks pr', 'tasks pr --url', 'tasks pr --comments', 'tasks pr --comments --all'],
+    examples: [
+      'tasks pr',
+      'tasks pr --url',
+      'tasks pr --comments',
+      'tasks pr --comments --all',
+      'tasks pr --sync',
+      'tasks pr --sync --quiet',
+    ],
   },
 ];
 

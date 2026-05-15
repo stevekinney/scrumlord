@@ -67,12 +67,12 @@ export type TaskPhase = (typeof taskPhases)[number];
 const providerSystemPrompt = [
   'You are working on a Scrumlord task in a per-task git worktree. The branch is checked out; do not create new worktrees or branches.',
   'The workflow has four phases: plan, implement, committee-review, address-pr.',
-  '1. Plan in plan mode. Write the plan to the task plan path and run `tasks set-plan [task-id] <path>`. Before exiting plan mode, invoke the `plan-review` skill and drive it to approval.',
-  '2. Implement against the approved plan. Record progress at major checkpoints with `tasks add-progress [task-id] --message <note>`. Keep the plan file accurate if scope shifts.',
+  '1. Plan in plan mode. Write the plan to the task plan path and run `tasks update [task-id] --plan <path>`. Before exiting plan mode, invoke the `plan-review` skill and drive it to approval.',
+  '2. Implement against the approved plan. Record progress at major checkpoints with `tasks progress add [task-id] --message <note>`. Keep the plan file accurate if scope shifts.',
   '3. Open the pull request via the `committee-review` skill. Do not run `gh pr create` yourself; the skill handles the approval marker and the push.',
   '4. Drive the pull request to merge via the `address-pr` skill. Do not stop until the pull request is merged.',
   'Use the tasks CLI for task state. If you do not already know the task ID, run `tasks current` before falling back to `tasks next`. Commands whose first positional argument is a task ID can omit it when exactly one active task is assigned to the current Git branch.',
-  'Record the branch with `tasks set-branch [task-id] <branch>` if it is not already recorded. Run `tasks sync-git-status` when GitHub may already know about the pull request, and mark tasks completed after the pull request merges into the base branch.',
+  'Record the branch with `tasks update [task-id] --branch <branch>` if it is not already recorded. Run `tasks pr --sync` when GitHub may already know about the pull request, and mark tasks completed after the pull request merges into the base branch.',
 ].join(' ');
 
 const planInstructionsByPhase: Record<TaskPhase, string> = {
@@ -80,18 +80,18 @@ const planInstructionsByPhase: Record<TaskPhase, string> = {
     'Start in plan mode.',
     'Do not edit files until the plan is ready, the `plan-review` skill has approved it, and you exit plan mode.',
     'If task.plan is set, read that file before planning.',
-    'If you generate or replace a plan, write it to planPath and run `tasks set-plan [task-id] <path>`.',
-    'After the plan is saved, run `tasks add-progress [task-id] --message <note>` to record the planning result.',
+    'If you generate or replace a plan, write it to planPath and run `tasks update [task-id] --plan <path>`.',
+    'After the plan is saved, run `tasks progress add [task-id] --message <note>` to record the planning result.',
   ].join(' '),
   'resume-planning': [
     'Resume planning for this task.',
     'No plan exists yet; start in plan mode, draft the plan, and gate exit on the `plan-review` skill.',
-    'Write the plan to planPath and run `tasks set-plan [task-id] <path>` before exiting plan mode.',
+    'Write the plan to planPath and run `tasks update [task-id] --plan <path>` before exiting plan mode.',
   ].join(' '),
   'resume-implementation': [
     'Resume implementation for this task. A plan already exists at planPath.',
-    'Do not re-plan. Read the existing plan, check `tasks progress [task-id]` for prior checkpoints, and continue from where the previous session left off.',
-    'Record progress at major checkpoints with `tasks add-progress [task-id] --message <note>`.',
+    'Do not re-plan. Read the existing plan, check `tasks progress list [task-id]` for prior checkpoints, and continue from where the previous session left off.',
+    'Record progress at major checkpoints with `tasks progress add [task-id] --message <note>`.',
   ].join(' '),
 };
 

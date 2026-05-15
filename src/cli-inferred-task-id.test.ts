@@ -75,7 +75,7 @@ describe('task-id inference for current branch commands', () => {
       title: 'Renamed current task',
     });
 
-    const status = await runTasksCli(['set-status', 'in-progress'], { cwd: root });
+    const status = await runTasksCli(['update', '--status', 'in-progress'], { cwd: root });
     expect(JSON.parse(status.stdout)).toMatchObject({ id: taskId, status: 'in-progress' });
   });
 
@@ -84,7 +84,10 @@ describe('task-id inference for current branch commands', () => {
     const codexHome = await temporaryDirectory();
     const taskId = await createCurrentTask(root);
 
-    const session = await runTasksCli(['set-session', 'codex', 'codex-session'], { cwd: root });
+    const session = await runTasksCli(
+      ['update', '--provider', 'codex', '--session', 'codex-session'],
+      { cwd: root },
+    );
     expect(JSON.parse(session.stdout)).toMatchObject({
       id: taskId,
       provider: 'codex',
@@ -102,7 +105,7 @@ describe('task-id inference for current branch commands', () => {
     });
 
     const progressEntry = await runTasksCli(
-      ['add-progress', '--message', 'Recorded inferred task progress.'],
+      ['progress', 'add', '--message', 'Recorded inferred task progress.'],
       // Isolate environment so agent env vars don't override task-inherited provider/session.
       { cwd: root, environment: {} },
     );
@@ -113,7 +116,7 @@ describe('task-id inference for current branch commands', () => {
       session: 'codex-session',
     });
 
-    const progress = await runTasksCli(['progress'], { cwd: root });
+    const progress = await runTasksCli(['progress', 'list'], { cwd: root });
     expect(JSON.parse(progress.stdout)).toEqual([
       expect.objectContaining({ taskId, message: 'Recorded inferred task progress.' }),
     ]);
