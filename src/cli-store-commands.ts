@@ -258,11 +258,14 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
   create: (store, parsed) => createTask(store, createInputFromFlags(parsed.flags)),
   update: async (store, parsed) =>
     updateTask(store, await taskIdFromArguments(store, parsed), updateInputFromFlags(parsed.flags)),
-  'add-progress': async (store, parsed) =>
+  'add-progress': async (store, parsed, options) =>
     addTaskProgress(
       store,
       await taskIdFromArguments(store, parsed),
-      progressInputFromFlags(parsed.flags),
+      progressInputFromFlags(
+        parsed.flags,
+        options.environment ? { environment: options.environment } : {},
+      ),
     ),
   'set-status': async (store, parsed) =>
     setTaskStatus(
@@ -336,8 +339,11 @@ const storeCommandInputValidators: Partial<Record<string, StoreCommandInputValid
   update: (parsed) => {
     updateInputFromFlags(parsed.flags);
   },
-  'add-progress': (parsed) => {
-    progressInputFromFlags(parsed.flags);
+  'add-progress': (parsed, options) => {
+    progressInputFromFlags(
+      parsed.flags,
+      options.environment ? { environment: options.environment } : {},
+    );
   },
   cleanup: (parsed) => {
     cleanupDaysFrom(parsed);

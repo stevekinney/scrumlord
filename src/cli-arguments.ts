@@ -60,7 +60,7 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   progress: optionalTaskId,
   'add-progress': {
     ...optionalTaskId,
-    valueFlags: ['message', 'provider', 'session'],
+    valueFlags: ['message', 'provider', 'session', 'event', 'tool', 'cwd'],
   },
   start: {
     ...optionalTaskId,
@@ -123,7 +123,7 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   'remove-tag': optionalTaskIdWithOneArgument,
   'add-blocker': optionalTaskIdWithOneArgument,
   'remove-blocker': optionalTaskIdWithOneArgument,
-  'sync-git-status': { ...noPositionals, booleanFlags: ['quiet'] },
+  'sync-git-status': { ...noPositionals, booleanFlags: ['quiet', 'with-progress'] },
   setup: {
     minPositionals: 0,
     maxPositionals: 1,

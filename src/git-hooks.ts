@@ -17,11 +17,17 @@ export type SetupGitHooksOptions = {
 };
 
 const managedHooks = ['post-checkout', 'post-commit', 'post-merge', 'pre-push'] as const;
-const managedCommand = 'tasks sync-git-status --quiet';
-const managedBlock = [
+const managedCommands: Record<(typeof managedHooks)[number], string> = {
+  'post-checkout': 'tasks sync-git-status --quiet',
+  'post-commit': 'tasks sync-git-status --quiet --with-progress',
+  'post-merge': 'tasks sync-git-status --quiet',
+  'pre-push': 'tasks sync-git-status --quiet',
+};
+
+const buildManagedBlock = (hook: (typeof managedHooks)[number]): string[] => [
   '    # scrumlord:begin',
   '    - name: tasks-sync-git-status',
-  `      run: ${managedCommand}`,
+  `      run: ${managedCommands[hook]}`,
   '    # scrumlord:end',
 ];
 const lefthookConfigurationNames = [
@@ -48,9 +54,10 @@ const sectionRange = (lines: string[], hook: string): { start: number; end: numb
   return { start, end: nextTopLevel === -1 ? lines.length : nextTopLevel };
 };
 
-const appendHook = (lines: string[], hook: string): void => {
+const appendHook = (lines: string[], hook: (typeof managedHooks)[number]): void => {
+  const block = buildManagedBlock(hook);
   if (lines.at(-1) !== '') lines.push('');
-  lines.push(`${hook}:`, '  jobs:', ...managedBlock);
+  lines.push(`${hook}:`, '  jobs:', ...block);
 };
 
 const managedBlockRange = (section: string[]): { start: number; end: number } | null => {
@@ -66,7 +73,9 @@ const managedBlockRange = (section: string[]): { start: number; end: number } | 
   return { start, end };
 };
 
-const ensureHook = (lines: string[], hook: string): boolean => {
+const ensureHook = (lines: string[], hook: (typeof managedHooks)[number]): boolean => {
+  const block = buildManagedBlock(hook);
+  const command = managedCommands[hook];
   const range = sectionRange(lines, hook);
   if (!range) {
     appendHook(lines, hook);
@@ -77,22 +86,22 @@ const ensureHook = (lines: string[], hook: string): boolean => {
   const blockRange = managedBlockRange(section);
   if (blockRange) {
     const currentBlock = section.slice(blockRange.start, blockRange.end + 1);
-    if (currentBlock.join('\n') === managedBlock.join('\n')) return false;
-    lines.splice(range.start + blockRange.start, currentBlock.length, ...managedBlock);
+    if (currentBlock.join('\n') === block.join('\n')) return false;
+    lines.splice(range.start + blockRange.start, currentBlock.length, ...block);
     return true;
   }
 
-  if (section.some((line) => line.includes(managedCommand))) return false;
+  if (section.some((line) => line.includes(command))) return false;
 
   const jobsIndex = lines.findIndex(
     (line, index) => index > range.start && index < range.end && line.trim() === 'jobs:',
   );
   if (jobsIndex === -1) {
-    lines.splice(range.start + 1, 0, '  jobs:', ...managedBlock);
+    lines.splice(range.start + 1, 0, '  jobs:', ...block);
     return true;
   }
 
-  lines.splice(jobsIndex + 1, 0, ...managedBlock);
+  lines.splice(jobsIndex + 1, 0, ...block);
   return true;
 };
 

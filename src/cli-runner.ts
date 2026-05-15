@@ -57,7 +57,9 @@ const runStoreCommand = async (
   options: CliOptions,
 ): Promise<unknown> => {
   if (parsed.command === 'sync-git-status') {
-    return await (options.syncGitStatus ?? syncGitStatus)(store);
+    const withProgress = parsed.flags.has('with-progress');
+    if (options.syncGitStatus) return await options.syncGitStatus(store);
+    return await syncGitStatus(store, { withProgress });
   }
 
   if (parsed.command === 'overview') {

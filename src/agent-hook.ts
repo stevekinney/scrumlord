@@ -3,7 +3,7 @@ import { dirname } from 'node:path';
 import { runCommand, type CommandRunner } from './command-runner.js';
 import { currentGitBranch, syncGitStatus } from './git-status.js';
 import { absoluteTaskPlanPath, defaultTaskPlanPath, getAgentProvider } from './agent-providers.js';
-import type { AgentProvider, Task, TaskStore } from './types.js';
+import type { AddTaskProgressInput, AgentProvider, Task, TaskStore } from './types.js';
 
 type HookRecord = Record<string, unknown>;
 
@@ -246,6 +246,207 @@ const captureHookPlan = async (
   if (plan) await writePlan(store, task, plan, actions);
 };
 
+const SECRET_PATTERNS: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
+  // HTTP auth headers: Authorization: Bearer <value>
+  [
+    /(Authorization|Proxy-Authorization)\s*:\s*((\S+)\s+)?\S+/gi,
+    (m) => {
+      const scheme = m[3] ? `${m[3]} ` : '';
+      return `${m[1]}: ${scheme}<redacted>`;
+    },
+  ],
+  // Long-flag secrets: --token <value>, --password=<value>
+  [
+    /--(token|password|api[-_]?key|secret|auth)(=|\s+)("([^"]*)"| '([^']*)'|\S+)/gi,
+    (m) => `--${m[1]}${m[2]}<redacted>`,
+  ],
+  // Env-style assignments: GITHUB_TOKEN=<value>
+  [
+    /(\w*(?:TOKEN|KEY|SECRET|PASSWORD))\s*=\s*("([^"]*)"| '([^']*)'|\S+)/gi,
+    (m) => `${m[1]}=<redacted>`,
+  ],
+];
+
+/** Redacts credential patterns in a shell command string, preserving labels. */
+export const redactCommand = (command: string): string => {
+  let result = command;
+  for (const [pattern, replacer] of SECRET_PATTERNS) {
+    result = result.replace(pattern, (...args) => replacer(args as RegExpMatchArray));
+  }
+  return result;
+};
+
+type ToolResponse = {
+  success?: unknown;
+  exit_code?: unknown;
+  exitCode?: unknown;
+  error?: unknown;
+  stderr?: unknown;
+  stdout?: unknown;
+};
+
+const nonEmptyString = (value: unknown): boolean =>
+  typeof value === 'string' && value.trim().length > 0;
+
+const responseIndicatesFailure = (response: ToolResponse): boolean => {
+  if (typeof response.success === 'boolean') return !response.success;
+  const exitCode = response.exit_code ?? response.exitCode;
+  if (typeof exitCode === 'number') return exitCode !== 0;
+  return (
+    (nonEmptyString(response.error) || nonEmptyString(response.stderr)) &&
+    !nonEmptyString(response.stdout)
+  );
+};
+
+/** Determines whether a PostToolUse payload represents a failed tool call. */
+export const toolCallFailed = (payload: HookRecord): boolean => {
+  const response = (payload['tool_response'] ?? payload['toolResponse']) as
+    | ToolResponse
+    | undefined;
+  if (!response || typeof response !== 'object') return false;
+  return responseIndicatesFailure(response);
+};
+
+const recordHookProgress = (
+  store: TaskStore,
+  task: Task,
+  input: AddTaskProgressInput,
+  actions: string[],
+): void => {
+  store.addProgress(task.id, input);
+  actions.push('record-progress');
+};
+
+/** Detects and records when the agent's working directory differs from the project root. */
+const detectCwdDrift = (
+  payload: HookRecord,
+  environment: AgentHookOptions['environment'],
+  actions: string[],
+): void => {
+  const projectDir = environment?.['CLAUDE_PROJECT_DIR'];
+  if (!projectDir) return;
+  const payloadCwd = typeof payload['cwd'] === 'string' ? payload['cwd'] : null;
+  if (payloadCwd && payloadCwd !== projectDir) {
+    actions.push(`cwd-drift:${payloadCwd}:${projectDir}`);
+  }
+};
+
+/** Handles SessionStart events: records a session_start progress entry. */
+const handleSessionStart = (
+  store: TaskStore,
+  task: Task,
+  payload: HookRecord,
+  provider: AgentProvider,
+  session: string | null,
+  actions: string[],
+): void => {
+  const source = typeof payload['source'] === 'string' ? payload['source'] : 'startup';
+  const transcriptPath =
+    typeof payload['transcript_path'] === 'string' ? payload['transcript_path'] : null;
+  recordHookProgress(
+    store,
+    task,
+    {
+      message: `session_start (source=${source})`,
+      event: 'session_start',
+      provider,
+      session,
+      transcriptPath,
+    },
+    actions,
+  );
+};
+
+/** Handles Stop events: records a session_stop progress entry (skips re-entry). */
+const handleStop = (
+  store: TaskStore,
+  task: Task,
+  payload: HookRecord,
+  provider: AgentProvider,
+  session: string | null,
+  actions: string[],
+): void => {
+  if (payload['stop_hook_active'] === true) return;
+  recordHookProgress(
+    store,
+    task,
+    { message: 'session_stop', event: 'session_stop', provider, session },
+    actions,
+  );
+};
+
+/** Handles SessionEnd events (Claude only): records a session_end progress entry. */
+const handleSessionEnd = (
+  store: TaskStore,
+  task: Task,
+  payload: HookRecord,
+  session: string | null,
+  actions: string[],
+): void => {
+  const reason = typeof payload['reason'] === 'string' ? payload['reason'] : 'other';
+  recordHookProgress(
+    store,
+    task,
+    {
+      message: `session_end (reason=${reason})`,
+      event: 'session_end',
+      provider: 'claude',
+      session,
+    },
+    actions,
+  );
+};
+
+/** Handles SubagentStop events: records action only, no DB write. */
+const handleSubagentStop = (actions: string[]): void => {
+  actions.push('subagent-stopped');
+};
+
+/** Handles PostToolUse failure: records a tool_failed progress entry with redacted command. */
+const handleToolFailure = (
+  store: TaskStore,
+  task: Task,
+  payload: HookRecord,
+  provider: AgentProvider,
+  session: string | null,
+  actions: string[],
+): void => {
+  const tool = toolFromPayload(payload) ?? 'unknown';
+  const rawCommand = commandFromPayload(payload) ?? '';
+  const redacted = rawCommand ? redactCommand(rawCommand) : '';
+  const message = redacted
+    ? `tool_failed: ${tool}: ${summarize(redacted, 200)}`
+    : `tool_failed: ${tool}`;
+  recordHookProgress(
+    store,
+    task,
+    { message, event: 'tool_failed', tool, provider, session },
+    actions,
+  );
+};
+
+const dispatchLifecycleEvent = (
+  store: TaskStore,
+  task: Task,
+  payload: HookRecord,
+  event: string | null,
+  provider: AgentProvider,
+  session: string | null,
+  actions: string[],
+): void => {
+  if (event === 'SessionStart') {
+    handleSessionStart(store, task, payload, provider, session, actions);
+  } else if (event === 'Stop') {
+    handleStop(store, task, payload, provider, session, actions);
+  } else if (event === 'SessionEnd') {
+    handleSessionEnd(store, task, payload, session, actions);
+  } else if (event === 'SubagentStop') {
+    handleSubagentStop(actions);
+  } else if (event === 'PostToolUse' && toolCallFailed(payload)) {
+    handleToolFailure(store, task, payload, provider, session, actions);
+  }
+};
+
 /** Handles a provider hook payload and keeps Scrumlord task metadata synchronized. */
 export const runAgentHook = async (
   store: TaskStore,
@@ -268,6 +469,9 @@ export const runAgentHook = async (
   await synchronizeHookBranch(store, task, command, options, actions);
   await synchronizeHookGitStatus(store, command, options, actions);
   await captureHookPlan(store, task, provider, payload, actions);
+  detectCwdDrift(payload, options.environment, actions);
+  dispatchLifecycleEvent(store, task, payload, event, provider, session, actions);
+
   const context = shouldInjectPromptContext(event) ? promptContextForTask(task) : null;
 
   return { taskId: task.id, actions, skipped: null, context };

@@ -165,6 +165,8 @@ const setupClaudeHooks = async (
     ensureHookEntry(configuration, 'PostToolUse', 'ExitPlanMode', 'claude'),
     ensureHookEntry(configuration, 'PostToolUse', 'Bash', 'claude'),
     ensureHookEntry(configuration, 'Stop', null, 'claude'),
+    ensureHookEntry(configuration, 'SessionEnd', null, 'claude'),
+    ensureHookEntry(configuration, 'SubagentStop', null, 'claude'),
   ].some(Boolean);
   if (changed) await writeJsonObject(settingsPath, configuration);
   return { settingsPath, changed, skipped: false };

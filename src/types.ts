@@ -7,6 +7,15 @@ export type TaskPriority = (typeof taskPriorities)[number];
 export const agentProviderNames = ['claude', 'codex'] as const;
 export type AgentProvider = (typeof agentProviderNames)[number];
 
+export const progressEvents = [
+  'session_start',
+  'session_stop',
+  'session_end',
+  'tool_failed',
+  'commit',
+] as const;
+export type ProgressEvent = (typeof progressEvents)[number];
+
 export type TaskIdentifier = string;
 
 export type PersistedTaskSession = {
@@ -30,6 +39,11 @@ export type TaskProgress = {
   createdAt: string;
   provider: AgentProvider | null;
   session: string | null;
+  event: ProgressEvent | null;
+  tool: string | null;
+  cwd: string | null;
+  transcriptPath: string | null;
+  commitSha: string | null;
 };
 
 export type AddTaskProgressInput = {
@@ -37,6 +51,11 @@ export type AddTaskProgressInput = {
   message: string;
   provider?: AgentProvider | null;
   session?: string | null;
+  event?: ProgressEvent | null;
+  tool?: string | null;
+  cwd?: string | null;
+  transcriptPath?: string | null;
+  commitSha?: string | null;
 };
 
 export type Task = {

@@ -415,17 +415,29 @@ const topics: HelpTopic[] = [
     path: ['add-progress'],
     summary: 'Record task progress.',
     usage:
-      'tasks add-progress [task-id] --message <markdown> [--provider <claude|codex>] [--session <id>]',
-    description: `Appends a progress entry to a task and moves draft or ready tasks to in-progress. When provider or session are omitted, Scrumlord uses the task session metadata if it exists. ${inferredTaskIdDescription}`,
+      'tasks add-progress [task-id] --message <markdown> [--provider <claude|codex>] [--session <id>] [--cwd <path>]',
+    description: `Appends a progress entry to a task and moves draft or ready tasks to in-progress. When provider or session are omitted, Scrumlord infers them from the environment: CODEX_SESSION_ID sets provider=codex and session; CLAUDECODE=1 sets provider=claude. CLAUDE_PROJECT_DIR is used as the default cwd. Explicit flags always win. ${inferredTaskIdDescription}`,
     arguments: [optionalTaskIdArgument],
     options: [
       { name: '--message', value: '<markdown>', description: 'Progress note to append.' },
       {
         name: '--provider',
         value: '<claude|codex>',
-        description: 'Agent provider responsible for the progress entry.',
+        description:
+          'Agent provider responsible for the progress entry. Defaults to env-derived value when omitted.',
       },
-      { name: '--session', value: '<id>', description: 'Provider-specific session identifier.' },
+      {
+        name: '--session',
+        value: '<id>',
+        description:
+          'Provider-specific session identifier. Defaults to CODEX_SESSION_ID when omitted.',
+      },
+      {
+        name: '--cwd',
+        value: '<path>',
+        description:
+          'Working directory to record with the entry. Defaults to CLAUDE_PROJECT_DIR, then process.cwd().',
+      },
     ],
     examples: [
       'tasks add-progress --message "Wrote failing regression test"',
@@ -500,11 +512,22 @@ const topics: HelpTopic[] = [
   {
     path: ['sync-git-status'],
     summary: 'Synchronize branch-bound tasks with Git and GitHub.',
-    usage: 'tasks sync-git-status [--quiet]',
+    usage: 'tasks sync-git-status [--quiet] [--with-progress]',
     description:
       'Moves draft or ready branch tasks to in-progress, open pull request tasks to in-review, and merged pull request tasks to completed.',
-    options: [{ name: '--quiet', description: 'Suppress JSON output for hook usage.' }],
-    examples: ['tasks sync-git-status', 'tasks sync-git-status --quiet'],
+    options: [
+      { name: '--quiet', description: 'Suppress JSON output for hook usage.' },
+      {
+        name: '--with-progress',
+        description:
+          'Record a commit progress entry for the HEAD commit on the active task. Enabled by default in the managed post-commit hook.',
+      },
+    ],
+    examples: [
+      'tasks sync-git-status',
+      'tasks sync-git-status --quiet',
+      'tasks sync-git-status --quiet --with-progress',
+    ],
   },
   {
     path: ['overview'],

@@ -103,7 +103,8 @@ describe('task-id inference for current branch commands', () => {
 
     const progressEntry = await runTasksCli(
       ['add-progress', '--message', 'Recorded inferred task progress.'],
-      { cwd: root },
+      // Isolate environment so agent env vars don't override task-inherited provider/session.
+      { cwd: root, environment: {} },
     );
     expect(JSON.parse(progressEntry.stdout)).toMatchObject({
       taskId,

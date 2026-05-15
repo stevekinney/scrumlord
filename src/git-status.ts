@@ -1,7 +1,7 @@
 import type { CommandResult, CommandRunner } from './command-runner.js';
 import { runCommand } from './command-runner.js';
 import { ScrumlordError } from './errors.js';
-import type { Task, TaskStatus, TaskStore, UpdateTaskInput } from './types.js';
+import type { Task, TaskStatus, TaskStore } from './types.js';
 
 export type SynchronizedPullRequestState = {
   number: number;
@@ -25,6 +25,8 @@ export type SyncGitStatusResult = {
 
 export type SyncGitStatusOptions = {
   runner?: CommandRunner;
+  /** When true, records a `commit` progress entry for the HEAD commit on the active task. */
+  withProgress?: boolean;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -133,6 +135,68 @@ const statusFor = (
   return null;
 };
 
+const headCommitInfo = async (
+  projectRoot: string,
+  runner: CommandRunner,
+): Promise<{ sha: string; subject: string; committerEmail: string } | null> => {
+  const result = await runner(['git', 'log', '-1', '--format=%H%n%s%n%cE'], projectRoot);
+  if (result.exitCode !== 0) return null;
+  const [sha, subject, committerEmail] = result.stdout.trim().split('\n');
+  if (!sha || !subject) return null;
+  return { sha, subject, committerEmail: committerEmail ?? '' };
+};
+
+const gitUserEmail = async (projectRoot: string, runner: CommandRunner): Promise<string | null> => {
+  const result = await runner(['git', 'config', 'user.email'], projectRoot);
+  if (result.exitCode !== 0) return null;
+  return result.stdout.trim() || null;
+};
+
+const COMMIT_SHA_UNIQUE_ERROR = 'task_progress_commit_sha_unique';
+
+const recordCommitProgress = async (
+  store: TaskStore,
+  task: Task,
+  projectRoot: string,
+  runner: CommandRunner,
+): Promise<void> => {
+  const commit = await headCommitInfo(projectRoot, runner);
+  if (!commit) return;
+
+  const userEmail = await gitUserEmail(projectRoot, runner);
+  // If user.email is configured, only record commits made by this user.
+  if (userEmail && commit.committerEmail !== userEmail) return;
+
+  const shortSha = commit.sha.slice(0, 7);
+  try {
+    store.addProgress(task.id, {
+      message: `commit ${shortSha}: ${commit.subject}`,
+      event: 'commit',
+      commitSha: commit.sha,
+    });
+  } catch (error) {
+    // Swallow the unique-index violation (same SHA hooked twice); rethrow everything else.
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes(COMMIT_SHA_UNIQUE_ERROR)) throw error;
+  }
+};
+
+const isActiveTask = (task: Task): boolean => !task.deleted && task.status !== 'completed';
+
+const maybeRecordCommit = async (
+  store: TaskStore,
+  branch: string,
+  updatedIds: Set<string>,
+  runner: CommandRunner,
+): Promise<void> => {
+  const remaining = store
+    .withBranch(branch)
+    .filter((t) => isActiveTask(t) && !updatedIds.has(t.id));
+  if (remaining.length === 1 && remaining[0]) {
+    await recordCommitProgress(store, remaining[0], store.projectRoot, runner);
+  }
+};
+
 /** Synchronizes branch-bound tasks with the current Git branch and pull request state. */
 export const syncGitStatus = async (
   store: TaskStore,
@@ -147,9 +211,12 @@ export const syncGitStatus = async (
   for (const task of store.withBranch(branch)) {
     const nextStatus = statusFor(task, pullRequest);
     if (!nextStatus || task.status === nextStatus) continue;
-    const input: UpdateTaskInput = { status: nextStatus };
-    store.update(task.id, input);
+    store.update(task.id, { status: nextStatus });
     updated.push({ id: task.id, from: task.status, to: nextStatus });
+  }
+
+  if (options.withProgress) {
+    await maybeRecordCommit(store, branch, new Set(updated.map((u) => u.id)), runner);
   }
 
   return { branch, worktree, ghAvailable, pullRequest, updated };

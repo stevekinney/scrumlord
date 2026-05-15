@@ -326,3 +326,173 @@ describe('syncGitStatus', () => {
     }
   });
 });
+
+describe('syncGitStatus --with-progress', () => {
+  const progressStore = (
+    tasks: Task[],
+    progressEntries: { taskId: string; input: unknown }[] = [],
+  ): TaskStore => ({
+    ...store(tasks),
+    addProgress(taskId: string, input: unknown) {
+      progressEntries.push({ taskId, input });
+      return {
+        id: 'progress-id',
+        taskId,
+        message: (input as { message: string }).message,
+        createdAt: new Date().toISOString(),
+        provider: null,
+        session: null,
+        event: 'commit' as const,
+        tool: null,
+        cwd: null,
+        transcriptPath: null,
+        commitSha: (input as { commitSha: string }).commitSha,
+      };
+    },
+    update(id: string, input: UpdateTaskInput) {
+      return task(id, input.status ?? 'ready');
+    },
+  });
+
+  const commitRunner = (
+    sha: string,
+    subject: string,
+    committerEmail: string,
+    userEmail: string,
+  ): CommandRunner => {
+    return async (command) => {
+      const cmd = command.join(' ');
+      if (cmd === 'git branch --show-current')
+        return { exitCode: 0, stdout: 'feature/task-graph\n', stderr: '' };
+      if (cmd === 'git worktree list --porcelain')
+        return {
+          exitCode: 0,
+          stdout: 'worktree /project\nHEAD abc\nbranch refs/heads/feature/task-graph\n',
+          stderr: '',
+        };
+      if (
+        cmd ===
+        'gh pr list --head feature/task-graph --state all --json number,state,baseRefName,mergedAt,url --limit 1'
+      ) {
+        return { exitCode: 0, stdout: '[]', stderr: '' };
+      }
+      if (cmd === `git log -1 --format=%H%n%s%n%cE`)
+        return { exitCode: 0, stdout: `${sha}\n${subject}\n${committerEmail}\n`, stderr: '' };
+      if (cmd === 'git config user.email')
+        return { exitCode: 0, stdout: `${userEmail}\n`, stderr: '' };
+      return { exitCode: 0, stdout: '', stderr: '' };
+    };
+  };
+
+  it('records a commit progress entry for the HEAD commit on the active task', async () => {
+    const progressEntries: { taskId: string; input: unknown }[] = [];
+    const activeTask = task('task-1', 'in-progress');
+    const s = progressStore([activeTask], progressEntries);
+
+    await syncGitStatus(s, {
+      withProgress: true,
+      runner: commitRunner('abc1234567890', 'Fix the bug', 'user@example.com', 'user@example.com'),
+    });
+
+    expect(progressEntries).toHaveLength(1);
+    const entry = progressEntries[0] as {
+      taskId: string;
+      input: { event: string; commitSha: string };
+    };
+    expect(entry.taskId).toBe('task-1');
+    expect(entry.input.event).toBe('commit');
+    expect(entry.input.commitSha).toBe('abc1234567890');
+  });
+
+  it('does not record when committer email does not match user.email', async () => {
+    const progressEntries: { taskId: string; input: unknown }[] = [];
+    const activeTask = task('task-1', 'in-progress');
+    const s = progressStore([activeTask], progressEntries);
+
+    await syncGitStatus(s, {
+      withProgress: true,
+      runner: commitRunner('abc1234567890', 'Fix the bug', 'other@example.com', 'user@example.com'),
+    });
+
+    expect(progressEntries).toHaveLength(0);
+  });
+
+  it('records when user.email is unset (filter skipped)', async () => {
+    const progressEntries: { taskId: string; input: unknown }[] = [];
+    const activeTask = task('task-1', 'in-progress');
+    const s = progressStore([activeTask], progressEntries);
+
+    const runnerNoEmail: CommandRunner = async (command) => {
+      const cmd = command.join(' ');
+      if (cmd === 'git branch --show-current')
+        return { exitCode: 0, stdout: 'feature/task-graph\n', stderr: '' };
+      if (cmd === 'git worktree list --porcelain')
+        return {
+          exitCode: 0,
+          stdout: 'worktree /project\nHEAD abc\nbranch refs/heads/feature/task-graph\n',
+          stderr: '',
+        };
+      if (cmd.startsWith('gh ')) return { exitCode: 0, stdout: '[]', stderr: '' };
+      if (cmd === 'git log -1 --format=%H%n%s%n%cE')
+        return { exitCode: 0, stdout: 'sha123456789\nFix stuff\nsome@one.com\n', stderr: '' };
+      if (cmd === 'git config user.email') return { exitCode: 1, stdout: '', stderr: '' };
+      return { exitCode: 0, stdout: '', stderr: '' };
+    };
+
+    await syncGitStatus(s, { withProgress: true, runner: runnerNoEmail });
+
+    expect(progressEntries).toHaveLength(1);
+  });
+
+  it('does not record when there is no single active task on the branch', async () => {
+    const progressEntries: { taskId: string; input: unknown }[] = [];
+    const s = progressStore([], progressEntries);
+
+    await syncGitStatus(s, {
+      withProgress: true,
+      runner: commitRunner('abc1234567890', 'Fix', 'user@example.com', 'user@example.com'),
+    });
+
+    expect(progressEntries).toHaveLength(0);
+  });
+
+  it('swallows the unique constraint error on a repeated SHA and rethrows other errors', async () => {
+    const activeTask = task('task-1', 'in-progress');
+    let callCount = 0;
+    const conflictStore: TaskStore = {
+      ...store([activeTask]),
+      addProgress() {
+        callCount += 1;
+        throw new Error('UNIQUE constraint failed: task_progress_commit_sha_unique');
+      },
+      update(id: string, input: UpdateTaskInput) {
+        return task(id, input.status ?? 'ready');
+      },
+    };
+
+    // Should not throw — unique constraint violation is swallowed.
+    await syncGitStatus(conflictStore, {
+      withProgress: true,
+      runner: commitRunner('abc1234567890', 'Fix', 'user@example.com', 'user@example.com'),
+    });
+    expect(callCount).toBe(1);
+
+    // Rethrow on unrelated errors.
+    const otherStore: TaskStore = {
+      ...store([activeTask]),
+      addProgress() {
+        throw new Error('some other database error');
+      },
+      update(id: string, input: UpdateTaskInput) {
+        return task(id, input.status ?? 'ready');
+      },
+    };
+
+    expect(
+      syncGitStatus(otherStore, {
+        withProgress: true,
+        runner: commitRunner('abc1234567890', 'Fix', 'user@example.com', 'user@example.com'),
+      }),
+    ).rejects.toThrow('some other database error');
+  });
+});
