@@ -217,7 +217,18 @@ const mockRunner = (options: MockRunnerOptions): CommandRunner => {
   };
 };
 
-const buildMergedPullRequest = (branch: string, body = '') => ({
+type SmokePullRequest = {
+  number: number;
+  state: string;
+  url: string;
+  title: string;
+  head: { ref: string; sha: string };
+  base: { ref: string };
+  merged_at: string | null;
+  body: string;
+};
+
+const buildMergedPullRequest = (branch: string, body = ''): SmokePullRequest => ({
   number: 42,
   state: 'closed',
   url: 'https://github.test/pull/42',
@@ -228,7 +239,7 @@ const buildMergedPullRequest = (branch: string, body = '') => ({
   body,
 });
 
-const buildOpenPullRequest = (branch: string, body = '') => ({
+const buildOpenPullRequest = (branch: string, body = ''): SmokePullRequest => ({
   number: 42,
   state: 'open',
   url: 'https://github.test/pull/42',
@@ -353,7 +364,7 @@ const scenarios: readonly Scenario[] = [
         runId: 'smoke-green',
         repository: 'owner/repo',
         hostname: 'smoke-host',
-        colorMode: 'off',
+        colorMode: 'never',
         max: 1,
         constants: {
           CHECK_POLL_INTERVAL_MS: 1,
@@ -396,7 +407,7 @@ const scenarios: readonly Scenario[] = [
         runId: 'smoke-empty',
         repository: 'owner/repo',
         hostname: 'smoke-host',
-        colorMode: 'off',
+        colorMode: 'never',
         max: 1,
       });
       return { summary };
@@ -422,7 +433,7 @@ const scenarios: readonly Scenario[] = [
         runId: 'smoke-stuck',
         repository: 'owner/repo',
         hostname: 'smoke-host',
-        colorMode: 'off',
+        colorMode: 'never',
         max: 1,
         constants: {
           CHECK_POLL_INTERVAL_MS: 1,
@@ -467,7 +478,7 @@ const scenarios: readonly Scenario[] = [
         runId: 'smoke-stdin',
         repository: 'owner/repo',
         hostname: 'smoke-host',
-        colorMode: 'off',
+        colorMode: 'never',
         max: 1,
         constants: {
           CHECK_POLL_INTERVAL_MS: 1,
@@ -529,7 +540,7 @@ const scenarios: readonly Scenario[] = [
           runId: 'smoke-wrong-pr',
           repository: 'owner/repo',
           hostname: 'smoke-host',
-          colorMode: 'off',
+          colorMode: 'never',
           max: 1,
           constants: {
             CHECK_POLL_INTERVAL_MS: 1,
@@ -579,7 +590,7 @@ const scenarios: readonly Scenario[] = [
           runId: 'smoke-footer-missing',
           repository: 'owner/repo',
           hostname: 'smoke-host',
-          colorMode: 'off',
+          colorMode: 'never',
           max: 1,
           constants: {
             CHECK_POLL_INTERVAL_MS: 1,
@@ -632,7 +643,7 @@ const scenarios: readonly Scenario[] = [
           runId: 'smoke-footer-repair',
           repository: 'owner/repo',
           hostname: 'smoke-host',
-          colorMode: 'off',
+          colorMode: 'never',
           max: 1,
           constants: {
             CHECK_POLL_INTERVAL_MS: 1,
@@ -688,7 +699,7 @@ const scenarios: readonly Scenario[] = [
           runId: 'smoke-no-commits',
           repository: 'owner/repo',
           hostname: 'smoke-host',
-          colorMode: 'off',
+          colorMode: 'never',
           max: 1,
           constants: {
             CHECK_POLL_INTERVAL_MS: 1,
@@ -748,7 +759,7 @@ const scenarios: readonly Scenario[] = [
           runId: 'smoke-cleanup',
           repository: 'owner/repo',
           hostname: 'smoke-host',
-          colorMode: 'off',
+          colorMode: 'never',
           max: 1,
           constants: {
             CHECK_POLL_INTERVAL_MS: 1,
@@ -805,7 +816,7 @@ const scenarios: readonly Scenario[] = [
           runId: 'smoke-advisory',
           repository: 'owner/repo',
           hostname: 'smoke-host',
-          colorMode: 'off',
+          colorMode: 'never',
           max: 1,
           constants: {
             CHECK_POLL_INTERVAL_MS: 1,
@@ -862,7 +873,7 @@ const scenarios: readonly Scenario[] = [
           runId: 'smoke-strict',
           repository: 'owner/repo',
           hostname: 'smoke-host',
-          colorMode: 'off',
+          colorMode: 'never',
           max: 1,
           constants: {
             CHECK_POLL_INTERVAL_MS: 1,
@@ -909,7 +920,7 @@ const scenarios: readonly Scenario[] = [
         runId: 'smoke-once',
         repository: 'owner/repo',
         hostname: 'smoke-host',
-        colorMode: 'off',
+        colorMode: 'never',
         max: 1, // The CLI maps --once to max:1; PipelineOptions takes it directly.
         constants: {
           CHECK_POLL_INTERVAL_MS: 1,
@@ -961,7 +972,7 @@ const scenarios: readonly Scenario[] = [
           runId: 'smoke-phase',
           repository: 'owner/repo',
           hostname: 'smoke-host',
-          colorMode: 'off',
+          colorMode: 'never',
           max: 1,
           constants: {
             CHECK_POLL_INTERVAL_MS: 1,
@@ -1022,7 +1033,7 @@ const scenarios: readonly Scenario[] = [
         runId: 'smoke-promise',
         repository: 'owner/repo',
         hostname: 'smoke-host',
-        colorMode: 'off',
+        colorMode: 'never',
         max: 1,
         constants: {
           CHECK_POLL_INTERVAL_MS: 1,
