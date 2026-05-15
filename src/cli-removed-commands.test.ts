@@ -39,8 +39,12 @@ describe('removed CLI commands return unknown_command', () => {
     expect(await errorCode(['add-progress', '--message', 'hi'])).toBe('unknown_command');
   });
 
-  it('rejects sync-git-status', async () => {
-    expect(await errorCode(['sync-git-status'])).toBe('unknown_command');
+  it('rejects sync-git-status with migration hint in message', async () => {
+    const result = await runTasksCli(['sync-git-status']);
+    const error = JSON.parse(result.stderr).error;
+    expect(error.code).toBe('unknown_command');
+    expect(error.message).toContain('tasks pr --sync');
+    expect(error.message).toContain('tasks setup --git-hooks');
   });
 });
 

@@ -79,12 +79,11 @@ describe('progressInputFromContext', () => {
     expect(input).toMatchObject({ provider: 'claude' });
   });
 
-  it('prefers CODEX_SESSION_ID over CLAUDECODE when CLAUDECODE set after CODEX', () => {
+  it('prefers CLAUDECODE=1 over CODEX_SESSION_ID (CLAUDECODE fires first in inference order)', () => {
     const input = progressInputFromContext({
       flags: flags({ message: 'hello' }),
       environment: { CLAUDECODE: '1', CODEX_SESSION_ID: 'codex-id' },
     });
-    // CLAUDECODE=1 fires before CODEX_SESSION_ID in inference order
     expect(input).toMatchObject({ provider: 'claude' });
   });
 

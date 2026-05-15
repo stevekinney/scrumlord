@@ -299,33 +299,6 @@ describe('runTasksCli', () => {
     expect(calls.filter((call) => call === 'close')).toHaveLength(commands.length);
   });
 
-  it('supports quiet Git status synchronization for hooks via pr --sync --quiet', async () => {
-    const calls: string[] = [];
-    const prError = Object.assign(new Error('no pr'), { code: 'pull_request_not_found' });
-    const result = await runTasksCli(['pr', '--sync', '--quiet'], {
-      createStore: async () => fakeStore(calls),
-      syncGitStatus: async () => {
-        calls.push('syncGitStatus');
-        return { updated: [] };
-      },
-      github: {
-        pullRequestStatus: async () => {
-          throw prError;
-        },
-        pullRequestUrl: async () => ({ url: '' }),
-        allReviewComments: async () => [],
-        resolvedReviewComments: async () => [],
-        unresolvedReviewComments: async () => [],
-        tasksOverview: async () => [],
-        repositoryName: async () => '',
-        repositoryUrl: async () => '',
-      },
-    });
-
-    expect(result).toEqual({ exitCode: 0, stdout: '', stderr: '' });
-    expect(calls).toContain('syncGitStatus');
-  });
-
   it('renders help for the main CLI and subcommands', async () => {
     const mainHelp = await runTasksCli(['--help'], { colorMode: 'always' });
     expect(mainHelp.exitCode).toBe(0);

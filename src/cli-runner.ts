@@ -311,6 +311,19 @@ const runOpenedStoreCommand = async (
   return storeCommandResult(parsed, await runStoreCommand(store, parsed, options));
 };
 
+const removedCommandHints: Record<string, string> = {
+  'sync-git-status':
+    "Use 'tasks pr --sync' instead. Re-run 'tasks setup --git-hooks' to update managed Lefthook hooks.",
+  'add-progress': "Use 'tasks progress add --message <note>' instead.",
+  'set-status': "Use 'tasks update --status <status>' instead.",
+  'set-branch': "Use 'tasks update --branch <branch>' instead.",
+  'set-plan': "Use 'tasks update --plan <path>' instead.",
+  'set-session': "Use 'tasks update --provider <p> --session <id>' instead.",
+  'clear-branch': "Use 'tasks clear branch' instead.",
+  'clear-plan': "Use 'tasks clear plan' instead.",
+  'clear-session': "Use 'tasks clear session' instead.",
+};
+
 /** Runs the tasks CLI and returns captured output for process wrappers and tests. */
 export const runTasksCli = async (argv: string[], options: CliOptions = {}): Promise<CliResult> => {
   try {
@@ -322,7 +335,11 @@ export const runTasksCli = async (argv: string[], options: CliOptions = {}): Pro
     const boundaryResult = await runBoundaryCommand(parsed, options);
     if (boundaryResult) return boundaryResult;
     if (!storeCommands.has(parsed.command)) {
-      throw new ScrumlordError('unknown_command', `Unknown command: ${parsed.command}`);
+      const hint = removedCommandHints[parsed.command];
+      const message = hint
+        ? `Unknown command: ${parsed.command}. ${hint}`
+        : `Unknown command: ${parsed.command}`;
+      throw new ScrumlordError('unknown_command', message);
     }
     validateStoreCommandInput(parsed, options);
 
