@@ -196,11 +196,27 @@ describe('runTasksCli boundary commands', () => {
     expect(JSON.parse(pullRequestStatusResult.stdout).readyToMerge).toBe(true);
     expect(githubCalls).toContain(`status:${root}`);
     const repositoryResult = await runTasksCli(['repository'], { cwd: root, github });
-    expect(JSON.parse(repositoryResult.stdout)).toBe('owner/repository');
+    expect(repositoryResult.stdout).toBe('owner/repository\n');
     expect(githubCalls).toContain(`repository:${root}`);
     const repositoryUrlResult = await runTasksCli(['repository', '--url'], { cwd: root, github });
-    expect(JSON.parse(repositoryUrlResult.stdout)).toBe('https://github.com/owner/repository');
+    expect(repositoryUrlResult.stdout).toBe('https://github.com/owner/repository\n');
     expect(githubCalls).toContain(`repositoryUrl:${root}`);
+    const repositoryJsonResult = await runTasksCli(['repository', '--json'], {
+      cwd: root,
+      github,
+    });
+    expect(JSON.parse(repositoryJsonResult.stdout)).toEqual({
+      name: 'owner/repository',
+      url: 'https://github.com/owner/repository',
+    });
+    const repositoryJsonOverrideResult = await runTasksCli(['repository', '--url', '--json'], {
+      cwd: root,
+      github,
+    });
+    expect(JSON.parse(repositoryJsonOverrideResult.stdout)).toEqual({
+      name: 'owner/repository',
+      url: 'https://github.com/owner/repository',
+    });
     const overviewCalls: string[] = [];
     const overviewResult = await runTasksCli(['overview'], {
       cwd: root,

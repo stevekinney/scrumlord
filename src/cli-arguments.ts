@@ -43,7 +43,7 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   'current-task': noPositionals,
   next: noPositionals,
   remaining: noPositionals,
-  repository: { ...noPositionals, booleanFlags: ['url'] },
+  repository: { ...noPositionals, booleanFlags: ['url', 'json'] },
   pr: { minPositionals: 0, maxPositionals: 1, booleanFlags: ['open', 'url'] },
   comments: noPositionals,
   ci: noPositionals,

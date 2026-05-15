@@ -32,6 +32,8 @@ type BoundaryCommandHandler = (parsed: ParsedArguments, options: CliOptions) => 
 
 const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 const success = (value: unknown): CliResult => ({ exitCode: 0, stdout: json(value), stderr: '' });
+/** Returns a CLI result whose stdout is the raw string plus newline — no JSON wrapping. */
+const rawString = (value: string): CliResult => ({ exitCode: 0, stdout: `${value}\n`, stderr: '' });
 const emptySuccess = (): CliResult => ({ exitCode: 0, stdout: '', stderr: '' });
 const storeCommands = new Set([
   ...taskStoreCommands,
@@ -108,9 +110,15 @@ const runPullRequestBoundaryCommand: BoundaryCommandHandler = async (parsed, opt
 const runRepositoryBoundaryCommand: BoundaryCommandHandler = async (parsed, options) => {
   const github = await githubModule(options);
   const root = await resolveProjectRoot(options.cwd);
-  return success(
-    parsed.flags.has('url') ? await github.repositoryUrl(root) : await github.repositoryName(root),
-  );
+  if (parsed.flags.has('json')) {
+    const [name, url] = await Promise.all([
+      github.repositoryName(root),
+      github.repositoryUrl(root),
+    ]);
+    return success({ name, url });
+  }
+  if (parsed.flags.has('url')) return rawString(await github.repositoryUrl(root));
+  return rawString(await github.repositoryName(root));
 };
 
 const runCommentsBoundaryCommand: BoundaryCommandHandler = async (_parsed, options) => {

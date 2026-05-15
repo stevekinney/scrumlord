@@ -130,11 +130,14 @@ const topics: HelpTopic[] = [
   {
     path: ['repository'],
     summary: 'Show the current GitHub repository.',
-    usage: 'tasks repository [--url]',
+    usage: 'tasks repository [--url] [--json]',
     description:
-      'Returns the current GitHub repository name by default, or the full GitHub URL when --url is supplied.',
-    options: [{ name: '--url', description: 'Return the full GitHub repository URL.' }],
-    examples: ['tasks repository', 'tasks repository --url'],
+      'Returns the current GitHub repository name as a raw string by default, the full GitHub URL when --url is supplied, or a JSON object with both name and url when --json is supplied. --json overrides --url when both are given.',
+    options: [
+      { name: '--url', description: 'Return the full GitHub repository URL as a raw string.' },
+      { name: '--json', description: 'Return a JSON object with name and url.' },
+    ],
+    examples: ['tasks repository', 'tasks repository --url', 'tasks repository --json'],
   },
   {
     path: ['session'],

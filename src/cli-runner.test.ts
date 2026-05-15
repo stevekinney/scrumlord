@@ -370,7 +370,7 @@ describe('runTasksCli', () => {
     expect(listHelp.stdout).toContain('--unplanned');
 
     const repositoryHelp = await runTasksCli(['repository', '--help'], { colorMode: 'never' });
-    expect(repositoryHelp.stdout).toContain('tasks repository [--url]');
+    expect(repositoryHelp.stdout).toContain('tasks repository [--url] [--json]');
     expect(repositoryHelp.stdout).toContain('full GitHub repository URL');
 
     const overviewHelp = await runTasksCli(['overview', '--help'], { colorMode: 'never' });
