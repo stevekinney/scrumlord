@@ -1,17 +1,23 @@
 import type { Database } from 'bun:sqlite';
+import { existsSync } from 'node:fs';
+import { isAbsolute, normalize, resolve } from 'node:path';
 import { ScrumlordError } from './errors.js';
 
 type QueryBindings = Record<string, string | number | null>;
 
 /**
  * Context passed to migrations whose `run` callback needs more than the
- * database handle — currently the wall-clock `now` and a `recordMigration`
- * helper that inserts this migration's row into `task_migrations`.
+ * database handle. Currently includes the wall-clock `now`, the project root
+ * (required by v6 to resolve relative plan paths), a `recordMigration` helper
+ * that inserts this migration's row into `task_migrations`, and a `warn`
+ * callback for non-fatal advisory output (the runner pipes it to stderr).
  */
 type MigrationRunContext = {
   database: Database;
   now: () => Date;
+  projectRoot: string;
   recordMigration: () => void;
+  warn: (message: string) => void;
 };
 
 type StandardMigration = {
@@ -111,7 +117,72 @@ const migrations: readonly Migration[] = [
     requiresOwnTransaction: true,
     run: runDropArchivedAndParent,
   },
+  {
+    version: 6,
+    name: 'normalize_plan_paths',
+    requiresOwnTransaction: true,
+    run: runNormalizePlanPaths,
+  },
 ];
+
+/**
+ * Rewrites stored plan values to absolute filesystem paths (resolving any
+ * relative paths against `projectRoot`). Existing absolute paths are
+ * normalised. Tasks whose plan file does not exist at the resolved path are
+ * left untouched (the absolute path is still written) and surfaced via
+ * `warn()` so the operator can investigate; the migration never throws on
+ * missing files because pre-existing data may have drifted.
+ */
+function normalizePlanRow(
+  database: Database,
+  projectRoot: string,
+  row: { id: string; plan: string | null },
+): { id: string; path: string } | null {
+  if (!row.plan) return null;
+  const absolute = isAbsolute(row.plan) ? normalize(row.plan) : resolve(projectRoot, row.plan);
+  if (absolute !== row.plan) {
+    database
+      .query<unknown, QueryBindings>('UPDATE tasks SET plan = $plan WHERE id = $id')
+      .run({ plan: absolute, id: row.id });
+  }
+  return existsSync(absolute) ? null : { id: row.id, path: absolute };
+}
+
+function runNormalizePlanPaths(context: MigrationRunContext): void {
+  const { database, projectRoot, recordMigration, warn } = context;
+  let inTransaction = false;
+  try {
+    database.run('BEGIN');
+    inTransaction = true;
+    const rows = database
+      .query<
+        { id: string; plan: string | null },
+        []
+      >('SELECT id, plan FROM tasks WHERE plan IS NOT NULL')
+      .all();
+    const missing: { id: string; path: string }[] = [];
+    for (const row of rows) {
+      const entry = normalizePlanRow(database, projectRoot, row);
+      if (entry) missing.push(entry);
+    }
+    recordMigration();
+    database.run('COMMIT');
+    inTransaction = false;
+    if (missing.length > 0) {
+      warn(`scrumlord migration v6: ${missing.length} task plan path(s) reference missing files:`);
+      for (const entry of missing) warn(`  ${entry.id}: ${entry.path}`);
+    }
+  } catch (error) {
+    if (inTransaction) {
+      try {
+        database.run('ROLLBACK');
+      } catch {
+        // ignore
+      }
+    }
+    throw error;
+  }
+}
 
 /**
  * Rebuilds `tasks` without the `archived` and `parent_id` columns. SQLite
@@ -188,7 +259,14 @@ function runDropArchivedAndParent(context: MigrationRunContext): void {
 }
 
 /** Applies all pending database migrations in version order. */
-export const runMigrations = (database: Database, now: () => Date): void => {
+export const runMigrations = (
+  database: Database,
+  now: () => Date,
+  options: { projectRoot: string; warn?: (message: string) => void } = {
+    projectRoot: process.cwd(),
+  },
+): void => {
+  const warn = options.warn ?? ((message: string) => process.stderr.write(`${message}\n`));
   database.run('PRAGMA foreign_keys = ON;');
   database.run(`
     CREATE TABLE IF NOT EXISTS task_migrations (
@@ -244,7 +322,9 @@ export const runMigrations = (database: Database, now: () => Date): void => {
         migration.run({
           database,
           now,
+          projectRoot: options.projectRoot,
           recordMigration: () => recordMigrationRow(migration),
+          warn,
         });
       }
       index += 1;

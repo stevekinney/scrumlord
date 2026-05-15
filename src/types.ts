@@ -19,7 +19,6 @@ export type PersistedTaskSession = {
 
 export type TaskSession = PersistedTaskSession & {
   worktree: string | null;
-  planPath: string | null;
   sessionPath: string | null;
   warnings: string[];
 };

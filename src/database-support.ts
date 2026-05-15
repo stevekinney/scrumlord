@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite';
-import { isAbsolute, normalize, relative, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { isAbsolute, normalize, resolve } from 'node:path';
 import { ScrumlordError } from './errors.js';
 import type {
   AddTaskProgressInput,
@@ -198,11 +199,12 @@ export const validateSessionFields = (
   }
 };
 
-const isInsideDirectory = (parent: string, child: string): boolean => {
-  const difference = relative(parent, child);
-  return difference === '' || (!difference.startsWith('..') && !isAbsolute(difference));
-};
-
+/**
+ * Resolves a stored plan to an absolute filesystem path and validates the
+ * file exists. Relative paths resolve against `projectRoot`. Returns null
+ * when the input is null or empty; throws `plan_path_not_found` when the
+ * resolved path does not exist on disk.
+ */
 export const normalizeStoredPlanPath = (
   projectRoot: string,
   plan: string | null | undefined,
@@ -210,8 +212,11 @@ export const normalizeStoredPlanPath = (
   const parsed = parseOptionalText(plan);
   if (parsed === undefined || parsed === null) return parsed;
   const absolutePlanPath = isAbsolute(parsed) ? normalize(parsed) : resolve(projectRoot, parsed);
-  if (isInsideDirectory(projectRoot, absolutePlanPath)) {
-    return normalize(relative(projectRoot, absolutePlanPath) || '.');
+  if (!existsSync(absolutePlanPath)) {
+    throw new ScrumlordError(
+      'plan_path_not_found',
+      `Plan file does not exist: ${absolutePlanPath}`,
+    );
   }
   return absolutePlanPath;
 };

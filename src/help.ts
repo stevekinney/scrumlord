@@ -140,7 +140,7 @@ const topics: HelpTopic[] = [
     path: ['session'],
     summary: 'Show task agent session metadata.',
     usage: 'tasks session [task-id]',
-    description: `Returns provider, session, branch, derived worktree, plan path, session data path, and warnings. ${inferredTaskIdDescription}`,
+    description: `Returns provider, session, branch, derived worktree, absolute plan path, session data path, and warnings. ${inferredTaskIdDescription}`,
     arguments: [optionalTaskIdArgument],
     examples: ['tasks session', 'tasks session 8f7d6a'],
   },
@@ -387,7 +387,7 @@ const topics: HelpTopic[] = [
     path: ['set-plan'],
     summary: 'Assign a task plan path.',
     usage: 'tasks set-plan [task-id] <path>',
-    description: `Sets the task plan path, storing project-local paths relative to the project root. ${inferredTaskIdDescription}`,
+    description: `Sets the task plan path. The path must resolve to an existing file; relative paths resolve against the project root. The stored value is always absolute. ${inferredTaskIdDescription}`,
     arguments: [optionalTaskIdArgument, '<path>: Plan file path.'],
     examples: [
       'tasks set-plan tmp/tasks/8f7d6a/PLAN.md',

@@ -279,12 +279,15 @@ describe('createScrumlordMcpServer', () => {
       ).toBe(true);
       await callTool(client, 'scrumlord_clear_branch', { id: 'feature' });
 
+      await mkdir(join(root, 'tmp', 'tasks', 'feature'), { recursive: true });
+      const featurePlanPath = join(root, 'tmp', 'tasks', 'feature', 'PLAN.md');
+      await Bun.write(featurePlanPath, '# Plan\n');
       await callTool(client, 'scrumlord_set_plan', {
         id: 'feature',
         plan: 'tmp/tasks/feature/PLAN.md',
       });
       expect(await callTool(client, 'scrumlord_get_task', { id: 'feature' })).toMatchObject({
-        task: expect.objectContaining({ plan: 'tmp/tasks/feature/PLAN.md' }),
+        task: expect.objectContaining({ plan: featurePlanPath }),
       });
       await callTool(client, 'scrumlord_clear_plan', { id: 'feature' });
 

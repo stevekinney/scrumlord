@@ -45,6 +45,8 @@ const createSeededStore = async (): Promise<{
   await initializeGit(root);
   let currentDate = new Date('2026-05-11T12:00:00.000Z');
   const store = await createTaskStore({ cwd: root, now: () => currentDate });
+  await mkdir(join(root, 'tmp', 'tasks', 'blocked'), { recursive: true });
+  await Bun.write(join(root, 'tmp', 'tasks', 'blocked', 'PLAN.md'), '# Plan\n');
   const blocker = store.create({
     id: 'blocker',
     title: 'Finish prerequisite',
@@ -138,7 +140,7 @@ describe('createTaskStore', () => {
     expect(store.getTask(blocked.id)).toMatchObject({
       id: 'blocked',
       branch: 'feature/task-graph',
-      plan: 'tmp/tasks/blocked/PLAN.md',
+      plan: join(store.projectRoot, 'tmp', 'tasks', 'blocked', 'PLAN.md'),
       provider: 'codex',
       session: 'codex-session',
       tags: ['backend', 'frontend'],
@@ -164,7 +166,14 @@ describe('createTaskStore', () => {
     const migrationDatabase = new Database(join(root, 'tmp', 'tasks.db'), { readonly: true });
     expect(
       migrationDatabase.query<{ version: number }, []>('SELECT version FROM task_migrations').all(),
-    ).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }]);
+    ).toEqual([
+      { version: 1 },
+      { version: 2 },
+      { version: 3 },
+      { version: 4 },
+      { version: 5 },
+      { version: 6 },
+    ]);
     migrationDatabase.close();
     expect(future.id).toBe('future');
     store.close();
@@ -255,9 +264,13 @@ describe('createTaskStore', () => {
     expect(store.withBranch('feature/task-graph')).toEqual([]);
     expect(taskIds(store.withBranch('feature/renamed'))).toEqual(['blocked']);
     expect(store.update(blocked.id, { branch: null }).branch).toBeNull();
-    expect(store.setPlan(blocked.id, '../external-plan.md').plan).toBe(
-      join(store.projectRoot, '..', 'external-plan.md'),
-    );
+    // Create a plan file outside the project root and verify it's stored as an absolute path.
+    const externalRoot = await temporaryDirectory();
+    const externalPlan = join(externalRoot, 'external-plan.md');
+    await Bun.write(externalPlan, '# Plan\n');
+    expect(store.setPlan(blocked.id, externalPlan).plan).toBe(externalPlan);
+    // Missing file throws.
+    expect(() => store.setPlan(blocked.id, '../does-not-exist.md')).toThrow(ScrumlordError);
     expect(store.setPlan(blocked.id, null).plan).toBeNull();
     expect(store.setSession(blocked.id, 'claude', 'claude-session')).toMatchObject({
       provider: 'claude',

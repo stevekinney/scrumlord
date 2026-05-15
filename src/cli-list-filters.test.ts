@@ -1,9 +1,15 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { runTasksCli } from './cli-runner';
 import type { Task } from './types';
+
+const writePlanFile = async (root: string, relativePlan: string): Promise<void> => {
+  const absolute = join(root, relativePlan);
+  await mkdir(dirname(absolute), { recursive: true });
+  await writeFile(absolute, '# Plan\n');
+};
 
 const temporaryDirectories: string[] = [];
 
@@ -106,6 +112,9 @@ describe('task listing plan filters', () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
 
+    await writePlanFile(root, 'tmp/tasks/planned-ready/PLAN.md');
+    await writePlanFile(root, 'tmp/tasks/planned-blocked/PLAN.md');
+    await writePlanFile(root, 'tmp/tasks/planned-completed/PLAN.md');
     const plannedReady = await createTask(root, 'Planned ready task', [
       '--priority',
       '3',

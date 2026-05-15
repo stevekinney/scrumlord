@@ -289,7 +289,6 @@ export const resolveTaskSession = async (
   const worktree = session.branch
     ? await worktreeForBranch(store.projectRoot, session.branch, options.runner ?? runCommand)
     : null;
-  const planPath = absoluteTaskPlanPath(store.projectRoot, session.plan);
   let sessionPath: string | null = null;
 
   if (!session.provider) {
@@ -308,7 +307,6 @@ export const resolveTaskSession = async (
   return {
     ...session,
     worktree,
-    planPath,
     sessionPath,
     warnings,
   };

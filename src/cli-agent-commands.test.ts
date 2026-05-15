@@ -358,13 +358,14 @@ describe('runAgentHookCommand', () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
     const store = await createTaskStore({ cwd: root });
+    await mkdir(join(root, 'tmp', 'tasks', 'task-id'), { recursive: true });
+    await writeFile(join(root, 'tmp', 'tasks', 'task-id', 'PLAN.md'), '# Plan\n');
     const task = store.create({
       id: 'task-id',
       title: 'Inject task context',
       branch: 'feature/current',
       plan: 'tmp/tasks/task-id/PLAN.md',
     });
-
     try {
       const result = await runAgentHookCommand(store, parseArguments(['agent-hook', 'codex']), {
         environment: { SCRUMLORD_TASK_ID: task.id },
@@ -375,7 +376,7 @@ describe('runAgentHookCommand', () => {
       expect(result.stderr).toBe('');
       expect(result.stdout).toContain('Scrumlord inferred this task for the current branch.');
       expect(result.stdout).toContain('id: task-id');
-      expect(result.stdout).toContain('plan: tmp/tasks/task-id/PLAN.md');
+      expect(result.stdout).toContain('tmp/tasks/task-id/PLAN.md');
     } finally {
       store.close();
     }

@@ -40,7 +40,7 @@ export const createTaskStore = async (options: CreateTaskStoreOptions = {}): Pro
   }
 
   try {
-    runMigrations(database, now);
+    runMigrations(database, now, { projectRoot });
   } catch (error) {
     database.close(false);
     const message = error instanceof Error ? error.message : String(error);

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runTasksCli } from './cli-runner';
@@ -47,6 +47,9 @@ describe('tasks next and remaining', () => {
     await runTasksCli(['create', '--title', 'Unplanned high priority task', '--priority', '3'], {
       cwd: root,
     });
+    await mkdir(join(root, 'tmp', 'tasks', 'planned'), { recursive: true });
+    const planPath = join(root, 'tmp', 'tasks', 'planned', 'PLAN.md');
+    await writeFile(planPath, '# Plan\n');
     const planned = await runTasksCli(
       [
         'create',
@@ -64,11 +67,10 @@ describe('tasks next and remaining', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe('');
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      id: JSON.parse(planned.stdout).id,
-      title: 'Planned low priority task',
-      plan: 'tmp/tasks/planned/PLAN.md',
-    });
+    const nextTask = JSON.parse(result.stdout);
+    expect(nextTask.id).toBe(JSON.parse(planned.stdout).id);
+    expect(nextTask.title).toBe('Planned low priority task');
+    expect(nextTask.plan).toContain('tmp/tasks/planned/PLAN.md');
   });
 
   it('rejects ready tasks with dependency language but no blocker edge', async () => {

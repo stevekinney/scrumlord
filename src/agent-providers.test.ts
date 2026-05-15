@@ -130,6 +130,8 @@ describe('agent providers', () => {
     const home = await temporaryDirectory();
     await initializeGit(root);
     const store = await createTaskStore({ cwd: root });
+    await mkdir(join(root, 'tmp', 'tasks', 'task-id'), { recursive: true });
+    await Bun.write(join(root, 'tmp', 'tasks', 'task-id', 'PLAN.md'), '# Plan\n');
     const task = store.create({
       id: 'task-id',
       title: 'Task',
@@ -161,10 +163,11 @@ describe('agent providers', () => {
       session: 'codex-session',
       branch: 'feature/task',
       worktree: root,
-      planPath: join(store.projectRoot, 'tmp/tasks/task-id/PLAN.md'),
+      plan: join(store.projectRoot, 'tmp/tasks/task-id/PLAN.md'),
       sessionPath: join(home, '.codex', 'sessions', '2026', 'session.jsonl'),
       warnings: [],
     });
+    expect(result).not.toHaveProperty('planPath');
     store.close();
   });
 
