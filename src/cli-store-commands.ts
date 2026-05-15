@@ -297,7 +297,10 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
     ),
   'clear-session': async (store, parsed) =>
     clearTaskSession(store, await taskIdFromArguments(store, parsed)),
-  delete: async (store, parsed) => deleteTask(store, await taskIdFromArguments(store, parsed)),
+  delete: async (store, parsed) =>
+    deleteTask(store, await taskIdFromArguments(store, parsed), {
+      hard: parsed.flags.has('hard'),
+    }),
   'add-tag': async (store, parsed) =>
     addTaskTag(
       store,

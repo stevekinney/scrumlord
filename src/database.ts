@@ -109,12 +109,48 @@ export class SqliteTaskStore implements TaskStore {
   }
 
   delete(id: TaskIdentifier, options: DeleteOptions = {}): Task | null {
-    if (options.hard) {
-      this.ensureTaskExists(id);
+    this.ensureTaskExists(id);
+    const now = this.#now().toISOString();
+    if (options.hard) return this.runHardDelete(id, now);
+    return this.runSoftDelete(id, now);
+  }
+
+  private dependencyNeighbors(id: TaskIdentifier): TaskIdentifier[] {
+    const rows = this.#database
+      .query<{ neighbor: string }, QueryBindings>(
+        `SELECT DISTINCT blocked_by_task_id AS neighbor FROM task_dependencies WHERE task_id = $id
+         UNION
+         SELECT DISTINCT task_id AS neighbor FROM task_dependencies WHERE blocked_by_task_id = $id`,
+      )
+      .all({ id });
+    return rows.map((row) => row.neighbor).filter((neighbor) => neighbor !== id);
+  }
+
+  private runSoftDelete(id: TaskIdentifier, now: string): Task {
+    let result: Task | null = null;
+    const transaction = this.#database.transaction(() => {
+      const neighbors = this.dependencyNeighbors(id);
+      this.#database
+        .query<
+          unknown,
+          QueryBindings
+        >('DELETE FROM task_dependencies WHERE task_id = $id OR blocked_by_task_id = $id')
+        .run({ id });
+      result = this.update(id, { deleted: true });
+      for (const neighborId of neighbors) this.touchAt(neighborId, now);
+    });
+    transaction();
+    return result ?? this.requireTask(id);
+  }
+
+  private runHardDelete(id: TaskIdentifier, now: string): null {
+    const transaction = this.#database.transaction(() => {
+      const neighbors = this.dependencyNeighbors(id);
       this.#database.query<unknown, QueryBindings>('DELETE FROM tasks WHERE id = $id').run({ id });
-      return null;
-    }
-    return this.update(id, { deleted: true });
+      for (const neighborId of neighbors) this.touchAt(neighborId, now);
+    });
+    transaction();
+    return null;
   }
 
   getTask(id: TaskIdentifier): Task | null {
@@ -384,20 +420,26 @@ export class SqliteTaskStore implements TaskStore {
 
   addBlocker(id: TaskIdentifier, blockedBy: TaskReference): Task {
     this.ensureTaskExists(id);
-    this.insertBlocker(id, taskIdFrom(blockedBy));
-    this.touch(id);
+    const blockerId = taskIdFrom(blockedBy);
+    const now = this.#now().toISOString();
+    this.insertBlocker(id, blockerId);
+    this.touchAt(id, now);
+    this.touchAt(blockerId, now);
     return this.requireTask(id);
   }
 
   removeBlocker(id: TaskIdentifier, blockedBy: TaskReference): Task {
     this.ensureTaskExists(id);
+    const blockerId = taskIdFrom(blockedBy);
+    const now = this.#now().toISOString();
     this.#database
       .query<
         unknown,
         QueryBindings
       >('DELETE FROM task_dependencies WHERE task_id = $id AND blocked_by_task_id = $blockedBy')
-      .run({ id, blockedBy: taskIdFrom(blockedBy) });
-    this.touch(id);
+      .run({ id, blockedBy: blockerId });
+    this.touchAt(id, now);
+    this.touchAt(blockerId, now);
     return this.requireTask(id);
   }
 

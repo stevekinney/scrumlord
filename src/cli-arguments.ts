@@ -75,7 +75,7 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   },
   resume: optionalTaskId,
   'agent-hook': onePositional,
-  delete: optionalTaskId,
+  delete: { ...optionalTaskId, booleanFlags: ['hard'] },
   'set-status': optionalTaskIdWithOneArgument,
   'set-branch': optionalTaskIdWithOneArgument,
   'clear-branch': optionalTaskId,

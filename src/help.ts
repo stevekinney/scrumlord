@@ -449,11 +449,17 @@ const topics: HelpTopic[] = [
   },
   {
     path: ['delete'],
-    summary: 'Soft-delete a task.',
-    usage: 'tasks delete [task-id]',
-    description: `Marks a task as deleted without removing it from the database. ${inferredTaskIdDescription}`,
+    summary: 'Delete a task.',
+    usage: 'tasks delete [task-id] [--hard]',
+    description: `Soft-deletes by default (sets deleted=1) and removes any dependency edges that reference the task. With --hard, physically deletes the row (FK cascades remove tags, dependencies, and progress). Surviving neighbors of a deleted task receive a last-modified-at touch so consumers watching for graph changes can react. ${inferredTaskIdDescription}`,
     arguments: [optionalTaskIdArgument],
-    examples: ['tasks delete', 'tasks delete 8f7d6a'],
+    options: [
+      {
+        name: '--hard',
+        description: 'Physically remove the task and cascade related rows.',
+      },
+    ],
+    examples: ['tasks delete', 'tasks delete 8f7d6a', 'tasks delete 8f7d6a --hard'],
   },
   {
     path: ['add-tag'],

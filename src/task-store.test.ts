@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { afterEach, describe, expect, it } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
@@ -499,6 +500,76 @@ describe('createTaskStore', () => {
 
     store.update(review.id, { status: 'completed' });
     expect(store.remaining()).toBe(1);
+
+    store.close();
+  });
+
+  it('touches both task and blocker when adding or removing a blocker edge', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    let currentDate = new Date('2026-05-11T12:00:00.000Z');
+    const store = await createTaskStore({ cwd: root, now: () => currentDate });
+    const task = store.create({ id: 'task', title: 'Task' });
+    const blocker = store.create({ id: 'blocker', title: 'Blocker' });
+    const modifiedAt = (id: string): string => store.getTask(id)!.lastModifiedAt;
+    const taskBefore = modifiedAt(task.id);
+    const blockerBefore = modifiedAt(blocker.id);
+
+    currentDate = new Date('2026-05-12T00:00:00.000Z');
+    store.addBlocker(task.id, blocker.id);
+    expect(modifiedAt(task.id)).not.toBe(taskBefore);
+    expect(modifiedAt(blocker.id)).not.toBe(blockerBefore);
+    expect(modifiedAt(blocker.id)).toBe(modifiedAt(task.id));
+
+    currentDate = new Date('2026-05-13T00:00:00.000Z');
+    const taskMid = modifiedAt(task.id);
+    const blockerMid = modifiedAt(blocker.id);
+    store.removeBlocker(task.id, blocker.id);
+    expect(modifiedAt(task.id)).not.toBe(taskMid);
+    expect(modifiedAt(blocker.id)).not.toBe(blockerMid);
+
+    store.close();
+  });
+
+  it('cleans dependency edges and touches surviving neighbors on soft delete', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    let currentDate = new Date('2026-05-11T12:00:00.000Z');
+    const store = await createTaskStore({ cwd: root, now: () => currentDate });
+    const a = store.create({ id: 'a', title: 'A' });
+    const b = store.create({ id: 'b', title: 'B' });
+    const c = store.create({ id: 'c', title: 'C' });
+    store.addBlocker(b.id, a.id);
+    store.addBlocker(c.id, a.id);
+
+    currentDate = new Date('2026-05-12T00:00:00.000Z');
+    const bBefore = store.getTask(b.id)?.lastModifiedAt;
+    const cBefore = store.getTask(c.id)?.lastModifiedAt;
+    const deleted = store.delete(a.id);
+    expect(deleted?.deleted).toBe(true);
+    expect(store.blockedBy(b.id)).toEqual([]);
+    expect(store.blockedBy(c.id)).toEqual([]);
+    expect(store.getTask(b.id)?.lastModifiedAt).not.toBe(bBefore);
+    expect(store.getTask(c.id)?.lastModifiedAt).not.toBe(cBefore);
+
+    store.close();
+  });
+
+  it('hard delete removes the row and touches surviving neighbors via FK cascade', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    let currentDate = new Date('2026-05-11T12:00:00.000Z');
+    const store = await createTaskStore({ cwd: root, now: () => currentDate });
+    const a = store.create({ id: 'a', title: 'A' });
+    const b = store.create({ id: 'b', title: 'B' });
+    store.addBlocker(b.id, a.id);
+
+    currentDate = new Date('2026-05-12T00:00:00.000Z');
+    const bBefore = store.getTask(b.id)?.lastModifiedAt;
+    expect(store.delete(a.id, { hard: true })).toBeNull();
+    expect(store.getTask(a.id)).toBeNull();
+    expect(store.blockedBy(b.id)).toEqual([]);
+    expect(store.getTask(b.id)?.lastModifiedAt).not.toBe(bBefore);
 
     store.close();
   });
