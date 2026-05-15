@@ -75,7 +75,7 @@ describe('setupSubagents', () => {
     expect(claude).toContain('permissionMode: default');
     expect(claude).toContain('Scrumlord tasks CLI is not available in PATH');
     expect(claude).toContain('tasks list');
-    expect(claude).toContain('tasks setup-subagents');
+    expect(claude).toContain('tasks setup --subagents');
     expect(claude).toContain('if there are no dependency edges, say that explicitly');
 
     const settings = await Bun.file(join(root, '.claude/settings.local.json')).json();

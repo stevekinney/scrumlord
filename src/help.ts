@@ -515,34 +515,44 @@ const topics: HelpTopic[] = [
     examples: ['tasks overview'],
   },
   {
-    path: ['setup-skills'],
-    summary: 'Write local agent skills.',
-    usage: 'tasks setup-skills <codex|claude|cursor|--all>',
-    description: 'Writes local guidance files that teach agents how to use the tasks CLI.',
-    arguments: ['<codex|claude|cursor|--all>: Skill target.'],
-    options: [{ name: '--all', description: 'Write Codex, Claude, and Cursor skills.' }],
-    examples: ['tasks setup-skills codex', 'tasks setup-skills --all'],
-  },
-  {
     path: ['setup'],
-    summary: 'Run full Scrumlord project setup.',
-    usage: 'tasks setup [--yes|--codex|--claude] [--local|--global]',
+    summary: 'Run Scrumlord setup.',
+    usage:
+      'tasks setup [--skills|--subagents|--git-hooks|--agent-hooks|--prompt] [--project|--user|--local] [--agent <all|claude|codex>] [--yes]',
     description:
-      'Initializes the database, writes provider skills, installs task-manager subagents, configures agent hooks for selected providers, and installs managed Git hooks when Lefthook is present. Without --yes or a provider flag, runs a colorized numbered-choice setup prompt.',
+      'With no mode flag, runs the interactive numbered-choice setup. With a mode flag, runs that single piece: --skills writes agent skill files; --subagents installs task-manager subagents; --git-hooks installs the Lefthook block; --agent-hooks writes lifecycle hook configuration; --prompt emits a raw setup prompt agents can follow.',
     options: [
-      { name: '--yes', description: 'Use sensible defaults for installed providers.' },
+      { name: '--skills', description: 'Write agent skill files.' },
+      { name: '--subagents', description: 'Install task-manager subagents.' },
+      { name: '--git-hooks', description: 'Install managed Git hooks.' },
+      { name: '--agent-hooks', description: 'Install agent lifecycle hooks.' },
+      { name: '--prompt', description: 'Print a raw setup prompt for an agent.' },
       {
-        name: '--codex',
-        description: 'Configure Codex and launch codex with setup context after setup.',
+        name: '--project',
+        description: 'Write to the project (default for skills/subagents/git-hooks).',
       },
       {
-        name: '--claude',
-        description: 'Configure Claude and launch claude with setup context after setup.',
+        name: '--user',
+        description: 'Write to the user home directory (default for agent-hooks).',
       },
-      { name: '--local', description: 'Write project-local subagents. This is the default.' },
-      { name: '--global', description: 'Write user-global subagents.' },
+      {
+        name: '--local',
+        description: 'Write to project-local Claude settings (agent-hooks only).',
+      },
+      { name: '--agent', description: 'Restrict to one agent: all (default), claude, or codex.' },
+      { name: '--yes', description: 'Skip the interactive prompt and use defaults.' },
+      { name: '--codex', description: 'Interactive setup: configure and launch Codex.' },
+      { name: '--claude', description: 'Interactive setup: configure and launch Claude.' },
     ],
-    examples: ['tasks setup --yes', 'tasks setup --codex', 'tasks setup'],
+    examples: [
+      'tasks setup',
+      'tasks setup --yes',
+      'tasks setup --skills --project',
+      'tasks setup --subagents --agent claude',
+      'tasks setup --git-hooks',
+      'tasks setup --agent-hooks --user',
+      'tasks setup --prompt',
+    ],
   },
   {
     path: ['setup', 'status'],
@@ -551,40 +561,6 @@ const topics: HelpTopic[] = [
     description:
       'Returns read-only setup state for restricted agents, including tasksExecutable, projectRoot, databaseExists, provider CLIs, subagent paths, skill paths, and hook configuration files.',
     examples: ['tasks setup status'],
-  },
-  {
-    path: ['setup-subagents'],
-    summary: 'Install task-manager subagents.',
-    usage: 'tasks setup-subagents [codex|claude|--all] [--local|--global]',
-    description:
-      'Writes Scrumlord task-manager subagents for Codex and Claude. With no provider argument, only installed providers are configured. Requested providers must be available in PATH.',
-    arguments: ['[codex|claude|--all]: Provider target. Defaults to installed providers.'],
-    options: [
-      { name: '--all', description: 'Install Codex and Claude subagents.' },
-      { name: '--local', description: 'Write project-local subagents. This is the default.' },
-      { name: '--global', description: 'Write user-global subagents.' },
-    ],
-    examples: [
-      'tasks setup-subagents',
-      'tasks setup-subagents codex',
-      'tasks setup-subagents --all',
-    ],
-  },
-  {
-    path: ['setup-git-hooks'],
-    summary: 'Install managed Git status hooks.',
-    usage: 'tasks setup-git-hooks',
-    description:
-      'Adds Scrumlord synchronization jobs to an existing Lefthook configuration and installs the hooks.',
-    examples: ['tasks setup-git-hooks'],
-  },
-  {
-    path: ['setup-agent-hooks'],
-    summary: 'Install global agent lifecycle hooks.',
-    usage: 'tasks setup-agent-hooks',
-    description:
-      'Writes global Claude and Codex hook configuration that calls `tasks agent-hook` directly. Hooks synchronize task plans, sessions, branches, and pull request lifecycle state, and inject the inferred current branch task on user prompts. Idempotent; migrates legacy `bun run scrumlord-agent-hook.ts` entries on each run.',
-    examples: ['tasks setup-agent-hooks'],
   },
   {
     path: ['agent-hook'],

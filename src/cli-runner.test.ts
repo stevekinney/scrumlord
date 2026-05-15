@@ -324,8 +324,7 @@ describe('runTasksCli', () => {
     expect(mainHelp.stderr).toBe('');
     expect(mainHelp.stdout).toContain('\u001b[');
     expect(stripAnsi(mainHelp.stdout)).toContain('tasks <command> [options]');
-    expect(mainHelp.stdout).toContain('setup-git-hooks');
-    expect(mainHelp.stdout).toContain('setup-subagents');
+    expect(mainHelp.stdout).toContain('setup');
 
     const createHelp = await runTasksCli(['create', '--help'], { colorMode: 'never' });
     expect(createHelp.stdout).toContain('tasks create --title <title> [options]');
@@ -365,10 +364,12 @@ describe('runTasksCli', () => {
     expect(setupStatusHelp.stdout).toContain('tasks setup status');
     expect(setupStatusHelp.stdout).toContain('tasksExecutable');
 
-    const setupSubagentsHelp = await runTasksCli(['setup-subagents', '--help'], {
+    const setupHelp = await runTasksCli(['setup', '--help'], {
       colorMode: 'never',
     });
-    expect(setupSubagentsHelp.stdout).toContain('tasks setup-subagents');
+    expect(setupHelp.stdout).toContain('tasks setup');
+    expect(setupHelp.stdout).toContain('--subagents');
+    expect(setupHelp.stdout).toContain('--prompt');
   });
 
   it('returns a JSON error for unknown help topics', async () => {
@@ -423,15 +424,10 @@ describe('runTasksCli', () => {
     expect(JSON.parse(invalidSetSessionResult.stderr).error.code).toBe('invalid_provider');
 
     const invalidSkillRoot = await workspaceRoot();
-    const invalidSkillResult = await runTasksCli(['setup-skills', 'vim'], {
+    const invalidAgentResult = await runTasksCli(['setup', '--subagents', '--agent', 'vim'], {
       cwd: invalidSkillRoot,
     });
-    expect(JSON.parse(invalidSkillResult.stderr).error.code).toBe('invalid_skill_target');
-
-    const invalidSubagentResult = await runTasksCli(['setup-subagents', 'vim'], {
-      cwd: invalidSkillRoot,
-    });
-    expect(JSON.parse(invalidSubagentResult.stderr).error.code).toBe('invalid_provider');
+    expect(JSON.parse(invalidAgentResult.stderr).error.code).toBe('invalid_agent');
 
     const invalidSetupCommandResult = await runTasksCli(['setup', 'wizard'], {
       cwd: invalidSkillRoot,
@@ -446,13 +442,15 @@ describe('runTasksCli', () => {
     });
     expect(JSON.parse(setupProviderConflict.stderr).error.code).toBe('setup_provider_conflict');
 
-    const setupSubagentScopeConflict = await runTasksCli(
-      ['setup-subagents', '--local', '--global'],
-      {
-        cwd: invalidSkillRoot,
-      },
-    );
-    expect(JSON.parse(setupSubagentScopeConflict.stderr).error.code).toBe('setup_scope_conflict');
+    const setupModeConflict = await runTasksCli(['setup', '--skills', '--subagents'], {
+      cwd: invalidSkillRoot,
+    });
+    expect(JSON.parse(setupModeConflict.stderr).error.code).toBe('setup_mode_conflict');
+
+    const setupScopeConflict = await runTasksCli(['setup', '--subagents', '--project', '--user'], {
+      cwd: invalidSkillRoot,
+    });
+    expect(JSON.parse(setupScopeConflict.stderr).error.code).toBe('setup_scope_conflict');
     expect(createStoreCalls).toBe(0);
   });
 

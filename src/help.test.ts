@@ -41,12 +41,8 @@ const expectedTopics = [
   'cleanup',
   'sync-git-status',
   'overview',
-  'setup-skills',
   'setup',
   'setup status',
-  'setup-subagents',
-  'setup-git-hooks',
-  'setup-agent-hooks',
   'agent-hook',
   'pr',
 ];
@@ -63,9 +59,6 @@ describe('renderHelp', () => {
     expect(help).toContain('tasks <command> [options]');
     expect(help).toContain('init');
     expect(help).toContain('setup');
-    expect(help).toContain('setup-subagents');
-    expect(help).toContain('setup-git-hooks');
-    expect(help).toContain('setup-agent-hooks');
     expect(help).toContain('All data commands return JSON.');
     expect(help).not.toContain('\u001b[');
   });

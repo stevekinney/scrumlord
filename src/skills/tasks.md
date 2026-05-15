@@ -11,7 +11,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 - Run `tasks init` when the project has not been set up yet. It creates and migrates `tmp/tasks.db`, writes local task skills, and installs managed Scrumlord Lefthook jobs when a Lefthook configuration exists.
 - Run `tasks setup status` before changing setup. It reports whether `tasks`, provider CLIs, skills, subagents, hooks, and `tmp/tasks.db` are present without creating the database.
 - Use `tasks setup --yes` for the default full setup when the user wants Scrumlord initialized for installed providers. Use `tasks setup --codex` or `tasks setup --claude` only when the user wants that CLI launched after setup.
-- Use `tasks setup-subagents` to install the `scrumlord-task-manager` subagent for installed providers. Use `tasks setup-subagents codex`, `tasks setup-subagents claude`, or `tasks setup-subagents --all` when a provider is explicit.
+- Use `tasks setup --subagents` to install the `scrumlord-task-manager` subagent for installed providers. Use `tasks setup --subagents --agent codex`, `tasks setup --subagents --agent claude`, or `tasks setup --subagents --agent all` when a provider is explicit.
 - Use `tasks --help` or `tasks <command> --help` when you need the current command syntax. Help output is colorized for humans; data output stays parseable JSON.
 - If you need the task for the current branch and do not already have a task ID, run `tasks current` before falling back to `tasks next`.
 - Commands whose first positional argument is a task ID can omit it when exactly one active task is assigned to the current Git branch. Prefer omitted IDs for branch-local work once the branch is assigned; pass an explicit ID when operating on another task or when `current_task_ambiguous` is possible.
@@ -30,10 +30,10 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 
 ## Decomposing Documents Into Tasks
 
-- Before creating tasks from a roadmap, specification, or checklist, first build a candidate graph: task title, description source, normalized priority, tags, parent task, and blockers.
+- Before creating tasks from a roadmap, specification, or checklist, first build a candidate graph: task title, description source, normalized priority, tags, and blockers.
 - Do not create a flat list unless the items are genuinely independent. If one task unlocks or must precede another, create both tasks and then run `tasks add-blocker <blocked-task-id> <blocker-task-id>`.
 - Treat dependency language as graph data. Phrases such as "gated on", "blocked by", "depends on", "prerequisite", or "once ... exists" require an explicit blocker edge before the task can be marked `ready`.
-- Create parent or prerequisite tasks before dependent tasks so you have stable task IDs for `tasks add-blocker` and `tasks set-parent`.
+- Create prerequisite tasks before dependent tasks so you have stable task IDs for `tasks add-blocker`.
 - For large imports, do not fire many `tasks create` commands in parallel. Validate the priority scale and required flags first, then create tasks serially or in small batches so one malformed command cannot cancel the whole batch.
 - After creating tasks, verify the graph with `tasks list`, `tasks blocked`, `tasks available`, `tasks blocked-by [task-id]`, and `tasks blocking [task-id]` as appropriate.
 - If no dependency edges exist, say that explicitly in the summary so the user knows the graph was considered, not skipped.
@@ -51,18 +51,17 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 - Use `tasks pipeline --cli <claude|codex>` to drain the ready queue end-to-end: it claims tasks atomically, materializes worktrees, delegates each per-task run to the agent CLI (Claude side uses the `next-task` skill; Codex side gets a self-contained four-phase prompt), polls each pull request to merge, then continues. The pipeline is the merge authority — agents must drive PRs to merge or exit with `STUCK: <reason>` on stderr. A single lockfile (`tmp/pipeline.lock`) protects against concurrent pipelines. `--recover` runs an annotate-only recovery sweep (pair with `--apply` to mutate). `--dry-run` previews without claiming. `--json` emits a structured summary on stdout.
 - Use `tasks resume` to resume the current branch task's recorded Claude or Codex session from the derived worktree.
 - Before changing status manually, run `tasks sync-git-status` if GitHub might already know the current pull request state.
-- If `tasks setup-git-hooks` has been run in a repository with Lefthook, `tasks sync-git-status --quiet` handles lifecycle transitions from Git and GitHub state.
-- If `tasks setup-agent-hooks` has been run, global Claude and Codex hooks try to keep plan, session, branch, and pull request lifecycle state synchronized, and they inject the inferred current branch task into agent context on user prompts. Hooks exit quietly when the project is not initialized for Scrumlord or `tasks` is unavailable unless `SCRUMLORD_DEBUG` is truthy.
-- Before merging, run `tasks pr status`. Only treat the pull request as merge-ready when `readyToMerge` is `true`.
+- If `tasks setup --git-hooks` has been run in a repository with Lefthook, `tasks sync-git-status --quiet` handles lifecycle transitions from Git and GitHub state.
+- If `tasks setup --agent-hooks` has been run, global Claude and Codex hooks try to keep plan, session, branch, and pull request lifecycle state synchronized, and they inject the inferred current branch task into agent context on user prompts. Hooks exit quietly when the project is not initialized for Scrumlord or `tasks` is unavailable unless `SCRUMLORD_DEBUG` is truthy.
+- Before merging, run `tasks pr`. Only treat the pull request as merge-ready when `readyToMerge` is `true`.
 
 ## GitHub Review Workflow
 
 - Use `tasks pr --url` to find the current branch pull request.
-- Use `tasks pr status` for the complete readiness report: unresolved review comment IDs and URLs, pending checks, failed checks, and `readyToMerge`.
+- Use `tasks pr` for the complete readiness report: unresolved review comment IDs and URLs, pending checks, failed checks, and `readyToMerge`.
 - Use `tasks overview` to inspect every open pull request for the project with CI status, unresolved review comment counts, and branch-associated tasks.
-- Use `tasks comments` to inspect unresolved review comments before deciding what to fix.
-- Use `tasks ci` to inspect pull request check status.
-- If `tasks pr`, `tasks pr status`, `tasks overview`, `tasks comments`, or `tasks ci` fails with `gh_not_found`, install the GitHub CLI or continue with non-GitHub task commands.
+- Use `tasks pr --comments` to inspect unresolved review comments before deciding what to fix; add `--resolved` for resolved threads or `--all` for both.
+- If `tasks pr` or `tasks overview` fails with `gh_not_found`, install the GitHub CLI or continue with non-GitHub task commands.
 - If a command fails with `pull_request_not_found`, open a pull request or keep the task in `in-progress`.
 - If a command fails with `project_root_not_found`, move into the Git repository or npm workspace before retrying. Do not create or edit a database by hand.
 
@@ -89,12 +88,11 @@ tasks add-blocker $BLOCKER_TASK_ID
 tasks add-tag testing
 tasks sync-git-status --quiet
 tasks pr --url
-tasks pr status
+tasks pr
 tasks overview
-tasks comments
-tasks ci
+tasks pr --comments
 tasks setup status
 tasks setup --yes
-tasks setup-subagents
-tasks setup-agent-hooks
+tasks setup --subagents
+tasks setup --agent-hooks
 ```

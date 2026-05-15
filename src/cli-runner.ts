@@ -1,17 +1,15 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { setupAgentHooks } from './agent-hooks.js';
 import { runAgentHookCommand, runResumeCommand, runStartCommand } from './cli-agent-commands.js';
 import { runPipelineCommand } from './cli-pipeline-command.js';
 import {
   helpPath,
   isHelpRequest,
   parseArguments,
-  required,
   validatePositionals,
   type ParsedArguments,
 } from './cli-arguments.js';
-import { runSetupBoundaryCommand, runSetupSubagentsBoundaryCommand } from './cli-setup-commands.js';
+import { runSetupBoundaryCommand } from './cli-setup-commands.js';
 import {
   runTaskStoreCommand,
   taskStoreCommands,
@@ -20,12 +18,10 @@ import {
 import type { CliOptions, CliResult } from './cli-types.js';
 import { createTaskStore } from './database-open.js';
 import { ScrumlordError, errorMessage } from './errors.js';
-import { setupGitHooks } from './git-hooks.js';
 import { syncGitStatus } from './git-status.js';
 import { renderHelp } from './help.js';
 import { initializeProject } from './init.js';
 import { resolveProjectRoot } from './root-resolution.js';
-import { setupSkills, skillTargets, type SkillTarget } from './skills.js';
 import type { TaskStore } from './types.js';
 
 type BoundaryCommandHandler = (parsed: ParsedArguments, options: CliOptions) => Promise<CliResult>;
@@ -55,9 +51,6 @@ const renderHelpResult = (parsed: ParsedArguments, options: CliOptions): CliResu
   return { exitCode: 0, stdout: help, stderr: '' };
 };
 
-const isSkillTarget = (target: string): target is SkillTarget =>
-  skillTargets.some((value) => value === target);
-
 const runStoreCommand = async (
   store: TaskStore,
   parsed: ParsedArguments,
@@ -73,18 +66,6 @@ const runStoreCommand = async (
   }
 
   return await runTaskStoreCommand(store, parsed, options);
-};
-
-const normalizeSkillTarget = (parsed: ParsedArguments): SkillTarget | '--all' => {
-  const requestedTarget = parsed.flags.has('all')
-    ? '--all'
-    : required(parsed.positionals, 'skill target');
-  if (requestedTarget === '-all' || requestedTarget === '--all') return '--all';
-  if (isSkillTarget(requestedTarget)) return requestedTarget;
-  throw new ScrumlordError(
-    'invalid_skill_target',
-    'Skill target must be codex, claude, cursor, or --all.',
-  );
 };
 
 const githubModule = async (options: CliOptions): Promise<NonNullable<CliOptions['github']>> => {
@@ -156,23 +137,6 @@ const runRepositoryBoundaryCommand: BoundaryCommandHandler = async (parsed, opti
   }
   if (parsed.flags.has('url')) return rawString(await github.repositoryUrl(root));
   return rawString(await github.repositoryName(root));
-};
-
-const runSetupSkillsBoundaryCommand: BoundaryCommandHandler = async (parsed, options) => {
-  const root = await resolveProjectRoot(options.cwd);
-  return success(await setupSkills(root, normalizeSkillTarget(parsed)));
-};
-
-const runSetupGitHooksBoundaryCommand: BoundaryCommandHandler = async (_parsed, options) => {
-  const root = await resolveProjectRoot(options.cwd);
-  return success(await (options.setupGitHooks ?? setupGitHooks)(root));
-};
-
-const runSetupAgentHooksBoundaryCommand: BoundaryCommandHandler = async (_parsed, options) => {
-  const root = await resolveProjectRoot(options.cwd);
-  const hookOptions =
-    options.homeDirectory === undefined ? {} : { homeDirectory: options.homeDirectory };
-  return success(await (options.setupAgentHooks ?? setupAgentHooks)(root, hookOptions));
 };
 
 const projectRootKeys = new Set([
@@ -249,11 +213,7 @@ const boundaryCommandHandlers: Record<string, BoundaryCommandHandler> = {
   init: runInitBoundaryCommand,
   repository: runRepositoryBoundaryCommand,
   pr: runPullRequestBoundaryCommand,
-  'setup-skills': runSetupSkillsBoundaryCommand,
   setup: runSetupBoundaryCommand,
-  'setup-subagents': runSetupSubagentsBoundaryCommand,
-  'setup-git-hooks': runSetupGitHooksBoundaryCommand,
-  'setup-agent-hooks': runSetupAgentHooksBoundaryCommand,
   'agent-hook': runAgentHookBoundaryCommand,
 };
 

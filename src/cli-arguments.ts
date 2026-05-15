@@ -124,19 +124,25 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   'add-blocker': optionalTaskIdWithOneArgument,
   'remove-blocker': optionalTaskIdWithOneArgument,
   'sync-git-status': { ...noPositionals, booleanFlags: ['quiet'] },
-  'setup-skills': { minPositionals: 0, maxPositionals: 1, booleanFlags: ['all'] },
   setup: {
     minPositionals: 0,
     maxPositionals: 1,
-    booleanFlags: ['claude', 'codex', 'local', 'global', 'yes'],
+    booleanFlags: [
+      'skills',
+      'subagents',
+      'git-hooks',
+      'agent-hooks',
+      'prompt',
+      'project',
+      'user',
+      'local',
+      'claude',
+      'codex',
+      'yes',
+      'all',
+    ],
+    valueFlags: ['agent'],
   },
-  'setup-subagents': {
-    minPositionals: 0,
-    maxPositionals: 1,
-    booleanFlags: ['all', 'local', 'global'],
-  },
-  'setup-git-hooks': noPositionals,
-  'setup-agent-hooks': noPositionals,
 };
 
 const appendFlag = (flags: Map<string, string[]>, name: string, value: string): void => {

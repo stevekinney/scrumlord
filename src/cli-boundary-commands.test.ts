@@ -261,12 +261,12 @@ describe('runTasksCli boundary commands', () => {
     });
     expect(JSON.parse(initResult.stdout)).toEqual({ initialized: true, cwd: root });
 
-    const setupResult = await runTasksCli(['setup-skills', '--all'], { cwd: root });
+    const setupResult = await runTasksCli(['setup', '--skills'], { cwd: root });
     expect(JSON.parse(setupResult.stdout).map((entry: { target: string }) => entry.target)).toEqual(
       ['codex', 'claude', 'cursor'],
     );
 
-    const setupGitHooksResult = await runTasksCli(['setup-git-hooks'], {
+    const setupGitHooksResult = await runTasksCli(['setup', '--git-hooks'], {
       cwd: root,
       setupGitHooks: async (projectRoot: string) => ({
         configurationPath: join(projectRoot, 'lefthook.yml'),
@@ -282,7 +282,7 @@ describe('runTasksCli boundary commands', () => {
       install: null,
     });
 
-    const setupAgentHooksResult = await runTasksCli(['setup-agent-hooks'], {
+    const setupAgentHooksResult = await runTasksCli(['setup', '--agent-hooks'], {
       cwd: root,
       homeDirectory: root,
       setupAgentHooks: async () => ({
@@ -303,26 +303,29 @@ describe('runTasksCli boundary commands', () => {
       join(root, '.claude/settings.json'),
     );
 
-    const setupSubagentsResult = await runTasksCli(['setup-subagents', 'codex', '--global'], {
-      cwd: root,
-      homeDirectory: root,
-      setupSubagents: async (projectRoot, options) => ({
-        projectRoot,
-        scope: options?.scope ?? 'local',
-        providers: [
-          {
-            provider: options?.target === 'claude' ? 'claude' : 'codex',
-            path: join(projectRoot, '.codex/agents/scrumlord-task-manager.toml'),
-            changed: true,
-            settingsPath: null,
-            settingsChanged: false,
-          },
-        ],
-        skills: [],
-        warnings: options?.target ? [`target:${options.target}`] : [],
-      }),
-      which: () => '/bin/provider',
-    });
+    const setupSubagentsResult = await runTasksCli(
+      ['setup', '--subagents', '--agent', 'codex', '--user'],
+      {
+        cwd: root,
+        homeDirectory: root,
+        setupSubagents: async (projectRoot, options) => ({
+          projectRoot,
+          scope: options?.scope ?? 'local',
+          providers: [
+            {
+              provider: options?.target === 'claude' ? 'claude' : 'codex',
+              path: join(projectRoot, '.codex/agents/scrumlord-task-manager.toml'),
+              changed: true,
+              settingsPath: null,
+              settingsChanged: false,
+            },
+          ],
+          skills: [],
+          warnings: options?.target ? [`target:${options.target}`] : [],
+        }),
+        which: () => '/bin/provider',
+      },
+    );
     expect(JSON.parse(setupSubagentsResult.stdout)).toEqual({
       projectRoot: root,
       scope: 'global',
@@ -344,6 +347,12 @@ describe('runTasksCli boundary commands', () => {
       which: (executable) => (executable === 'tasks' ? '/bin/tasks' : null),
     });
     expect(JSON.parse(setupStatusResult.stdout).projectRoot).toBe(root);
+
+    const setupPromptResult = await runTasksCli(['setup', '--prompt'], { cwd: root });
+    expect(setupPromptResult.exitCode).toBe(0);
+    expect(setupPromptResult.stdout.startsWith('"')).toBe(false);
+    expect(setupPromptResult.stdout).toContain('tasks init');
+    expect(setupPromptResult.stdout.endsWith('\n')).toBe(true);
 
     const fullSetupResult = await runTasksCli(['setup', '--yes'], {
       cwd: root,

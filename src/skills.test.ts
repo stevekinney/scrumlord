@@ -55,13 +55,12 @@ describe('setupSkills', () => {
     expect(cursorSkill).toContain('tasks add-progress [task-id]');
     expect(cursorSkill).toContain('tasks start --cli codex');
     expect(cursorSkill).toContain('tasks resume');
-    expect(cursorSkill).toContain('tasks setup-agent-hooks');
+    expect(cursorSkill).toContain('tasks setup --agent-hooks');
     expect(cursorSkill).toContain('project_root_not_found');
     expect(cursorSkill).toContain('gh_not_found');
     expect(cursorSkill).toContain('pull_request_not_found');
-    expect(cursorSkill).toContain('tasks pr status');
+    expect(cursorSkill).toContain('tasks pr');
     expect(cursorSkill).toContain('readyToMerge');
-    expect(cursorSkill).toContain('tasks comments');
-    expect(cursorSkill).toContain('tasks ci');
+    expect(cursorSkill).toContain('tasks pr --comments');
   });
 });
