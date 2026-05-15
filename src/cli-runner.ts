@@ -96,15 +96,52 @@ const githubModule = async (options: CliOptions): Promise<NonNullable<CliOptions
   return { ...github, tasksOverview: overview.tasksOverview };
 };
 
+type PullRequestFlagRule = { when: boolean; message: string };
+
+const pullRequestFlagRules = (flags: ParsedArguments['flags']): PullRequestFlagRule[] => {
+  const url = flags.has('url');
+  const open = flags.has('open');
+  const comments = flags.has('comments');
+  const resolved = flags.has('resolved');
+  const all = flags.has('all');
+  const commentsLike = comments || resolved || all;
+  return [
+    {
+      when: url && (open || commentsLike),
+      message: '--url cannot be combined with other pr flags.',
+    },
+    {
+      when: open && commentsLike,
+      message: '--open cannot be combined with --comments / --resolved / --all.',
+    },
+    { when: (resolved || all) && !comments, message: '--resolved and --all require --comments.' },
+    { when: resolved && all, message: '--resolved and --all are mutually exclusive.' },
+  ];
+};
+
+const validatePullRequestFlags = (parsed: ParsedArguments): void => {
+  for (const rule of pullRequestFlagRules(parsed.flags)) {
+    if (rule.when) throw new ScrumlordError('pr_flag_conflict', rule.message);
+  }
+};
+
 const runPullRequestBoundaryCommand: BoundaryCommandHandler = async (parsed, options) => {
+  validatePullRequestFlags(parsed);
   const github = await githubModule(options);
   const root = await resolveProjectRoot(options.cwd);
-  const subcommand = parsed.positionals[0];
-  if (subcommand === 'status') return success(await github.pullRequestStatus(root));
-  if (subcommand) {
-    throw new ScrumlordError('unknown_command', `Unknown pull request command: pr ${subcommand}.`);
+  if (parsed.flags.has('url')) {
+    const result = await github.pullRequestUrl(root, false);
+    return rawString(result.url);
   }
-  return success(await github.pullRequestUrl(root, parsed.flags.has('open')));
+  if (parsed.flags.has('open')) {
+    return success(await github.pullRequestUrl(root, true));
+  }
+  if (parsed.flags.has('comments')) {
+    if (parsed.flags.has('all')) return success(await github.allReviewComments(root));
+    if (parsed.flags.has('resolved')) return success(await github.resolvedReviewComments(root));
+    return success(await github.unresolvedReviewComments(root));
+  }
+  return success(await github.pullRequestStatus(root));
 };
 
 const runRepositoryBoundaryCommand: BoundaryCommandHandler = async (parsed, options) => {
@@ -119,21 +156,6 @@ const runRepositoryBoundaryCommand: BoundaryCommandHandler = async (parsed, opti
   }
   if (parsed.flags.has('url')) return rawString(await github.repositoryUrl(root));
   return rawString(await github.repositoryName(root));
-};
-
-const runCommentsBoundaryCommand: BoundaryCommandHandler = async (_parsed, options) => {
-  const github = await githubModule(options);
-  const root = await resolveProjectRoot(options.cwd);
-  return success(await github.unresolvedReviewComments(root));
-};
-
-const runContinuousIntegrationBoundaryCommand: BoundaryCommandHandler = async (
-  _parsed,
-  options,
-) => {
-  const github = await githubModule(options);
-  const root = await resolveProjectRoot(options.cwd);
-  return success(await github.continuousIntegrationStatus(root));
 };
 
 const runSetupSkillsBoundaryCommand: BoundaryCommandHandler = async (parsed, options) => {
@@ -227,8 +249,6 @@ const boundaryCommandHandlers: Record<string, BoundaryCommandHandler> = {
   init: runInitBoundaryCommand,
   repository: runRepositoryBoundaryCommand,
   pr: runPullRequestBoundaryCommand,
-  comments: runCommentsBoundaryCommand,
-  ci: runContinuousIntegrationBoundaryCommand,
   'setup-skills': runSetupSkillsBoundaryCommand,
   setup: runSetupBoundaryCommand,
   'setup-subagents': runSetupSubagentsBoundaryCommand,

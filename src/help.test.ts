@@ -49,9 +49,6 @@ const expectedTopics = [
   'setup-agent-hooks',
   'agent-hook',
   'pr',
-  'pr status',
-  'comments',
-  'ci',
 ];
 
 describe('renderHelp', () => {
@@ -83,11 +80,6 @@ describe('renderHelp', () => {
   });
 
   it('renders nested command help', () => {
-    const help = renderHelp(['pr', 'status'], 'never');
-
-    expect(help).toContain('tasks pr status');
-    expect(help).toContain('readyToMerge');
-
     const setupStatusHelp = renderHelp(['setup', 'status'], 'never');
     expect(setupStatusHelp).toContain('tasks setup status');
     expect(setupStatusHelp).toContain('tasksExecutable');

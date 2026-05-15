@@ -110,6 +110,7 @@ describe('GitHub helper functions', () => {
         line: 123,
         body: 'Please summarize failed checks.',
         author: 'reviewer',
+        isResolved: false,
       },
     ]);
     expect(await continuousIntegrationStatus(root, options)).toEqual([

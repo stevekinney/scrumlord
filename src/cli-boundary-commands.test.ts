@@ -173,21 +173,57 @@ describe('runTasksCli boundary commands', () => {
         ];
       },
       async unresolvedReviewComments(projectRoot: string) {
-        githubCalls.push(`comments:${projectRoot}`);
-        return [reviewComment];
+        githubCalls.push(`comments:unresolved:${projectRoot}`);
+        return [{ ...reviewComment, isResolved: false }];
       },
-      async continuousIntegrationStatus(projectRoot: string) {
-        githubCalls.push(`ci:${projectRoot}`);
-        return [check];
+      async resolvedReviewComments(projectRoot: string) {
+        githubCalls.push(`comments:resolved:${projectRoot}`);
+        return [{ ...reviewComment, isResolved: true }];
+      },
+      async allReviewComments(projectRoot: string) {
+        githubCalls.push(`comments:all:${projectRoot}`);
+        return [{ ...reviewComment, isResolved: false }];
       },
     };
 
-    const pullRequestResult = await runTasksCli(['pr', '--open'], { cwd: root, github });
-    expect(JSON.parse(pullRequestResult.stdout)).toEqual({ url: 'https://github.test/pull/1' });
+    const pullRequestOpenResult = await runTasksCli(['pr', '--open'], { cwd: root, github });
+    expect(JSON.parse(pullRequestOpenResult.stdout)).toEqual({ url: 'https://github.test/pull/1' });
     expect(githubCalls).toContain(`url:${root}:true`);
-    const pullRequestStatusResult = await runTasksCli(['pr', 'status'], { cwd: root, github });
-    expect(JSON.parse(pullRequestStatusResult.stdout).readyToMerge).toBe(true);
+    const pullRequestOverviewResult = await runTasksCli(['pr'], { cwd: root, github });
+    expect(JSON.parse(pullRequestOverviewResult.stdout).readyToMerge).toBe(true);
     expect(githubCalls).toContain(`status:${root}`);
+    const pullRequestUrlResult = await runTasksCli(['pr', '--url'], { cwd: root, github });
+    expect(pullRequestUrlResult.stdout).toBe('https://github.test/pull/1\n');
+    expect(githubCalls).toContain(`url:${root}:false`);
+    const pullRequestCommentsResult = await runTasksCli(['pr', '--comments'], {
+      cwd: root,
+      github,
+    });
+    expect(JSON.parse(pullRequestCommentsResult.stdout)).toEqual([
+      { ...reviewComment, isResolved: false },
+    ]);
+    expect(githubCalls).toContain(`comments:unresolved:${root}`);
+    const pullRequestResolvedCommentsResult = await runTasksCli(
+      ['pr', '--comments', '--resolved'],
+      { cwd: root, github },
+    );
+    expect(JSON.parse(pullRequestResolvedCommentsResult.stdout)).toEqual([
+      { ...reviewComment, isResolved: true },
+    ]);
+    expect(githubCalls).toContain(`comments:resolved:${root}`);
+    const pullRequestAllCommentsResult = await runTasksCli(['pr', '--comments', '--all'], {
+      cwd: root,
+      github,
+    });
+    expect(JSON.parse(pullRequestAllCommentsResult.stdout)).toEqual([
+      { ...reviewComment, isResolved: false },
+    ]);
+    expect(githubCalls).toContain(`comments:all:${root}`);
+    const pullRequestFlagConflictResult = await runTasksCli(['pr', '--url', '--comments'], {
+      cwd: root,
+      github,
+    });
+    expect(JSON.parse(pullRequestFlagConflictResult.stderr).error.code).toBe('pr_flag_conflict');
     const repositoryResult = await runTasksCli(['repository'], { cwd: root, github });
     expect(repositoryResult.stdout).toBe('owner/repository\n');
     expect(githubCalls).toContain(`repository:${root}`);
@@ -219,13 +255,6 @@ describe('runTasksCli boundary commands', () => {
     expect(JSON.parse(overviewResult.stdout)[0].pullRequest.number).toBe(1);
     expect(githubCalls).toContain('overview:/project');
     expect(overviewCalls).toEqual(['close']);
-    const commentsResult = await runTasksCli(['comments'], { cwd: root, github });
-    expect(JSON.parse(commentsResult.stdout)).toEqual([reviewComment]);
-    expect(githubCalls).toContain(`comments:${root}`);
-    const continuousIntegrationResult = await runTasksCli(['ci'], { cwd: root, github });
-    expect(JSON.parse(continuousIntegrationResult.stdout)).toEqual([check]);
-    expect(githubCalls).toContain(`ci:${root}`);
-
     const initResult = await runTasksCli(['init'], {
       cwd: root,
       initializeProject: async (options) => ({ initialized: true, cwd: options.cwd }),

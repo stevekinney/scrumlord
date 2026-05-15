@@ -353,11 +353,11 @@ describe('runTasksCli', () => {
     expect(setStatusHelp.stdout).toContain('tasks set-status [task-id] <status>');
     expect(setStatusHelp.stdout).toContain('draft, ready, in-progress, in-review, or completed');
 
-    const pullRequestStatusHelp = await runTasksCli(['pr', 'status', '--help'], {
+    const pullRequestHelp = await runTasksCli(['pr', '--help'], {
       colorMode: 'never',
     });
-    expect(pullRequestStatusHelp.stdout).toContain('tasks pr status');
-    expect(pullRequestStatusHelp.stdout).toContain('readyToMerge');
+    expect(pullRequestHelp.stdout).toContain('tasks pr');
+    expect(pullRequestHelp.stdout).toContain('readyToMerge');
 
     const setupStatusHelp = await runTasksCli(['setup', 'status', '--help'], {
       colorMode: 'never',
@@ -395,11 +395,10 @@ describe('runTasksCli', () => {
     const unknownCommandResult = await runTasksCli(['unknown'], { createStore });
     expect(JSON.parse(unknownCommandResult.stderr).error.code).toBe('unknown_command');
 
-    const unknownPullRequestCommandResult = await runTasksCli(['pr', 'checks'], { createStore });
-    expect(JSON.parse(unknownPullRequestCommandResult.stderr).error).toEqual({
-      code: 'unknown_command',
-      message: 'Unknown pull request command: pr checks.',
-    });
+    const unknownPullRequestPositionalResult = await runTasksCli(['pr', 'checks'], { createStore });
+    expect(JSON.parse(unknownPullRequestPositionalResult.stderr).error.code).toBe(
+      'unexpected_argument',
+    );
 
     const missingTitleResult = await runTasksCli(['create'], { createStore });
     expect(JSON.parse(missingTitleResult.stderr).error.code).toBe('missing_title');

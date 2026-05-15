@@ -40,6 +40,8 @@ export type ReviewComment = {
   line: number | null;
   body: string;
   author: string | null;
+  /** True when the parent review thread is resolved. */
+  isResolved: boolean;
 };
 
 export type PullRequestStatusReport = {
@@ -133,7 +135,7 @@ const numberOrNull = (value: unknown): number | null => {
   return typeof value === 'number' ? value : null;
 };
 
-const reviewCommentFrom = (value: unknown): ReviewComment | undefined => {
+const reviewCommentFrom = (value: unknown, isResolved: boolean): ReviewComment | undefined => {
   if (!isRecord(value) || typeof value['id'] !== 'string') return undefined;
   const author = nestedRecord(value, 'author');
   return {
@@ -143,10 +145,20 @@ const reviewCommentFrom = (value: unknown): ReviewComment | undefined => {
     line: numberOrNull(value['line']),
     body: typeof value['body'] === 'string' ? value['body'] : '',
     author: stringOrNull(author?.['login']),
+    isResolved,
   };
 };
 
-const unresolvedCommentsFrom = (response: unknown): ReviewComment[] => {
+/** Filter applied to review threads when parsing the GraphQL response. */
+export type ReviewCommentFilter = 'unresolved' | 'resolved' | 'all';
+
+const includeThread = (filter: ReviewCommentFilter, isResolved: boolean): boolean => {
+  if (filter === 'unresolved') return isResolved === false;
+  if (filter === 'resolved') return isResolved === true;
+  return true;
+};
+
+const reviewCommentsFrom = (response: unknown, filter: ReviewCommentFilter): ReviewComment[] => {
   const data = isRecord(response) ? nestedRecord(response, 'data') : undefined;
   const repository = nestedRecord(data, 'repository');
   const pullRequest = nestedRecord(repository, 'pullRequest');
@@ -155,12 +167,14 @@ const unresolvedCommentsFrom = (response: unknown): ReviewComment[] => {
   if (!Array.isArray(nodes)) return [];
 
   return nodes.flatMap((thread) => {
-    if (!isRecord(thread) || thread['isResolved'] !== false) return [];
+    if (!isRecord(thread)) return [];
+    const isResolved = thread['isResolved'] === true;
+    if (!includeThread(filter, isResolved)) return [];
     const comments = nestedRecord(thread, 'comments');
     if (!Array.isArray(comments?.['nodes'])) return [];
     return comments['nodes'].flatMap((comment) => {
-      const parsedComment = reviewCommentFrom(comment);
-      return parsedComment ? [parsedComment] : [];
+      const parsed = reviewCommentFrom(comment, isResolved);
+      return parsed ? [parsed] : [];
     });
   });
 };
@@ -295,7 +309,7 @@ export const reviewCommentsForPullRequest = async (
   projectRoot: string,
   repository: string,
   pullRequest: PullRequest,
-  options?: GitHubOptions,
+  options?: GitHubOptions & { filter?: ReviewCommentFilter },
 ): Promise<ReviewComment[]> => {
   const { owner, name } = repositoryParts(repository);
   const query = `
@@ -340,7 +354,10 @@ export const reviewCommentsForPullRequest = async (
   );
   if (result.exitCode !== 0)
     throw new ScrumlordError('review_comments_failed', result.stderr.trim());
-  return unresolvedCommentsFrom(parseGhJson(result.stdout, 'gh api graphql'));
+  return reviewCommentsFrom(
+    parseGhJson(result.stdout, 'gh api graphql'),
+    options?.filter ?? 'unresolved',
+  );
 };
 
 export const checksForPullRequest = async (
@@ -458,14 +475,33 @@ export const pullRequestUrl = async (
   return { url: pullRequest.url };
 };
 
-export const unresolvedReviewComments = async (
+const reviewCommentsByFilter = async (
   projectRoot: string,
+  filter: ReviewCommentFilter,
   options?: GitHubOptions,
 ): Promise<ReviewComment[]> => {
   const pullRequest = await currentPullRequest(projectRoot, options);
   const repository = await repositoryName(projectRoot, options);
-  return await reviewCommentsForPullRequest(projectRoot, repository, pullRequest, options);
+  return await reviewCommentsForPullRequest(projectRoot, repository, pullRequest, {
+    ...options,
+    filter,
+  });
 };
+
+export const unresolvedReviewComments = (
+  projectRoot: string,
+  options?: GitHubOptions,
+): Promise<ReviewComment[]> => reviewCommentsByFilter(projectRoot, 'unresolved', options);
+
+export const resolvedReviewComments = (
+  projectRoot: string,
+  options?: GitHubOptions,
+): Promise<ReviewComment[]> => reviewCommentsByFilter(projectRoot, 'resolved', options);
+
+export const allReviewComments = (
+  projectRoot: string,
+  options?: GitHubOptions,
+): Promise<ReviewComment[]> => reviewCommentsByFilter(projectRoot, 'all', options);
 
 export const continuousIntegrationStatus = async (
   projectRoot: string,
@@ -484,6 +520,7 @@ export const pullRequestStatus = async (
   projectRoot: string,
   options?: GitHubOptions & { pullRequestNumber?: number },
 ): Promise<PullRequestStatusReport> => {
+  await requireGh(projectRoot, options);
   const repository = await repositoryName(projectRoot, options);
   const pullRequest = options?.pullRequestNumber
     ? await pullRequestDetails(projectRoot, repository, options.pullRequestNumber, options)

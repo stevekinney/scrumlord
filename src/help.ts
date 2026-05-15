@@ -597,36 +597,24 @@ const topics: HelpTopic[] = [
   },
   {
     path: ['pr'],
-    summary: 'Show the current branch pull request URL.',
-    usage: 'tasks pr [--url|--open]',
-    description: 'Finds the open pull request for the current branch using gh.',
-    options: [
-      { name: '--url', description: 'Print the pull request URL. This is the default.' },
-      { name: '--open', description: 'Open the pull request URL in the system browser.' },
-    ],
-    examples: ['tasks pr', 'tasks pr --open'],
-  },
-  {
-    path: ['pr', 'status'],
-    summary: 'Report current pull request readiness.',
-    usage: 'tasks pr status',
+    summary: 'Show pull request status, URL, or review comments.',
+    usage: 'tasks pr [--url|--open|--comments [--resolved|--all]]',
     description:
-      'Reports unresolved review comments, pending checks, failed checks, and readyToMerge for the current branch pull request.',
-    examples: ['tasks pr status'],
-  },
-  {
-    path: ['comments'],
-    summary: 'List unresolved pull request review comments.',
-    usage: 'tasks comments',
-    description: 'Returns unresolved review comments for the current branch pull request.',
-    examples: ['tasks comments'],
-  },
-  {
-    path: ['ci'],
-    summary: 'Show pull request check status.',
-    usage: 'tasks ci',
-    description: 'Returns gh pull request check status for the current branch pull request.',
-    examples: ['tasks ci'],
+      'Returns the full PR readiness report by default (PR metadata, checks, review comments with bodies, readyToMerge). --url returns the URL as a raw string; --open launches the browser; --comments returns unresolved review comments (with --resolved or --all to filter the thread state). Each review comment includes its body and an isResolved boolean.',
+    options: [
+      { name: '--url', description: 'Return the pull request URL as a raw string.' },
+      { name: '--open', description: 'Open the pull request URL in the system browser.' },
+      { name: '--comments', description: 'Return review comments instead of the full report.' },
+      {
+        name: '--resolved',
+        description: 'With --comments, return resolved review comments only.',
+      },
+      {
+        name: '--all',
+        description: 'With --comments, return every review comment regardless of thread state.',
+      },
+    ],
+    examples: ['tasks pr', 'tasks pr --url', 'tasks pr --comments', 'tasks pr --comments --all'],
   },
 ];
 

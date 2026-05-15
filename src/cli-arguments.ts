@@ -44,9 +44,11 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   next: noPositionals,
   remaining: noPositionals,
   repository: { ...noPositionals, booleanFlags: ['url', 'json'] },
-  pr: { minPositionals: 0, maxPositionals: 1, booleanFlags: ['open', 'url'] },
-  comments: noPositionals,
-  ci: noPositionals,
+  pr: {
+    minPositionals: 0,
+    maxPositionals: 0,
+    booleanFlags: ['open', 'url', 'comments', 'resolved', 'all'],
+  },
   get: optionalTaskId,
   tagged: { minPositionals: 1, booleanFlags: ['all', ...listingBooleanFlags] },
   'with-branch': onePositionalTaskListingCommandSpecification,
@@ -202,7 +204,6 @@ export const isHelpRequest = (parsed: ParsedArguments): boolean => {
 
 export const helpPath = (parsed: ParsedArguments): string[] => {
   if (parsed.command === 'help') return parsed.positionals;
-  if (parsed.command === 'pr' && parsed.positionals[0] === 'status') return ['pr', 'status'];
   if (parsed.command === 'setup' && parsed.positionals[0] === 'status') return ['setup', 'status'];
   return [parsed.command ?? ''];
 };

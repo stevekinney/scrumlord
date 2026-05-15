@@ -1,7 +1,7 @@
 import type { AgentInvocation } from './agent-providers.js';
 import type { ColorMode } from './color.js';
 import type { CommandRunner } from './command-runner.js';
-import type { PullRequestCheck, PullRequestStatusReport, ReviewComment } from './github.js';
+import type { PullRequestStatusReport, ReviewComment } from './github.js';
 import type { InitializeProjectOptions } from './init.js';
 import type { SetupAgentHooksOptions, SetupAgentHooksResult } from './agent-hooks.js';
 import type { SetupGitHooksResult } from './git-hooks.js';
@@ -45,6 +45,7 @@ export type CliOptions = {
     pullRequestStatus(projectRoot: string): Promise<PullRequestStatusReport>;
     tasksOverview(store: TaskStore): Promise<PullRequestOverviewItem[]>;
     unresolvedReviewComments(projectRoot: string): Promise<ReviewComment[]>;
-    continuousIntegrationStatus(projectRoot: string): Promise<PullRequestCheck[]>;
+    resolvedReviewComments(projectRoot: string): Promise<ReviewComment[]>;
+    allReviewComments(projectRoot: string): Promise<ReviewComment[]>;
   };
 };

@@ -252,7 +252,7 @@ exit 1
 `,
     );
 
-    const result = await runCli(root, bin, ['pr', 'status']);
+    const result = await runCli(root, bin, ['pr']);
 
     expect(result.exitCode).toBe(0);
     const report = JSON.parse(result.stdout);
@@ -308,7 +308,7 @@ exit 1
 `,
     );
 
-    const result = await runCli(root, bin, ['pr', 'status']);
+    const result = await runCli(root, bin, ['pr']);
 
     expect(result.exitCode).toBe(0);
     const report = JSON.parse(result.stdout);
@@ -323,6 +323,7 @@ exit 1
         line: 123,
         body: 'Please summarize failed checks.',
         author: 'reviewer',
+        isResolved: false,
       },
     ]);
     expect(report.continuousIntegration.allGreen).toBe(false);
@@ -380,7 +381,7 @@ exit 1
 `,
     );
 
-    const result = await runCli(root, bin, ['pr', 'status']);
+    const result = await runCli(root, bin, ['pr']);
 
     expect(result.exitCode).toBe(1);
     expect(JSON.parse(result.stderr).error).toEqual({
@@ -408,7 +409,7 @@ exit 1
 `,
     );
 
-    const result = await runCli(root, bin, ['comments']);
+    const result = await runCli(root, bin, ['pr', '--comments']);
 
     expect(result.exitCode).toBe(1);
     expect(JSON.parse(result.stderr).error).toEqual({
