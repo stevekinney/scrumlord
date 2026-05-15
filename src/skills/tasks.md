@@ -13,7 +13,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 - Use `tasks setup --yes` for the default full setup when the user wants Scrumlord initialized for installed providers. Use `tasks setup --codex` or `tasks setup --claude` only when the user wants that CLI launched after setup.
 - Use `tasks setup-subagents` to install the `scrumlord-task-manager` subagent for installed providers. Use `tasks setup-subagents codex`, `tasks setup-subagents claude`, or `tasks setup-subagents --all` when a provider is explicit.
 - Use `tasks --help` or `tasks <command> --help` when you need the current command syntax. Help output is colorized for humans; data output stays parseable JSON.
-- If you need the task for the current branch and do not already have a task ID, run `tasks current-task` before falling back to `tasks next`.
+- If you need the task for the current branch and do not already have a task ID, run `tasks current` before falling back to `tasks next`.
 - Commands whose first positional argument is a task ID can omit it when exactly one active task is assigned to the current Git branch. Prefer omitted IDs for branch-local work once the branch is assigned; pass an explicit ID when operating on another task or when `current_task_ambiguous` is possible.
 - Prefer `tasks available` or `tasks next` before choosing new work.
 - Use `tasks list` before decomposing a long document or checklist so you can avoid duplicating existing tasks. Use `tasks list --all` only when archived or deleted tasks matter.
@@ -42,7 +42,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 
 - When you begin work on a `draft` or `ready` task, record the branch:
   `tasks set-branch [task-id] "$(git branch --show-current)"`.
-- If an agent session loses its task ID, recover it with `tasks current-task`. If that returns `current_task_ambiguous`, inspect `tasks with-branch "$(git branch --show-current)"` and choose explicitly.
+- If an agent session loses its task ID, recover it with `tasks current`. If that returns `current_task_ambiguous`, inspect `tasks with-branch "$(git branch --show-current)"` and choose explicitly.
 - After planning, substantial implementation steps, blocker discovery, and handoffs, append a progress note:
   `tasks add-progress --message "Wrote the failing regression test"`.
 - When GitHub has an open pull request whose head branch matches the task branch, `tasks sync-git-status` and `tasks overview` move the task to `in-review`.
@@ -73,7 +73,7 @@ tasks --help
 tasks create --help
 tasks init
 tasks next
-tasks current-task
+tasks current
 tasks list
 tasks remaining
 tasks session

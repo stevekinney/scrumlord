@@ -207,9 +207,8 @@ describe('runTasksCli', () => {
       ['blocked'],
       ['completed'],
       ['get', 'task-id'],
-      ['with-tag', 'frontend'],
-      ['with-all-tags', 'frontend', 'backend'],
-      ['with-any-tag', 'frontend', 'backend'],
+      ['tagged', 'frontend'],
+      ['tagged', 'frontend', 'backend', '--all'],
       ['with-branch', 'feature/task-graph'],
       ['blocked-by', 'task-id'],
       ['blocking', 'task-id'],
@@ -481,10 +480,10 @@ describe('runTasksCli', () => {
       message: 'get expects at most 1 argument.',
     });
 
-    const missingVariadicArgumentResult = await runTasksCli(['with-all-tags'], { createStore });
+    const missingVariadicArgumentResult = await runTasksCli(['tagged'], { createStore });
     expect(JSON.parse(missingVariadicArgumentResult.stderr).error).toEqual({
       code: 'missing_argument',
-      message: 'with-all-tags expects at least 1 argument.',
+      message: 'tagged expects at least 1 argument.',
     });
 
     const invalidCleanupResult = await runTasksCli(['cleanup', '1.5'], { createStore });

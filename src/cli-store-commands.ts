@@ -38,7 +38,6 @@ import {
   tasksWithAnyTags,
   tasksWithBranch,
   tasksWithPriority,
-  tasksWithTag,
   updateTask,
 } from './task-commands.js';
 import { next, remaining } from './task-queries.js';
@@ -58,9 +57,7 @@ const taskListingCommands = new Set([
   'list',
   'blocked',
   'completed',
-  'with-tag',
-  'with-all-tags',
-  'with-any-tag',
+  'tagged',
   'with-branch',
   'blocked-by',
   'blocking',
@@ -211,12 +208,13 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
   blocked: (store, parsed) => blockedTasks(store, taskListingResultOptionsFrom(parsed)),
   completed: (store, parsed) => completedTasks(store, taskListingResultOptionsFrom(parsed)),
   get: async (store, parsed) => getTask(store, await taskIdFromArguments(store, parsed)),
-  'with-tag': (store, parsed) =>
-    tasksWithTag(store, required(parsed.positionals, 'tag'), taskListingResultOptionsFrom(parsed)),
-  'with-all-tags': (store, parsed) =>
-    tasksWithAllTags(store, taskListingResultOptionsFrom(parsed), ...parsed.positionals),
-  'with-any-tag': (store, parsed) =>
-    tasksWithAnyTags(store, taskListingResultOptionsFrom(parsed), ...parsed.positionals),
+  tagged: (store, parsed) => {
+    const options = taskListingResultOptionsFrom(parsed);
+    if (parsed.flags.has('all')) {
+      return tasksWithAllTags(store, options, ...parsed.positionals);
+    }
+    return tasksWithAnyTags(store, options, ...parsed.positionals);
+  },
   'with-branch': (store, parsed) =>
     tasksWithBranch(
       store,
@@ -254,7 +252,7 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
       options.environment ? { environment: options.environment } : {},
     ),
   progress: async (store, parsed) => taskProgress(store, await taskIdFromArguments(store, parsed)),
-  'current-task': async (store) => await currentBranchTask(store),
+  current: async (store) => await currentBranchTask(store),
   next: (store) => next(store),
   remaining: (store) => remaining(store),
   create: (store, parsed) => createTask(store, createInputFromFlags(parsed.flags)),

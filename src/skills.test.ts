@@ -37,7 +37,7 @@ describe('setupSkills', () => {
     const cursorSkill = await Bun.file(join(root, '.cursor/rules/tasks.md')).text();
     expect(cursorSkill).toContain('tasks init');
     expect(cursorSkill).toContain('tasks next');
-    expect(cursorSkill).toContain('tasks current-task');
+    expect(cursorSkill).toContain('tasks current');
     expect(cursorSkill).toContain('tasks remaining');
     expect(cursorSkill).toContain('Scrumlord priorities are only `1`, `2`, and `3`');
     expect(cursorSkill).toContain('build a candidate graph');

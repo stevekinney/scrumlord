@@ -101,12 +101,12 @@ const topics: HelpTopic[] = [
     examples: ['tasks completed'],
   },
   {
-    path: ['current-task'],
+    path: ['current'],
     summary: 'Return the task assigned to the current branch.',
-    usage: 'tasks current-task',
+    usage: 'tasks current',
     description:
       'Resolves the current Git branch and returns its single active task. Returns null when no active task is assigned, and fails when multiple active tasks match.',
-    examples: ['tasks current-task'],
+    examples: ['tasks current'],
   },
   {
     path: ['next'],
@@ -245,31 +245,17 @@ const topics: HelpTopic[] = [
     examples: ['tasks get', 'tasks get 8f7d6a'],
   },
   {
-    path: ['with-tag'],
-    summary: 'List tasks with one tag.',
-    usage: 'tasks with-tag <tag> [--planned|--unplanned] [--count]',
-    description: 'Returns tasks containing the normalized tag.',
-    arguments: ['<tag>: Tag to match.'],
-    options: taskListingOptions,
-    examples: ['tasks with-tag testing'],
-  },
-  {
-    path: ['with-all-tags'],
-    summary: 'List tasks containing every supplied tag.',
-    usage: 'tasks with-all-tags <tag...> [--planned|--unplanned] [--count]',
-    description: 'Returns tasks that contain all provided tags.',
+    path: ['tagged'],
+    summary: 'List tasks by tag.',
+    usage: 'tasks tagged <tag...> [--all] [--planned|--unplanned] [--count]',
+    description:
+      'Returns tasks that contain any of the supplied tags by default, or tasks that contain every supplied tag when --all is set.',
     arguments: ['<tag...>: One or more tags.'],
-    options: taskListingOptions,
-    examples: ['tasks with-all-tags frontend testing'],
-  },
-  {
-    path: ['with-any-tag'],
-    summary: 'List tasks containing any supplied tag.',
-    usage: 'tasks with-any-tag <tag...> [--planned|--unplanned] [--count]',
-    description: 'Returns tasks that contain at least one provided tag.',
-    arguments: ['<tag...>: One or more tags.'],
-    options: taskListingOptions,
-    examples: ['tasks with-any-tag frontend backend'],
+    options: [
+      { name: '--all', description: 'Require every supplied tag instead of any.' },
+      ...taskListingOptions,
+    ],
+    examples: ['tasks tagged frontend backend', 'tasks tagged frontend backend --all'],
   },
   {
     path: ['with-branch'],

@@ -35,7 +35,7 @@ afterEach(async () => {
   );
 });
 
-describe('tasks current-task', () => {
+describe('tasks current', () => {
   it('returns the active task assigned to the current Git branch', async () => {
     const root = await workspaceRoot();
     await runTasksCli(['create', '--title', 'Other task', '--branch', 'feature/other'], {
@@ -45,7 +45,7 @@ describe('tasks current-task', () => {
       cwd: root,
     });
 
-    const result = await runTasksCli(['current-task'], { cwd: root });
+    const result = await runTasksCli(['current'], { cwd: root });
     expect(JSON.parse(result.stdout)).toMatchObject({
       title: 'Current task',
       branch: 'feature/current-task',
@@ -53,7 +53,7 @@ describe('tasks current-task', () => {
   });
 
   it('returns null when no active task is assigned to the current Git branch', async () => {
-    const result = await runTasksCli(['current-task'], { cwd: await workspaceRoot() });
+    const result = await runTasksCli(['current'], { cwd: await workspaceRoot() });
 
     expect(JSON.parse(result.stdout)).toBeNull();
   });
@@ -67,7 +67,7 @@ describe('tasks current-task', () => {
       cwd: root,
     });
 
-    const result = await runTasksCli(['current-task'], { cwd: root });
+    const result = await runTasksCli(['current'], { cwd: root });
     expect(JSON.parse(result.stderr).error).toEqual({
       code: 'current_task_ambiguous',
       message: expect.stringContaining('Current branch matches multiple active tasks:'),

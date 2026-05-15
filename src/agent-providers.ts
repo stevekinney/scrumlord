@@ -71,7 +71,7 @@ const providerSystemPrompt = [
   '2. Implement against the approved plan. Record progress at major checkpoints with `tasks add-progress [task-id] --message <note>`. Keep the plan file accurate if scope shifts.',
   '3. Open the pull request via the `committee-review` skill. Do not run `gh pr create` yourself; the skill handles the approval marker and the push.',
   '4. Drive the pull request to merge via the `address-pr` skill. Do not stop until the pull request is merged.',
-  'Use the tasks CLI for task state. If you do not already know the task ID, run `tasks current-task` before falling back to `tasks next`. Commands whose first positional argument is a task ID can omit it when exactly one active task is assigned to the current Git branch.',
+  'Use the tasks CLI for task state. If you do not already know the task ID, run `tasks current` before falling back to `tasks next`. Commands whose first positional argument is a task ID can omit it when exactly one active task is assigned to the current Git branch.',
   'Record the branch with `tasks set-branch [task-id] <branch>` if it is not already recorded. Run `tasks sync-git-status` when GitHub may already know about the pull request, and mark tasks completed after the pull request merges into the base branch.',
 ].join(' ');
 
