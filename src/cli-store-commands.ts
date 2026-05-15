@@ -323,7 +323,8 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
       await taskIdFromArguments(store, parsed, 1),
       requiredTaskCommandArgument(parsed, 1, 'blocked-by task id'),
     ),
-  cleanup: (store, parsed) => cleanupTasks(store, cleanupDaysFrom(parsed)),
+  cleanup: (store, parsed) =>
+    cleanupTasks(store, cleanupDaysFrom(parsed), { hard: parsed.flags.has('hard') }),
 };
 
 export const taskStoreCommands = new Set(Object.keys(storeCommandHandlers));

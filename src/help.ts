@@ -485,11 +485,17 @@ const topics: HelpTopic[] = [
   {
     path: ['cleanup'],
     summary: 'Remove old completed or soft-deleted tasks.',
-    usage: 'tasks cleanup <days>',
+    usage: 'tasks cleanup <days> [--hard]',
     description:
-      'Soft-deletes aged completed tasks by default, or physically removes completed and soft-deleted tasks (with FK cascades) when --hard is supplied. The age cutoff is the supplied number of days.',
+      'Soft-deletes aged completed tasks by default (sets deleted=1 and clears their dependency edges, touching surviving neighbors). With --hard, physically removes completed and soft-deleted tasks via FK cascades, also touching surviving neighbors.',
     arguments: ['<days>: Non-negative integer age threshold.'],
-    examples: ['tasks cleanup 30'],
+    options: [
+      {
+        name: '--hard',
+        description: 'Physically remove matching tasks and cascade related rows.',
+      },
+    ],
+    examples: ['tasks cleanup 30', 'tasks cleanup 30 --hard'],
   },
   {
     path: ['sync-git-status'],

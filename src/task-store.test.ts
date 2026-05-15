@@ -555,6 +555,49 @@ describe('createTaskStore', () => {
     store.close();
   });
 
+  it('soft cleanup clears dependency edges and touches surviving neighbors', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    let currentDate = new Date('2026-01-01T00:00:00.000Z');
+    const store = await createTaskStore({ cwd: root, now: () => currentDate });
+    const blocker = store.create({
+      id: 'aged',
+      title: 'Aged',
+      status: 'completed',
+    });
+    const downstream = store.create({ id: 'downstream', title: 'Downstream' });
+    store.addBlocker(downstream.id, blocker.id);
+
+    currentDate = new Date('2026-05-11T00:00:00.000Z');
+    const downstreamBefore = store.getTask(downstream.id)!.lastModifiedAt;
+    expect(store.cleanup(30)).toEqual({ deleted: 1 });
+    expect(store.getTask(blocker.id)?.deleted).toBe(true);
+    expect(store.blockedBy(downstream.id)).toEqual([]);
+    expect(store.getTask(downstream.id)!.lastModifiedAt).not.toBe(downstreamBefore);
+
+    store.close();
+  });
+
+  it('hard cleanup removes rows via cascade and touches surviving neighbors', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    let currentDate = new Date('2026-01-01T00:00:00.000Z');
+    const store = await createTaskStore({ cwd: root, now: () => currentDate });
+    const aged = store.create({ id: 'aged', title: 'Aged', status: 'completed' });
+    const downstream = store.create({ id: 'downstream', title: 'Downstream' });
+    store.addBlocker(downstream.id, aged.id);
+
+    currentDate = new Date('2026-05-11T00:00:00.000Z');
+    const downstreamBefore = store.getTask(downstream.id)!.lastModifiedAt;
+    store.cleanup(30, { hard: true });
+    expect(store.getTask(aged.id)).toBeNull();
+    expect(store.getTask(downstream.id)).not.toBeNull();
+    expect(store.blockedBy(downstream.id)).toEqual([]);
+    expect(store.getTask(downstream.id)!.lastModifiedAt).not.toBe(downstreamBefore);
+
+    store.close();
+  });
+
   it('hard delete removes the row and touches surviving neighbors via FK cascade', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);

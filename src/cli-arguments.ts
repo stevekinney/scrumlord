@@ -81,7 +81,7 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   'clear-plan': optionalTaskId,
   'set-session': optionalTaskIdWithTwoArguments,
   'clear-session': optionalTaskId,
-  cleanup: onePositional,
+  cleanup: { ...onePositional, booleanFlags: ['hard'] },
   create: {
     ...noPositionals,
     valueFlags: [

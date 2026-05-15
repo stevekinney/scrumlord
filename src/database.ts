@@ -380,26 +380,97 @@ export class SqliteTaskStore implements TaskStore {
         'Cleanup days must be a non-negative integer.',
       );
     }
-
+    const now = this.#now().toISOString();
     const cutoff = new Date(this.#now().getTime() - days * 24 * 60 * 60 * 1000).toISOString();
-    if (options.hard) {
-      const result = this.#database
+    return options.hard ? this.runHardCleanup(cutoff, now) : this.runSoftCleanup(cutoff, now);
+  }
+
+  private affectedNeighbors(targetIds: Set<TaskIdentifier>): TaskIdentifier[] {
+    if (targetIds.size === 0) return [];
+    const ids = [...targetIds];
+    const params = ids.map((_id, index) => `$id${index}`).join(', ');
+    const bindings: QueryBindings = {};
+    ids.forEach((id, index) => {
+      bindings[`id${index}`] = id;
+    });
+    const rows = this.#database
+      .query<{ neighbor: string }, QueryBindings>(
+        `SELECT DISTINCT blocked_by_task_id AS neighbor FROM task_dependencies WHERE task_id IN (${params})
+         UNION
+         SELECT DISTINCT task_id AS neighbor FROM task_dependencies WHERE blocked_by_task_id IN (${params})`,
+      )
+      .all(bindings);
+    return rows.map((row) => row.neighbor).filter((neighbor) => !targetIds.has(neighbor));
+  }
+
+  private runSoftCleanup(cutoff: string, now: string): { deleted: number } {
+    let deleted = 0;
+    const transaction = this.#database.transaction(() => {
+      const targets = new Set(
+        this.#database
+          .query<{ id: string }, QueryBindings>(
+            `SELECT id FROM tasks
+             WHERE status = 'completed' AND deleted = 0 AND last_modified_at < $cutoff`,
+          )
+          .all({ cutoff })
+          .map((row) => row.id),
+      );
+      if (targets.size === 0) return;
+      deleted = targets.size;
+      const neighbors = this.affectedNeighbors(targets);
+      for (const id of targets) {
+        this.#database
+          .query<
+            unknown,
+            QueryBindings
+          >('DELETE FROM task_dependencies WHERE task_id = $id OR blocked_by_task_id = $id')
+          .run({ id });
+      }
+      this.#database
+        .query<unknown, QueryBindings>(
+          `UPDATE tasks SET deleted = 1, last_modified_at = $now
+           WHERE id IN (${[...targets].map((_id, index) => `$id${index}`).join(', ')})`,
+        )
+        .run(
+          [...targets].reduce<QueryBindings>(
+            (bindings, id, index) => {
+              bindings[`id${index}`] = id;
+              return bindings;
+            },
+            { now } satisfies QueryBindings,
+          ),
+        );
+      for (const id of neighbors) this.touchAt(id, now);
+    });
+    transaction();
+    return { deleted };
+  }
+
+  private runHardCleanup(cutoff: string, now: string): { deleted: number } {
+    let deleted = 0;
+    const transaction = this.#database.transaction(() => {
+      const targets = new Set(
+        this.#database
+          .query<{ id: string }, QueryBindings>(
+            `SELECT id FROM tasks
+             WHERE (status = 'completed' OR deleted = 1) AND last_modified_at < $cutoff`,
+          )
+          .all({ cutoff })
+          .map((row) => row.id),
+      );
+      if (targets.size === 0) return;
+      deleted = targets.size;
+      const neighbors = this.affectedNeighbors(targets);
+      this.#database
         .query<unknown, QueryBindings>(
           `DELETE FROM tasks
-           WHERE (status = 'completed' OR deleted = 1)
-             AND last_modified_at < $cutoff`,
+           WHERE (status = 'completed' OR deleted = 1) AND last_modified_at < $cutoff`,
         )
         .run({ cutoff });
-      return { deleted: result.changes };
-    }
-    const now = this.#now().toISOString();
-    const result = this.#database
-      .query<unknown, QueryBindings>(
-        `UPDATE tasks SET deleted = 1, last_modified_at = $now
-         WHERE status = 'completed' AND deleted = 0 AND last_modified_at < $cutoff`,
-      )
-      .run({ now, cutoff });
-    return { deleted: result.changes };
+      for (const id of neighbors) this.touchAt(id, now);
+    });
+    transaction();
+    return { deleted };
   }
 
   addTag(id: TaskIdentifier, tag: string): Task {
