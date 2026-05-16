@@ -76,8 +76,8 @@ describe('renderHelp', () => {
     const help = renderHelp(['get'], 'never');
 
     expect(help).toContain('Arguments:');
-    expect(help).toContain('[task-id]: Optional task ID.');
-    expect(help).toContain('single active task assigned to the current Git branch');
+    expect(help).toContain('<task-id>: Task ID.');
+    expect(help).toContain('"current" (the active task on the current Git branch)');
   });
 
   it('returns null for unknown topics', () => {

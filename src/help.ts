@@ -53,9 +53,8 @@ const taskFieldOptions: HelpOption[] = [
   { name: '--parent', value: '<task-id>', description: 'Parent task ID.' },
 ];
 
-const inferredTaskIdDescription =
-  'When omitted, Scrumlord uses the single active task assigned to the current Git branch.';
-const optionalTaskIdArgument = `[task-id]: Optional task ID. ${inferredTaskIdDescription}`;
+const requiredTaskIdArgument =
+  '<task-id>: Task ID. Accepts a UUID, "current" (the active task on the current Git branch), or "next" (the next claimable task).';
 
 const topics: HelpTopic[] = [
   {
@@ -139,10 +138,10 @@ const topics: HelpTopic[] = [
   {
     path: ['session'],
     summary: 'Show task agent session metadata.',
-    usage: 'tasks session [task-id]',
-    description: `Returns provider, session, branch, derived worktree, absolute plan path, session data path, and warnings. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
-    examples: ['tasks session', 'tasks session 8f7d6a'],
+    usage: 'tasks session <task-id>',
+    description: `Returns provider, session, branch, derived worktree, absolute plan path, session data path, and warnings.`,
+    arguments: [requiredTaskIdArgument],
+    examples: ['tasks session current', 'tasks session 8f7d6a'],
   },
   {
     path: ['progress'],
@@ -155,18 +154,18 @@ const topics: HelpTopic[] = [
   {
     path: ['progress', 'list'],
     summary: 'List progress entries for a task.',
-    usage: 'tasks progress list [task-id]',
-    description: `Returns chronological progress entries recorded for the task, including provider and session metadata when available. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
-    examples: ['tasks progress list', 'tasks progress list 8f7d6a'],
+    usage: 'tasks progress list <task-id>',
+    description: `Returns chronological progress entries recorded for the task, including provider and session metadata when available.`,
+    arguments: [requiredTaskIdArgument],
+    examples: ['tasks progress list current', 'tasks progress list 8f7d6a'],
   },
   {
     path: ['progress', 'add'],
     summary: 'Record task progress.',
     usage:
-      'tasks progress add [task-id] --message <markdown> [--provider <claude|codex>] [--session <id>]',
-    description: `Appends a progress entry to a task and moves draft or ready tasks to in-progress. When --provider or --session are omitted, Scrumlord infers them in this order: SCRUMLORD_CLI, then CLAUDECODE=1 → claude, then CODEX_SESSION_ID → codex, then CLAUDE_SESSION_ID → claude, then the task's stored session when the stored provider matches. The stored session is never paired with a different provider. CLAUDE_PROJECT_DIR is used as the default cwd. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
+      'tasks progress add <task-id> --message <markdown> [--provider <claude|codex>] [--session <id>]',
+    description: `Appends a progress entry to a task and moves draft or ready tasks to in-progress. When --provider or --session are omitted, Scrumlord infers them in this order: SCRUMLORD_CLI, then CLAUDECODE=1 → claude, then CODEX_SESSION_ID → codex, then CLAUDE_SESSION_ID → claude, then the task's stored session when the stored provider matches. The stored session is never paired with a different provider. CLAUDE_PROJECT_DIR is used as the default cwd.`,
+    arguments: [requiredTaskIdArgument],
     options: [
       { name: '--message', value: '<markdown>', description: 'Progress note to append.' },
       {
@@ -182,7 +181,7 @@ const topics: HelpTopic[] = [
       },
     ],
     examples: [
-      'tasks progress add --message "Wrote failing regression test"',
+      'tasks progress add current --message "Wrote failing regression test"',
       'tasks progress add 8f7d6a --message "Wrote failing regression test"',
       'tasks progress add 8f7d6a --message "Blocked on CI" --provider codex --session 019e-session',
     ],
@@ -190,26 +189,26 @@ const topics: HelpTopic[] = [
   {
     path: ['clear'],
     summary: 'Clear a task property.',
-    usage: 'tasks clear <branch|plan|session|start-date|due-date> [task-id]',
-    description: `Clears a single nullable field on a task. Clearing session removes both provider and session together. ${inferredTaskIdDescription}`,
+    usage: 'tasks clear <branch|plan|session|start-date|due-date> <task-id>',
+    description: `Clears a single nullable field on a task. Clearing session removes both provider and session together.`,
     arguments: [
       '<branch|plan|session|start-date|due-date>: Property to clear.',
-      optionalTaskIdArgument,
+      requiredTaskIdArgument,
     ],
     examples: [
-      'tasks clear branch',
+      'tasks clear branch current',
       'tasks clear plan 8f7d6a',
-      'tasks clear session',
+      'tasks clear session current',
       'tasks clear start-date 8f7d6a',
-      'tasks clear due-date',
+      'tasks clear due-date current',
     ],
   },
   {
     path: ['start'],
     summary: 'Start work on a task in an agent CLI.',
-    usage: 'tasks start [task-id] --cli <claude|codex>',
-    description: `Moves a startable task to in-progress, records provider/session metadata, and launches the selected agent in plan mode with task context. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
+    usage: 'tasks start <task-id> --cli <claude|codex>',
+    description: `Moves a startable task to in-progress, records provider/session metadata, and launches the selected agent in plan mode with task context.`,
+    arguments: [requiredTaskIdArgument],
     options: [
       {
         name: '--cli',
@@ -217,15 +216,15 @@ const topics: HelpTopic[] = [
         description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
       },
     ],
-    examples: ['tasks start --cli codex', 'tasks start 8f7d6a --cli codex'],
+    examples: ['tasks start current --cli codex', 'tasks start 8f7d6a --cli codex'],
   },
   {
     path: ['resume'],
     summary: 'Resume a task agent session.',
-    usage: 'tasks resume [task-id]',
-    description: `Launches the provider-specific resume command for the task session from the derived worktree when available. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
-    examples: ['tasks resume', 'tasks resume 8f7d6a'],
+    usage: 'tasks resume <task-id>',
+    description: `Launches the provider-specific resume command for the task session from the derived worktree when available.`,
+    arguments: [requiredTaskIdArgument],
+    examples: ['tasks resume current', 'tasks resume 8f7d6a'],
   },
   {
     path: ['pipeline'],
@@ -291,10 +290,10 @@ const topics: HelpTopic[] = [
   {
     path: ['get'],
     summary: 'Fetch one task by ID.',
-    usage: 'tasks get [task-id]',
-    description: `Returns a single task or null when no matching task exists. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
-    examples: ['tasks get', 'tasks get 8f7d6a'],
+    usage: 'tasks get <task-id>',
+    description: `Returns a single task or null when no matching task exists.`,
+    arguments: [requiredTaskIdArgument],
+    examples: ['tasks get current', 'tasks get 8f7d6a'],
   },
   {
     path: ['tagged'],
@@ -321,20 +320,20 @@ const topics: HelpTopic[] = [
   {
     path: ['blocked-by'],
     summary: 'List blockers for a task.',
-    usage: 'tasks blocked-by [task-id] [--planned|--unplanned] [--count]',
-    description: `Returns the tasks that block the supplied task. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
+    usage: 'tasks blocked-by <task-id> [--planned|--unplanned] [--count]',
+    description: `Returns the tasks that block the supplied task.`,
+    arguments: [requiredTaskIdArgument],
     options: taskListingOptions,
-    examples: ['tasks blocked-by', 'tasks blocked-by 8f7d6a'],
+    examples: ['tasks blocked-by current', 'tasks blocked-by 8f7d6a'],
   },
   {
     path: ['blocking'],
     summary: 'List tasks blocked by a task.',
-    usage: 'tasks blocking [task-id] [--planned|--unplanned] [--count]',
-    description: `Returns tasks that depend on the supplied task. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
+    usage: 'tasks blocking <task-id> [--planned|--unplanned] [--count]',
+    description: `Returns tasks that depend on the supplied task.`,
+    arguments: [requiredTaskIdArgument],
     options: taskListingOptions,
-    examples: ['tasks blocking', 'tasks blocking 8f7d6a'],
+    examples: ['tasks blocking current', 'tasks blocking 8f7d6a'],
   },
   {
     path: ['priority'],
@@ -378,9 +377,9 @@ const topics: HelpTopic[] = [
   {
     path: ['update'],
     summary: 'Update a task.',
-    usage: 'tasks update [task-id] [options]',
-    description: `Updates task fields and refreshes the last modified timestamp. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
+    usage: 'tasks update <task-id> [options]',
+    description: `Updates task fields and refreshes the last modified timestamp.`,
+    arguments: [requiredTaskIdArgument],
     options: [
       ...taskFieldOptions,
       { name: '--deleted', value: '<true|false>', description: 'Set soft-delete state.' },
@@ -396,49 +395,52 @@ const topics: HelpTopic[] = [
   {
     path: ['delete'],
     summary: 'Delete a task.',
-    usage: 'tasks delete [task-id] [--hard]',
-    description: `Soft-deletes by default (sets deleted=1) and removes any dependency edges that reference the task. With --hard, physically deletes the row (FK cascades remove tags, dependencies, and progress). Surviving neighbors of a deleted task receive a last-modified-at touch so consumers watching for graph changes can react. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument],
+    usage: 'tasks delete <task-id> [--hard]',
+    description: `Soft-deletes by default (sets deleted=1) and removes any dependency edges that reference the task. With --hard, physically deletes the row (FK cascades remove tags, dependencies, and progress). Surviving neighbors of a deleted task receive a last-modified-at touch so consumers watching for graph changes can react.`,
+    arguments: [requiredTaskIdArgument],
     options: [
       {
         name: '--hard',
         description: 'Physically remove the task and cascade related rows.',
       },
     ],
-    examples: ['tasks delete', 'tasks delete 8f7d6a', 'tasks delete 8f7d6a --hard'],
+    examples: ['tasks delete current', 'tasks delete 8f7d6a', 'tasks delete 8f7d6a --hard'],
   },
   {
     path: ['add-tag'],
     summary: 'Add a tag to a task.',
-    usage: 'tasks add-tag [task-id] <tag>',
-    description: `Adds a normalized tag to a task. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument, '<tag>: Tag to add.'],
-    examples: ['tasks add-tag testing', 'tasks add-tag 8f7d6a testing'],
+    usage: 'tasks add-tag <task-id> <tag>',
+    description: `Adds a normalized tag to a task.`,
+    arguments: [requiredTaskIdArgument, '<tag>: Tag to add.'],
+    examples: ['tasks add-tag current testing', 'tasks add-tag 8f7d6a testing'],
   },
   {
     path: ['remove-tag'],
     summary: 'Remove a tag from a task.',
-    usage: 'tasks remove-tag [task-id] <tag>',
-    description: `Removes a normalized tag from a task. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument, '<tag>: Tag to remove.'],
-    examples: ['tasks remove-tag testing', 'tasks remove-tag 8f7d6a testing'],
+    usage: 'tasks remove-tag <task-id> <tag>',
+    description: `Removes a normalized tag from a task.`,
+    arguments: [requiredTaskIdArgument, '<tag>: Tag to remove.'],
+    examples: ['tasks remove-tag current testing', 'tasks remove-tag 8f7d6a testing'],
   },
   {
     path: ['add-blocker'],
     summary: 'Add a dependency blocker.',
-    usage: 'tasks add-blocker [task-id] <blocked-by-task-id>',
-    description: `Adds a dependency edge showing that one task is blocked by another. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument, '<blocked-by-task-id>: Blocking task.'],
-    examples: ['tasks add-blocker prerequisite-id', 'tasks add-blocker feature-id prerequisite-id'],
+    usage: 'tasks add-blocker <task-id> <blocked-by-task-id>',
+    description: `Adds a dependency edge showing that one task is blocked by another.`,
+    arguments: [requiredTaskIdArgument, '<blocked-by-task-id>: Blocking task.'],
+    examples: [
+      'tasks add-blocker current prerequisite-id',
+      'tasks add-blocker feature-id prerequisite-id',
+    ],
   },
   {
     path: ['remove-blocker'],
     summary: 'Remove a dependency blocker.',
-    usage: 'tasks remove-blocker [task-id] <blocked-by-task-id>',
-    description: `Removes a dependency edge between two tasks. ${inferredTaskIdDescription}`,
-    arguments: [optionalTaskIdArgument, '<blocked-by-task-id>: Blocking task.'],
+    usage: 'tasks remove-blocker <task-id> <blocked-by-task-id>',
+    description: `Removes a dependency edge between two tasks.`,
+    arguments: [requiredTaskIdArgument, '<blocked-by-task-id>: Blocking task.'],
     examples: [
-      'tasks remove-blocker prerequisite-id',
+      'tasks remove-blocker current prerequisite-id',
       'tasks remove-blocker feature-id prerequisite-id',
     ],
   },

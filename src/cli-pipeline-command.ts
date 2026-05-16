@@ -1,5 +1,6 @@
 import { flag, type ParsedArguments } from './cli-arguments.js';
 import type { CliOptions, CliResult } from './cli-types.js';
+import { resolveTaskId } from './cli-task-id.js';
 import { ScrumlordError } from './errors.js';
 import { runPipeline, type PipelineMode, type PipelineOptions } from './pipeline.js';
 import type { AgentProvider, TaskStore } from './types.js';
@@ -55,7 +56,8 @@ export const runPipelineCommand = async (
   const provider = resolveProvider(parsed, options);
   const mode = resolveMode(parsed);
   const max = resolveMax(parsed);
-  const resumeTaskId = flag(parsed.flags, 'resume');
+  const resumeArg = flag(parsed.flags, 'resume');
+  const resumeTaskId = resumeArg !== undefined ? await resolveTaskId(store, resumeArg) : undefined;
   const pipelineOptions: PipelineOptions = {
     provider,
     mode,

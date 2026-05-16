@@ -1,7 +1,7 @@
 import { resolveTaskSession } from './agent-providers.js';
 import { providerFromStartCommand } from './cli-agent-commands.js';
 import { flag, flagList, required, type ParsedArguments } from './cli-arguments.js';
-import { requiredTaskCommandArgument, taskIdFromArguments } from './cli-task-id.js';
+import { requiredTaskCommandArgument, resolveTaskId } from './cli-task-id.js';
 import { progressInputFromContext } from './cli-progress.js';
 import { currentBranchTask } from './current-branch-task.js';
 import { ScrumlordError } from './errors.js';
@@ -203,7 +203,8 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
   list: (store, parsed) => listTasks(store, listTasksOptionsFrom(parsed)),
   blocked: (store, parsed) => blockedTasks(store, taskListingResultOptionsFrom(parsed)),
   completed: (store, parsed) => completedTasks(store, taskListingResultOptionsFrom(parsed)),
-  get: async (store, parsed) => getTask(store, await taskIdFromArguments(store, parsed)),
+  get: async (store, parsed) =>
+    getTask(store, await resolveTaskId(store, required(parsed.positionals, 'task id'))),
   tagged: (store, parsed) => {
     const options = taskListingResultOptionsFrom(parsed);
     if (parsed.flags.has('all')) {
@@ -220,13 +221,13 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
   'blocked-by': async (store, parsed) =>
     tasksBlockedBy(
       store,
-      await taskIdFromArguments(store, parsed),
+      await resolveTaskId(store, required(parsed.positionals, 'task id')),
       taskListingResultOptionsFrom(parsed),
     ),
   blocking: async (store, parsed) =>
     tasksBlocking(
       store,
-      await taskIdFromArguments(store, parsed),
+      await resolveTaskId(store, required(parsed.positionals, 'task id')),
       taskListingResultOptionsFrom(parsed),
     ),
   priority: (store, parsed) =>
@@ -244,18 +245,21 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
   session: async (store, parsed, options) =>
     resolveTaskSession(
       store,
-      await taskIdFromArguments(store, parsed),
+      await resolveTaskId(store, required(parsed.positionals, 'task id')),
       options.environment ? { environment: options.environment } : {},
     ),
   progress: async (store, parsed, options) => {
     const subcommand = parsed.positionals[0];
     if (subcommand === 'list') {
-      const adjustedParsed = { ...parsed, positionals: parsed.positionals.slice(1) };
-      return taskProgress(store, await taskIdFromArguments(store, adjustedParsed));
+      const taskId = parsed.positionals[1]
+        ? await resolveTaskId(store, parsed.positionals[1])
+        : await resolveTaskId(store, 'current');
+      return taskProgress(store, taskId);
     }
     if (subcommand === 'add') {
-      const adjustedParsed = { ...parsed, positionals: parsed.positionals.slice(1) };
-      const taskId = await taskIdFromArguments(store, adjustedParsed);
+      const taskId = parsed.positionals[1]
+        ? await resolveTaskId(store, parsed.positionals[1])
+        : await resolveTaskId(store, 'current');
       const task = store.getTask(taskId);
       return addTaskProgress(
         store,
@@ -274,8 +278,7 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
   },
   clear: async (store, parsed) => {
     const property = parsed.positionals[0] as string;
-    const adjustedParsed = { ...parsed, positionals: parsed.positionals.slice(1) };
-    const taskId = await taskIdFromArguments(store, adjustedParsed);
+    const taskId = await resolveTaskId(store, parsed.positionals[1] ?? 'current');
     if (property === 'branch') return clearTaskBranch(store, taskId);
     if (property === 'plan') return clearTaskPlan(store, taskId);
     if (property === 'session') return clearTaskSession(store, taskId);
@@ -291,34 +294,38 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
   remaining: (store) => remaining(store),
   create: (store, parsed) => createTask(store, createInputFromFlags(parsed.flags)),
   update: async (store, parsed) =>
-    updateTask(store, await taskIdFromArguments(store, parsed), updateInputFromFlags(parsed.flags)),
+    updateTask(
+      store,
+      await resolveTaskId(store, required(parsed.positionals, 'task id')),
+      updateInputFromFlags(parsed.flags),
+    ),
   delete: async (store, parsed) =>
-    deleteTask(store, await taskIdFromArguments(store, parsed), {
+    deleteTask(store, await resolveTaskId(store, required(parsed.positionals, 'task id')), {
       hard: parsed.flags.has('hard'),
     }),
   'add-tag': async (store, parsed) =>
     addTaskTag(
       store,
-      await taskIdFromArguments(store, parsed, 1),
-      requiredTaskCommandArgument(parsed, 1, 'tag'),
+      await resolveTaskId(store, required(parsed.positionals, 'task id')),
+      requiredTaskCommandArgument(parsed, 'tag'),
     ),
   'remove-tag': async (store, parsed) =>
     removeTaskTag(
       store,
-      await taskIdFromArguments(store, parsed, 1),
-      requiredTaskCommandArgument(parsed, 1, 'tag'),
+      await resolveTaskId(store, required(parsed.positionals, 'task id')),
+      requiredTaskCommandArgument(parsed, 'tag'),
     ),
   'add-blocker': async (store, parsed) =>
     addTaskBlocker(
       store,
-      await taskIdFromArguments(store, parsed, 1),
-      requiredTaskCommandArgument(parsed, 1, 'blocked-by task id'),
+      await resolveTaskId(store, required(parsed.positionals, 'task id')),
+      await resolveTaskId(store, requiredTaskCommandArgument(parsed, 'blocked-by task id')),
     ),
   'remove-blocker': async (store, parsed) =>
     removeTaskBlocker(
       store,
-      await taskIdFromArguments(store, parsed, 1),
-      requiredTaskCommandArgument(parsed, 1, 'blocked-by task id'),
+      await resolveTaskId(store, required(parsed.positionals, 'task id')),
+      await resolveTaskId(store, requiredTaskCommandArgument(parsed, 'blocked-by task id')),
     ),
   cleanup: (store, parsed) =>
     cleanupTasks(store, cleanupDaysFrom(parsed), { hard: parsed.flags.has('hard') }),

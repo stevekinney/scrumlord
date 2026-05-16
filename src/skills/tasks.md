@@ -14,18 +14,18 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 - Use `tasks setup --subagents` to install the `scrumlord-task-manager` subagent for installed providers. Use `tasks setup --subagents --agent codex`, `tasks setup --subagents --agent claude`, or `tasks setup --subagents --agent all` when a provider is explicit.
 - Use `tasks --help` or `tasks <command> --help` when you need the current command syntax. Help output is colorized for humans; data output stays parseable JSON.
 - If you need the task for the current branch and do not already have a task ID, run `tasks current` before falling back to `tasks next`.
-- Commands whose first positional argument is a task ID can omit it when exactly one active task is assigned to the current Git branch. Prefer omitted IDs for branch-local work once the branch is assigned; pass an explicit ID when operating on another task or when `current_task_ambiguous` is possible.
+- Commands that accept a `<task-id>` require one. Pass a UUID, the literal `current` (the active task on the current Git branch), or the literal `next` (the next claimable task). Tokens are case-sensitive. Prefer `current` for branch-local work; pass an explicit UUID when operating on a specific other task.
 - Prefer `tasks available` or `tasks next` before choosing new work.
 - Use `tasks list` before decomposing a long document or checklist so you can avoid duplicating existing tasks. Use `tasks list --all` only when archived or deleted tasks matter.
 - Scrumlord priorities are only `1`, `2`, and `3`, with `3` highest. Never pass `0`, `4`, `5`, `P0`, `P4`, or any source-specific rank through unchanged; normalize source priorities onto the 1-3 scale before running `tasks create`.
-- Store the Git branch on tasks with `tasks update --branch <branch>` when work is branch-bound. Setting a branch moves a `draft` or `ready` task to `in-progress`.
+- Store the Git branch on tasks with `tasks update current --branch <branch>` when work is branch-bound. Setting a branch moves a `draft` or `ready` task to `in-progress`.
 - Do not store worktree paths. Scrumlord derives the worktree from Git when it needs one.
-- Use `tasks session [task-id]` before resuming or inspecting agent session state.
-- Use `tasks progress list [task-id]` before resuming or handing off work so you can see what previous agents recorded.
+- Use `tasks session current` before resuming or inspecting agent session state.
+- Use `tasks progress list current` before resuming or handing off work so you can see what previous agents recorded.
 - If a task has a `plan`, read that plan file before taking on the task.
-- If you generate a plan, write it to the task plan file and update the task with `tasks update [task-id] --plan <path>`.
+- If you generate a plan, write it to the task plan file and update the task with `tasks update current --plan <path>`.
 - If you re-enter plan mode for a task, update the existing plan file or replace it with the new plan you generate.
-- Record meaningful progress with `tasks progress add [task-id] --message "<note>"` after planning, major implementation steps, blockers, and handoffs. Recording progress moves `draft` or `ready` tasks to `in-progress`.
+- Record meaningful progress with `tasks progress add current --message "<note>"` after planning, major implementation steps, blockers, and handoffs. Recording progress moves `draft` or `ready` tasks to `in-progress`.
 - Do not edit `tmp/tasks.db` directly. Use the CLI so migrations, timestamps, and graph checks stay consistent.
 
 ## Decomposing Documents Into Tasks
@@ -35,21 +35,21 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 - Treat dependency language as graph data. Phrases such as "gated on", "blocked by", "depends on", "prerequisite", or "once ... exists" require an explicit blocker edge before the task can be marked `ready`.
 - Create prerequisite tasks before dependent tasks so you have stable task IDs for `tasks add-blocker`.
 - For large imports, do not fire many `tasks create` commands in parallel. Validate the priority scale and required flags first, then create tasks serially or in small batches so one malformed command cannot cancel the whole batch.
-- After creating tasks, verify the graph with `tasks list`, `tasks blocked`, `tasks available`, `tasks blocked-by [task-id]`, and `tasks blocking [task-id]` as appropriate.
+- After creating tasks, verify the graph with `tasks list`, `tasks blocked`, `tasks available`, `tasks blocked-by <task-id>`, and `tasks blocking <task-id>` as appropriate.
 - If no dependency edges exist, say that explicitly in the summary so the user knows the graph was considered, not skipped.
 
 ## Task Lifecycle
 
 - When you begin work on a `draft` or `ready` task, record the branch:
-  `tasks update [task-id] --branch "$(git branch --show-current)"`.
+  `tasks update current --branch "$(git branch --show-current)"`.
 - If an agent session loses its task ID, recover it with `tasks current`. If that returns `current_task_ambiguous`, inspect `tasks with-branch "$(git branch --show-current)"` and choose explicitly.
 - After planning, substantial implementation steps, blocker discovery, and handoffs, append a progress note:
-  `tasks progress add --message "Wrote the failing regression test"`.
+  `tasks progress add current --message "Wrote the failing regression test"`.
 - When GitHub has an open pull request whose head branch matches the task branch, `tasks pr --sync` and `tasks overview` move the task to `in-review`.
-- When the pull request is merged into `origin/main`, move the task to `completed` with `tasks update --status completed`.
-- Prefer `tasks start --cli codex` or `tasks start --cli claude` when beginning branch-local agent-owned work. It creates the worktree and branch (Claude: via `claude --worktree`; Codex: under `~/.codex/worktrees/` with a `tmp/worktrees/` fallback), launches the provider with task context, starts in plan mode, and records provider/session metadata when the provider supports it. The payload includes a `phase` field (`start | resume-planning | resume-implementation`) derived from observable task state, and the system prompt names the workflow: plan → implement → `committee-review` (which opens the PR) → `address-pr` (which drives it to merge). Do not run `gh pr create` yourself.
+- When the pull request is merged into `origin/main`, move the task to `completed` with `tasks update current --status completed`.
+- Prefer `tasks start current --cli codex` or `tasks start current --cli claude` when beginning branch-local agent-owned work. It creates the worktree and branch (Claude: via `claude --worktree`; Codex: under `~/.codex/worktrees/` with a `tmp/worktrees/` fallback), launches the provider with task context, starts in plan mode, and records provider/session metadata when the provider supports it. The payload includes a `phase` field (`start | resume-planning | resume-implementation`) derived from observable task state, and the system prompt names the workflow: plan → implement → `committee-review` (which opens the PR) → `address-pr` (which drives it to merge). Do not run `gh pr create` yourself.
 - Use `tasks pipeline --cli <claude|codex>` to drain the ready queue end-to-end: it claims tasks atomically, materializes worktrees, delegates each per-task run to the agent CLI (Claude side uses the `next-task` skill; Codex side gets a self-contained four-phase prompt), polls each pull request to merge, then continues. The pipeline is the merge authority — agents must drive PRs to merge or exit with `STUCK: <reason>` on stderr. A single lockfile (`tmp/pipeline.lock`) protects against concurrent pipelines. `--recover` runs an annotate-only recovery sweep (pair with `--apply` to mutate). `--dry-run` previews without claiming. `--json` emits a structured summary on stdout.
-- Use `tasks resume` to resume the current branch task's recorded Claude or Codex session from the derived worktree.
+- Use `tasks resume current` to resume the current branch task's recorded Claude or Codex session from the derived worktree.
 - Before changing status manually, run `tasks pr --sync` if GitHub might already know the current pull request state.
 - If `tasks setup --git-hooks` has been run in a repository with Lefthook, `tasks pr --sync --quiet` handles lifecycle transitions from Git and GitHub state.
 - If `tasks setup --agent-hooks` has been run, global Claude and Codex hooks try to keep plan, session, branch, and pull request lifecycle state synchronized, and they inject the inferred current branch task into agent context on user prompts. Hooks exit quietly when the project is not initialized for Scrumlord or `tasks` is unavailable unless `SCRUMLORD_DEBUG` is truthy.
@@ -75,17 +75,17 @@ tasks next
 tasks current
 tasks list
 tasks remaining
-tasks session
-tasks progress list
-tasks start --cli codex
-tasks resume
+tasks session current
+tasks progress list current
+tasks start current --cli codex
+tasks resume current
 tasks available
 tasks blocked
 tasks create --title "Write tests" --description "Add regression coverage" --priority 3
-tasks update --branch "$(git branch --show-current)"
-tasks progress add --message "Wrote the failing regression test"
-tasks add-blocker $BLOCKER_TASK_ID
-tasks add-tag testing
+tasks update current --branch "$(git branch --show-current)"
+tasks progress add current --message "Wrote the failing regression test"
+tasks add-blocker current $BLOCKER_TASK_ID
+tasks add-tag current testing
 tasks pr --sync --quiet
 tasks pr --url
 tasks pr

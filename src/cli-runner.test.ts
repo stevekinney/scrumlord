@@ -458,7 +458,7 @@ describe('runTasksCli', () => {
     });
     expect(JSON.parse(unexpectedArgumentResult.stderr).error).toEqual({
       code: 'unexpected_argument',
-      message: 'get expects at most 1 argument.',
+      message: 'get expects exactly 1 argument.',
     });
 
     const missingVariadicArgumentResult = await runTasksCli(['tagged'], { createStore });

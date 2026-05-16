@@ -11,7 +11,7 @@ import {
 } from './agent-providers.js';
 import { runAgentHook } from './agent-hook.js';
 import { flag, required, type ParsedArguments } from './cli-arguments.js';
-import { taskIdFromArguments } from './cli-task-id.js';
+import { resolveTaskId } from './cli-task-id.js';
 import { runCommand, type CommandRunner } from './command-runner.js';
 import { ScrumlordError } from './errors.js';
 import { currentGitBranch, worktreeForBranch } from './git-status.js';
@@ -161,7 +161,7 @@ export const runStartCommand = async (
   parsed: ParsedArguments,
   options: CliOptions,
 ): Promise<CliResult> => {
-  const taskId = await taskIdFromArguments(store, parsed);
+  const taskId = await resolveTaskId(store, required(parsed.positionals, 'task id'));
   const result = await startTask(store, taskId, {
     ...options,
     provider: providerFromStartCommand(parsed, options),
@@ -447,7 +447,7 @@ export const runResumeCommand = async (
   parsed: ParsedArguments,
   options: CliOptions,
 ): Promise<CliResult> => {
-  const taskId = await taskIdFromArguments(store, parsed);
+  const taskId = await resolveTaskId(store, required(parsed.positionals, 'task id'));
   const result = await resumeTask(store, taskId, options);
   return { exitCode: result.exitCode, stdout: '', stderr: '' };
 };

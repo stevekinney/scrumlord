@@ -15,8 +15,8 @@ type CommandSpecification = {
 
 const noPositionals = { minPositionals: 0, maxPositionals: 0 };
 const onePositional = { minPositionals: 1, maxPositionals: 1 };
-const optionalTaskId = { minPositionals: 0, maxPositionals: 1 };
-const optionalTaskIdWithOneArgument = { minPositionals: 1, maxPositionals: 2 };
+const requiredTaskId = { minPositionals: 1, maxPositionals: 1 };
+const requiredTaskIdWithOneArgument = { minPositionals: 2, maxPositionals: 2 };
 const listingBooleanFlags = ['planned', 'unplanned', 'count'];
 const taskListingCommandSpecification = {
   ...noPositionals,
@@ -26,8 +26,8 @@ const onePositionalTaskListingCommandSpecification = {
   ...onePositional,
   booleanFlags: listingBooleanFlags,
 };
-const optionalTaskIdTaskListingCommandSpecification = {
-  ...optionalTaskId,
+const requiredTaskIdTaskListingCommandSpecification = {
+  ...requiredTaskId,
   booleanFlags: listingBooleanFlags,
 };
 
@@ -48,14 +48,14 @@ const commandSpecifications: Record<string, CommandSpecification> = {
     maxPositionals: 0,
     booleanFlags: ['open', 'url', 'comments', 'resolved', 'all', 'sync', 'quiet'],
   },
-  get: optionalTaskId,
+  get: requiredTaskId,
   tagged: { minPositionals: 1, booleanFlags: ['all', ...listingBooleanFlags] },
   'with-branch': onePositionalTaskListingCommandSpecification,
-  'blocked-by': optionalTaskIdTaskListingCommandSpecification,
-  blocking: optionalTaskIdTaskListingCommandSpecification,
+  'blocked-by': requiredTaskIdTaskListingCommandSpecification,
+  blocking: requiredTaskIdTaskListingCommandSpecification,
   priority: onePositionalTaskListingCommandSpecification,
   'with-priority': onePositionalTaskListingCommandSpecification,
-  session: optionalTaskId,
+  session: requiredTaskId,
   progress: {
     minPositionals: 0,
     maxPositionals: 2,
@@ -63,7 +63,7 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   },
   clear: { minPositionals: 1, maxPositionals: 2 },
   start: {
-    ...optionalTaskId,
+    ...requiredTaskId,
     valueFlags: ['cli'],
     booleanFlags: ['no-worktree', 'force', 'quiet'],
   },
@@ -73,9 +73,9 @@ const commandSpecifications: Record<string, CommandSpecification> = {
     valueFlags: ['cli', 'max', 'resume'],
     booleanFlags: ['recover', 'recover-then-run', 'apply', 'quiet', 'dry-run', 'json', 'once'],
   },
-  resume: optionalTaskId,
+  resume: requiredTaskId,
   'agent-hook': onePositional,
-  delete: { ...optionalTaskId, booleanFlags: ['hard'] },
+  delete: { ...requiredTaskId, booleanFlags: ['hard'] },
   cleanup: { ...onePositional, booleanFlags: ['hard'] },
   create: {
     ...noPositionals,
@@ -97,7 +97,7 @@ const commandSpecifications: Record<string, CommandSpecification> = {
     booleanFlags: ['draft'],
   },
   update: {
-    ...optionalTaskId,
+    ...requiredTaskId,
     valueFlags: [
       'title',
       'description',
@@ -112,10 +112,10 @@ const commandSpecifications: Record<string, CommandSpecification> = {
       'deleted',
     ],
   },
-  'add-tag': optionalTaskIdWithOneArgument,
-  'remove-tag': optionalTaskIdWithOneArgument,
-  'add-blocker': optionalTaskIdWithOneArgument,
-  'remove-blocker': optionalTaskIdWithOneArgument,
+  'add-tag': requiredTaskIdWithOneArgument,
+  'remove-tag': requiredTaskIdWithOneArgument,
+  'add-blocker': requiredTaskIdWithOneArgument,
+  'remove-blocker': requiredTaskIdWithOneArgument,
   setup: {
     minPositionals: 0,
     maxPositionals: 1,

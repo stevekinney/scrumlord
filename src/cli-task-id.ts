@@ -3,39 +3,44 @@ import { currentBranchTask } from './current-branch-task.js';
 import { ScrumlordError } from './errors.js';
 import type { TaskStore } from './types.js';
 
-export const hasExplicitTaskId = (parsed: ParsedArguments, trailingArgumentCount = 0): boolean =>
-  parsed.positionals.length > trailingArgumentCount;
+export const TASK_ID_TOKENS = ['current', 'next'] as const;
 
-export const taskCommandArguments = (
-  parsed: ParsedArguments,
-  trailingArgumentCount: number,
-): string[] =>
-  hasExplicitTaskId(parsed, trailingArgumentCount)
-    ? parsed.positionals.slice(1)
-    : parsed.positionals;
+/**
+ * Resolves a `<task-id>` argument to a concrete task id.
+ * Accepts a task UUID, the literal `current`, or the literal `next`.
+ * Tokens are case-sensitive and lowercase only.
+ * Throws when the token cannot be resolved — no silent fallback.
+ */
+export const resolveTaskId = async (
+  store: Pick<TaskStore, 'projectRoot' | 'withBranch' | 'next'>,
+  input: string,
+): Promise<string> => {
+  if (!input) throw new ScrumlordError('missing_argument', 'task id is required.');
+  if (input === 'current') {
+    const task = await currentBranchTask(store);
+    if (!task) {
+      throw new ScrumlordError(
+        'current_task_not_found',
+        'No active task is assigned to the current Git branch.',
+      );
+    }
+    return task.id;
+  }
+  if (input === 'next') {
+    const task = store.next();
+    if (!task) {
+      throw new ScrumlordError('next_task_not_found', 'No next task is available.');
+    }
+    return task.id;
+  }
+  return input;
+};
+
+export const taskCommandArguments = (parsed: ParsedArguments): string[] =>
+  parsed.positionals.slice(1);
 
 export const requiredTaskCommandArgument = (
   parsed: ParsedArguments,
-  trailingArgumentCount: number,
   name: string,
   index = 0,
-): string => required(taskCommandArguments(parsed, trailingArgumentCount).slice(index), name);
-
-export const taskIdFromArguments = async (
-  store: TaskStore,
-  parsed: ParsedArguments,
-  trailingArgumentCount = 0,
-): Promise<string> => {
-  if (hasExplicitTaskId(parsed, trailingArgumentCount)) {
-    return required(parsed.positionals, 'task id');
-  }
-
-  const task = await currentBranchTask(store);
-  if (!task) {
-    throw new ScrumlordError(
-      'current_task_not_found',
-      'No active task is assigned to the current Git branch.',
-    );
-  }
-  return task.id;
-};
+): string => required(taskCommandArguments(parsed).slice(index), name);
