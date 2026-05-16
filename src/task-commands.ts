@@ -2,6 +2,7 @@ import type { CommandRunner } from './command-runner.js';
 import type { OrphanOutcome, OrphanSkip } from './orphan-recovery.js';
 import { recoverOrphans } from './orphan-recovery.js';
 import { buildCleanupPrompt } from './cleanup-prompt.js';
+import { ScrumlordError } from './errors.js';
 import type {
   AddTaskProgressInput,
   AgentProvider,
@@ -434,14 +435,17 @@ export const addTaskProgress = (
 
 export type CleanupTasksMode = 'aged' | 'orphans-only' | 'aged-and-orphans' | 'prompt';
 
-export type CleanupTasksOptions = {
-  mode: CleanupTasksMode;
+type CleanupTasksBaseOptions = {
   hard?: boolean;
   dryRun?: boolean;
   runner?: CommandRunner;
   projectRoot?: string;
   now?: () => Date;
 };
+
+export type CleanupTasksOptions =
+  | (CleanupTasksBaseOptions & { mode: 'aged' | 'aged-and-orphans'; days: number })
+  | (CleanupTasksBaseOptions & { mode: 'orphans-only' | 'prompt' });
 
 /** Orchestrates cleanup based on mode: aged-delete, orphan recovery, or prompt emission. */
 type CleanupStore = Pick<
@@ -472,38 +476,51 @@ const requireRunner = (
   runner: CommandRunner | undefined,
   projectRoot: string | undefined,
 ): { runner: CommandRunner; projectRoot: string } => {
-  if (!runner || !projectRoot) throw new Error('runner and projectRoot are required');
+  if (!runner || !projectRoot)
+    throw new ScrumlordError(
+      'missing_runner',
+      'runner and projectRoot are required for this cleanup mode',
+    );
   return { runner, projectRoot };
+};
+
+/** Narrows `options` to aged modes and returns the required `days` field.
+ * The caller guarantees this is only called after narrowing out `prompt` and `orphans-only`. */
+const daysFrom = (options: CleanupTasksOptions): number => {
+  if (options.mode !== 'aged' && options.mode !== 'aged-and-orphans') {
+    throw new ScrumlordError('unexpected_error', 'daysFrom called on non-aged cleanup mode');
+  }
+  return options.days;
 };
 
 export const cleanupTasks = async (
   store: CleanupStore,
-  options: CleanupTasksOptions & { days?: number },
+  options: CleanupTasksOptions,
 ): Promise<CleanupTasksResult> => {
-  const { mode, hard = false, dryRun = false, now = () => new Date() } = options;
+  const hard = options.hard ?? false;
+  const dryRun = options.dryRun ?? false;
+  const now = options.now ?? (() => new Date());
 
-  if (mode === 'prompt') {
+  if (options.mode === 'prompt') {
     const { runner, projectRoot } = requireRunner(options.runner, options.projectRoot);
     const prompt = await buildCleanupPrompt({ store, projectRoot, runner, now });
     return { mode: 'prompt', prompt };
   }
 
-  if (mode === 'orphans-only') {
+  if (options.mode === 'orphans-only') {
     const { runner, projectRoot } = requireRunner(options.runner, options.projectRoot);
     const { orphans, skipped } = await recoverOrphans(store, projectRoot, runner, { dryRun });
     return { mode: 'orphans-only', dryRun, orphans, skipped };
   }
 
-  const days = options.days!;
-
-  if (mode === 'aged-and-orphans') {
+  if (options.mode === 'aged-and-orphans') {
     const { runner, projectRoot } = requireRunner(options.runner, options.projectRoot);
-    const { deleted, wouldDelete } = runAgedCleanup(store, days, hard, dryRun);
+    const { deleted, wouldDelete } = runAgedCleanup(store, daysFrom(options), hard, dryRun);
     const { orphans, skipped } = await recoverOrphans(store, projectRoot, runner, { dryRun });
     return { mode: 'aged-and-orphans', hard, dryRun, deleted, wouldDelete, orphans, skipped };
   }
 
-  // mode === 'aged'
-  const { deleted, wouldDelete } = runAgedCleanup(store, days, hard, dryRun);
+  // options.mode === 'aged'
+  const { deleted, wouldDelete } = runAgedCleanup(store, daysFrom(options), hard, dryRun);
   return { mode: 'aged', hard, dryRun, deleted, wouldDelete };
 };

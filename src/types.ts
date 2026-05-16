@@ -1,3 +1,5 @@
+import type { RecoverOrphanInput, RecoverOrphanResult } from './orphan-recovery.js';
+
 export const taskStatuses = ['draft', 'ready', 'in-progress', 'in-review', 'completed'] as const;
 export type TaskStatus = (typeof taskStatuses)[number];
 
@@ -180,10 +182,7 @@ export type TaskStore = {
   cleanup(days: number, options?: CleanupOptions): { deleted: number };
   previewCleanup(days: number, options?: CleanupOptions): { wouldDelete: TaskIdentifier[] };
   inProgress(): Task[];
-  recoverOrphan(
-    id: TaskIdentifier,
-    expected: import('./orphan-recovery.js').RecoverOrphanInput,
-  ): import('./orphan-recovery.js').RecoverOrphanResult;
+  recoverOrphan(id: TaskIdentifier, expected: RecoverOrphanInput): RecoverOrphanResult;
   countInProgress(): number;
   countBranched(): number;
   addTag(id: TaskIdentifier, tag: string): Task;

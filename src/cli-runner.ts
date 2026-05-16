@@ -22,7 +22,7 @@ import { syncGitStatus } from './git-status.js';
 import { renderHelp } from './help.js';
 import { initializeProject } from './init.js';
 import { resolveProjectRoot } from './root-resolution.js';
-import type { CleanupTasksResult } from './task-commands.js';
+import type { CleanupTasksMode, CleanupTasksResult } from './task-commands.js';
 import type { TaskStore } from './types.js';
 
 type BoundaryCommandHandler = (parsed: ParsedArguments, options: CliOptions) => Promise<CliResult>;
@@ -407,12 +407,19 @@ const renderCleanupResult = (result: CleanupTasksResult): CliResult => {
   return { exitCode: 0, stdout: lines.join('\n') + '\n', stderr: '' };
 };
 
+const cleanupModes = new Set<string>([
+  'aged',
+  'orphans-only',
+  'aged-and-orphans',
+  'prompt',
+] satisfies CleanupTasksMode[]);
+
 const isCleanupResult = (value: unknown): value is CleanupTasksResult =>
   typeof value === 'object' &&
   value !== null &&
   'mode' in value &&
   typeof (value as { mode: unknown }).mode === 'string' &&
-  ['aged', 'orphans-only', 'aged-and-orphans', 'prompt'].includes((value as { mode: string }).mode);
+  cleanupModes.has((value as { mode: string }).mode);
 
 const storeCommandResult = (parsed: ParsedArguments, value: unknown): CliResult => {
   if (parsed.command === 'next' && value === null) return emptySuccess();

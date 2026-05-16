@@ -462,7 +462,7 @@ const topics: HelpTopic[] = [
     usage:
       'tasks cleanup [<days>] [--hard] [--recover-orphans] [--orphans-only] [--dry-run] [--prompt]',
     description:
-      'Modes are mutually exclusive: (1) with <days>, soft-deletes aged completed tasks (use --hard to physically remove); (2) with --recover-orphans, additionally demotes in-progress tasks whose branch is missing locally and on origin back to ready, clearing branch/session; (3) with --orphans-only, runs only orphan recovery (omit <days>); (4) with --prompt, prints a Markdown prompt an agent can run for a deep cleanup pass and exits without writing. --dry-run pairs with any mutation mode and reports what would change without writing. Use --dry-run before --recover-orphans the first time.',
+      'Modes are mutually exclusive: (1) with <days>, soft-deletes aged completed tasks (use --hard to physically remove); (2) with --recover-orphans, additionally demotes in-progress tasks whose branch is missing locally and on origin back to ready, clearing branch/session; (3) with --orphans-only, runs only orphan recovery (omit <days>); (4) with --prompt, prints a Markdown prompt an agent can run for a deep cleanup pass and exits without writing. --dry-run pairs with any mutation mode and reports what would change without writing. Use --dry-run before --recover-orphans the first time. Note: orphan detection checks local refs and origin only; branches present only on a non-origin remote will be incorrectly classified as missing.',
     arguments: [
       '<days>: Non-negative integer age threshold. Required for modes 1 and 2; rejected for modes 3 and 4.',
     ],

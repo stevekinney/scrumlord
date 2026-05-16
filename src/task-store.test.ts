@@ -739,7 +739,7 @@ describe('recoverOrphan', () => {
     // Change status before recovery
     store.update('t1', { status: 'in-review' });
 
-    const before = store.getTask('t1')!;
+    const before = store.getTask('t1');
     const result = store.recoverOrphan('t1', {
       previousBranch: 'task/x',
       previousSession: null,
@@ -751,8 +751,8 @@ describe('recoverOrphan', () => {
     expect(result.actual.status).toBe('in-review');
 
     // No write occurred
-    const after = store.getTask('t1')!;
-    expect(after.lastModifiedAt).toBe(before.lastModifiedAt);
+    const after = store.getTask('t1');
+    expect(after?.lastModifiedAt).toBe(before?.lastModifiedAt);
 
     store.close();
   });

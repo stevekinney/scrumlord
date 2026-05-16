@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -115,8 +115,8 @@ describe('findOrphans', () => {
     const runner = mockRunner({ 'git remote': ok('origin\n') });
     const result = await findOrphans(store, root, runner);
     expect(result.candidates).toHaveLength(1);
-    expect(result.candidates[0]!.reason).toBe('missing-branch-field');
-    expect(result.candidates[0]!.task.id).toBe('t1');
+    expect(result.candidates[0]?.reason).toBe('missing-branch-field');
+    expect(result.candidates[0]?.task.id).toBe('t1');
   });
 
   it('flags task with empty string branch as missing-branch-field', async () => {
@@ -125,7 +125,7 @@ describe('findOrphans', () => {
     const runner = mockRunner({ 'git remote': ok('origin\n') });
     const result = await findOrphans(store, root, runner);
     expect(result.candidates).toHaveLength(1);
-    expect(result.candidates[0]!.reason).toBe('missing-branch-field');
+    expect(result.candidates[0]?.reason).toBe('missing-branch-field');
   });
 
   it('flags task with whitespace-only branch as missing-branch-field', async () => {
@@ -134,7 +134,7 @@ describe('findOrphans', () => {
     const runner = mockRunner({ 'git remote': ok('origin\n') });
     const result = await findOrphans(store, root, runner);
     expect(result.candidates).toHaveLength(1);
-    expect(result.candidates[0]!.reason).toBe('missing-branch-field');
+    expect(result.candidates[0]?.reason).toBe('missing-branch-field');
   });
 
   it('skips task whose branch exists locally', async () => {
@@ -175,7 +175,7 @@ describe('findOrphans', () => {
     });
     const result = await findOrphans(store, root, runner);
     expect(result.candidates).toHaveLength(1);
-    expect(result.candidates[0]!.reason).toBe('branch-not-in-git');
+    expect(result.candidates[0]?.reason).toBe('branch-not-in-git');
   });
 
   it('skips with git-probe-error when local git exit is non-1 (128)', async () => {
@@ -189,7 +189,7 @@ describe('findOrphans', () => {
     const result = await findOrphans(store, root, runner);
     expect(result.candidates).toHaveLength(0);
     expect(result.skips).toHaveLength(1);
-    expect(result.skips[0]!.reason).toBe('git-probe-error');
+    expect(result.skips[0]?.reason).toBe('git-probe-error');
   });
 
   it('skips with git-probe-error when remote git exit is non-1 (128)', async () => {
@@ -202,7 +202,7 @@ describe('findOrphans', () => {
       'git show-ref --verify --quiet refs/remotes/origin/task/abc': fail(128),
     });
     const result = await findOrphans(store, root, runner);
-    expect(result.skips[0]!.reason).toBe('git-probe-error');
+    expect(result.skips[0]?.reason).toBe('git-probe-error');
   });
 
   it('rejects refs/ prefixed branch with invalid-branch-value without calling check-ref-format', async () => {
@@ -216,7 +216,7 @@ describe('findOrphans', () => {
       return fail();
     };
     const result = await findOrphans(store, root, runner);
-    expect(result.skips[0]!.reason).toBe('invalid-branch-value');
+    expect(result.skips[0]?.reason).toBe('invalid-branch-value');
     expect(checkRefFormatCalled).toBe(false);
   });
 
@@ -231,7 +231,7 @@ describe('findOrphans', () => {
       return fail();
     };
     const result = await findOrphans(store, root, runner);
-    expect(result.skips[0]!.reason).toBe('invalid-branch-value');
+    expect(result.skips[0]?.reason).toBe('invalid-branch-value');
     expect(checkRefFormatCalled).toBe(false);
   });
 
@@ -245,7 +245,7 @@ describe('findOrphans', () => {
       'git show-ref --verify --quiet refs/remotes/origin/task/abc123': fail(1),
     });
     const result = await findOrphans(store, root, runner);
-    expect(result.candidates[0]!.reason).toBe('branch-not-in-git');
+    expect(result.candidates[0]?.reason).toBe('branch-not-in-git');
   });
 
   it('accepts origin/foo when only upstream is a remote', async () => {
@@ -258,7 +258,7 @@ describe('findOrphans', () => {
       'git show-ref --verify --quiet refs/remotes/origin/origin/foo': fail(1),
     });
     const result = await findOrphans(store, root, runner);
-    expect(result.candidates[0]!.reason).toBe('branch-not-in-git');
+    expect(result.candidates[0]?.reason).toBe('branch-not-in-git');
   });
 
   it('rejects branch with spaces via check-ref-format', async () => {
@@ -269,7 +269,7 @@ describe('findOrphans', () => {
       'git check-ref-format --branch foo bar': fail(1),
     });
     const result = await findOrphans(store, root, runner);
-    expect(result.skips[0]!.reason).toBe('invalid-branch-value');
+    expect(result.skips[0]?.reason).toBe('invalid-branch-value');
   });
 
   it('returns git-probe-error when check-ref-format exits 128', async () => {
@@ -280,7 +280,7 @@ describe('findOrphans', () => {
       'git check-ref-format --branch task/x': fail(128, 'fatal: broken'),
     });
     const result = await findOrphans(store, root, runner);
-    expect(result.skips[0]!.reason).toBe('git-probe-error');
+    expect(result.skips[0]?.reason).toBe('git-probe-error');
   });
 
   it('skips non-empty branch tasks with git-probe-error when git remote fails, but still recovers null-branch tasks', async () => {
@@ -340,7 +340,7 @@ describe('recoverOrphans', () => {
     const runner = mockRunner({ 'git remote': ok('') });
     const { orphans } = await recoverOrphans(store, root, runner);
     expect(orphans).toHaveLength(1);
-    expect(orphans[0]!.applied).toBe(true);
+    expect(orphans[0]?.applied).toBe(true);
     const recovered = store.getTask('t1')!;
     expect(recovered.status).toBe('ready');
     expect(recovered.branch).toBeNull();
@@ -354,8 +354,8 @@ describe('recoverOrphans', () => {
     store.create({ id: 't1', title: 'Task', status: 'in-progress' });
     const runner = mockRunner({ 'git remote': ok('') });
     const { orphans } = await recoverOrphans(store, root, runner, { dryRun: true });
-    expect(orphans[0]!.applied).toBe(false);
-    expect(store.getTask('t1')!.status).toBe('in-progress');
+    expect(orphans[0]?.applied).toBe(false);
+    expect(store.getTask('t1')?.status).toBe('in-progress');
   });
 
   it('progress entry contains previous branch and reason', async () => {
@@ -395,6 +395,6 @@ describe('recoverOrphans', () => {
 
     const { orphans, skipped } = await recoverOrphans(interceptingStore, root, runner);
     expect(orphans).toHaveLength(0);
-    expect(skipped[0]!.reason).toBe('stale-state');
+    expect(skipped[0]?.reason).toBe('stale-state');
   });
 });

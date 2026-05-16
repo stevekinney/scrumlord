@@ -201,6 +201,14 @@ describe('cleanup command', () => {
     });
     expect(promptWithDryRun.exitCode).toBe(1);
     expect(JSON.parse(promptWithDryRun.stderr).error.code).toBe('invalid_cleanup_flags');
+
+    // --orphans-only + --recover-orphans should error
+    const orphansOnlyWithRecover = await runTasksCli(
+      ['cleanup', '--orphans-only', '--recover-orphans'],
+      { createStore },
+    );
+    expect(orphansOnlyWithRecover.exitCode).toBe(1);
+    expect(JSON.parse(orphansOnlyWithRecover.stderr).error.code).toBe('invalid_cleanup_flags');
   });
 
   it('dry-run renders [dry-run] prefix', async () => {

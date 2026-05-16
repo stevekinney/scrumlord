@@ -52,7 +52,10 @@ type OrphanStore = {
 
 /** Probes local then origin for the branch. Returns 'missing' only when both
  * show-ref calls exit with status 1 (ref not found). Any other non-zero exit
- * (e.g., 128 for a corrupted index) returns 'error' to keep recovery safe. */
+ * (e.g., 128 for a corrupted index) returns 'error' to keep recovery safe.
+ * Only `origin` is checked for remote refs; branches on other remotes are not
+ * detected. This is an intentional v1 constraint — branches present only on a
+ * non-origin remote will be incorrectly classified as missing. */
 export const branchExistsAnywhere = async (
   projectRoot: string,
   branch: string,

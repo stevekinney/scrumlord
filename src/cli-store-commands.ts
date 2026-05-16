@@ -36,7 +36,6 @@ import {
   tasksWithBranch,
   tasksWithPriority,
   updateTask,
-  type CleanupTasksMode,
 } from './task-commands.js';
 import { next, remaining } from './task-queries.js';
 import type { CliOptions } from './cli-types.js';
@@ -166,12 +165,9 @@ const parseDaysPositional = (positionals: string[]): number => {
   return days;
 };
 
-type CleanupModeResult = {
-  mode: CleanupTasksMode;
-  days?: number;
-  hard: boolean;
-  dryRun: boolean;
-};
+type CleanupModeResult =
+  | { mode: 'aged' | 'aged-and-orphans'; days: number; hard: boolean; dryRun: boolean }
+  | { mode: 'orphans-only' | 'prompt'; hard: boolean; dryRun: boolean };
 
 const promptIncompatibleFlag = (
   hasHard: boolean,
@@ -221,6 +217,12 @@ const cleanupModeFrom = (parsed: ParsedArguments): CleanupModeResult => {
       throw new ScrumlordError(
         'invalid_cleanup_flags',
         '--hard has no meaning with --orphans-only.',
+      );
+    }
+    if (hasRecoverOrphans) {
+      throw new ScrumlordError(
+        'invalid_cleanup_flags',
+        '--recover-orphans has no meaning with --orphans-only.',
       );
     }
     return { mode: 'orphans-only', hard: false, dryRun: hasDryRun };
@@ -406,14 +408,19 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
       await resolveTaskId(store, required(parsed.positionals.slice(1), 'blocked-by task id')),
     ),
   cleanup: async (store, parsed, options) => {
-    const { mode, days, hard, dryRun } = cleanupModeFrom(parsed);
+    const cleanupMode = cleanupModeFrom(parsed);
     const { runCommand } = await import('./command-runner.js');
     const runner = options.runner ?? runCommand;
-    const taskOptions =
-      days !== undefined
-        ? { mode, days, hard, dryRun, runner, projectRoot: store.projectRoot }
-        : { mode, hard, dryRun, runner, projectRoot: store.projectRoot };
-    return cleanupTasks(store, taskOptions);
+    const base = {
+      hard: cleanupMode.hard,
+      dryRun: cleanupMode.dryRun,
+      runner,
+      projectRoot: store.projectRoot,
+    };
+    if (cleanupMode.mode === 'aged' || cleanupMode.mode === 'aged-and-orphans') {
+      return cleanupTasks(store, { ...base, mode: cleanupMode.mode, days: cleanupMode.days });
+    }
+    return cleanupTasks(store, { ...base, mode: cleanupMode.mode });
   },
   plan: async (store, parsed) => {
     const input = parsed.positionals[0];
