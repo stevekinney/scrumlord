@@ -92,6 +92,11 @@ describe('planTaskPrompt', () => {
     expect(result).toContain('_No description provided._');
   });
 
+  it('substitutes _No description provided._ when description is whitespace-only', () => {
+    const result = planTaskPrompt(task({ description: '   \n  ' }), projectRoot);
+    expect(result).toContain('_No description provided._');
+  });
+
   it('mentions the plan-review skill in operational steps', () => {
     const result = planTaskPrompt(task(), projectRoot);
     expect(result).toContain('plan-review');

@@ -17,7 +17,7 @@ const fenceDelimiter = (text: string): string => {
 
 /** Renders the description field for a single-task prompt. */
 const renderDescription = (description: string): string => {
-  if (!description) return '_No description provided._';
+  if (!description.trim()) return '_No description provided._';
   const fence = fenceDelimiter(description);
   return `${fence}markdown\n${description}\n${fence}`;
 };
