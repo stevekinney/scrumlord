@@ -230,10 +230,11 @@ export const validatePositionals = (parsed: ParsedArguments): void => {
   const minimum = specification.minPositionals ?? 0;
   const maximum = specification.maxPositionals;
   if (count < minimum) {
-    throw new ScrumlordError(
-      'missing_argument',
-      `${parsed.command} expects at least ${minimum} argument${plural(minimum)}.`,
-    );
+    const expectation =
+      maximum !== undefined && minimum === maximum
+        ? `exactly ${minimum} argument${plural(minimum)}`
+        : `at least ${minimum} argument${plural(minimum)}`;
+    throw new ScrumlordError('missing_argument', `${parsed.command} expects ${expectation}.`);
   }
 
   if (maximum === undefined || count <= maximum) return;

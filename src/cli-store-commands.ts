@@ -1,7 +1,7 @@
 import { resolveTaskSession } from './agent-providers.js';
 import { providerFromStartCommand } from './cli-agent-commands.js';
 import { flag, flagList, required, type ParsedArguments } from './cli-arguments.js';
-import { requiredTaskCommandArgument, resolveTaskId } from './cli-task-id.js';
+import { resolveTaskId } from './cli-task-id.js';
 import { progressInputFromContext } from './cli-progress.js';
 import { currentBranchTask } from './current-branch-task.js';
 import { ScrumlordError } from './errors.js';
@@ -307,25 +307,25 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
     addTaskTag(
       store,
       await resolveTaskId(store, required(parsed.positionals, 'task id')),
-      requiredTaskCommandArgument(parsed, 'tag'),
+      required(parsed.positionals.slice(1), 'tag'),
     ),
   'remove-tag': async (store, parsed) =>
     removeTaskTag(
       store,
       await resolveTaskId(store, required(parsed.positionals, 'task id')),
-      requiredTaskCommandArgument(parsed, 'tag'),
+      required(parsed.positionals.slice(1), 'tag'),
     ),
   'add-blocker': async (store, parsed) =>
     addTaskBlocker(
       store,
       await resolveTaskId(store, required(parsed.positionals, 'task id')),
-      await resolveTaskId(store, requiredTaskCommandArgument(parsed, 'blocked-by task id')),
+      await resolveTaskId(store, required(parsed.positionals.slice(1), 'blocked-by task id')),
     ),
   'remove-blocker': async (store, parsed) =>
     removeTaskBlocker(
       store,
       await resolveTaskId(store, required(parsed.positionals, 'task id')),
-      await resolveTaskId(store, requiredTaskCommandArgument(parsed, 'blocked-by task id')),
+      await resolveTaskId(store, required(parsed.positionals.slice(1), 'blocked-by task id')),
     ),
   cleanup: (store, parsed) =>
     cleanupTasks(store, cleanupDaysFrom(parsed), { hard: parsed.flags.has('hard') }),

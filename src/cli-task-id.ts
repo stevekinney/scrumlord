@@ -1,4 +1,3 @@
-import { required, type ParsedArguments } from './cli-arguments.js';
 import { currentBranchTask } from './current-branch-task.js';
 import { ScrumlordError } from './errors.js';
 import type { TaskStore } from './types.js';
@@ -35,12 +34,3 @@ export const resolveTaskId = async (
   }
   return input;
 };
-
-export const taskCommandArguments = (parsed: ParsedArguments): string[] =>
-  parsed.positionals.slice(1);
-
-export const requiredTaskCommandArgument = (
-  parsed: ParsedArguments,
-  name: string,
-  index = 0,
-): string => required(taskCommandArguments(parsed).slice(index), name);

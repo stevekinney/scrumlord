@@ -154,17 +154,17 @@ const topics: HelpTopic[] = [
   {
     path: ['progress', 'list'],
     summary: 'List progress entries for a task.',
-    usage: 'tasks progress list <task-id>',
-    description: `Returns chronological progress entries recorded for the task, including provider and session metadata when available.`,
+    usage: 'tasks progress list [task-id]',
+    description: `Returns chronological progress entries recorded for the task, including provider and session metadata when available. When task-id is omitted, resolves the active task on the current Git branch.`,
     arguments: [requiredTaskIdArgument],
-    examples: ['tasks progress list current', 'tasks progress list 8f7d6a'],
+    examples: ['tasks progress list', 'tasks progress list current', 'tasks progress list 8f7d6a'],
   },
   {
     path: ['progress', 'add'],
     summary: 'Record task progress.',
     usage:
-      'tasks progress add <task-id> --message <markdown> [--provider <claude|codex>] [--session <id>]',
-    description: `Appends a progress entry to a task and moves draft or ready tasks to in-progress. When --provider or --session are omitted, Scrumlord infers them in this order: SCRUMLORD_CLI, then CLAUDECODE=1 → claude, then CODEX_SESSION_ID → codex, then CLAUDE_SESSION_ID → claude, then the task's stored session when the stored provider matches. The stored session is never paired with a different provider. CLAUDE_PROJECT_DIR is used as the default cwd.`,
+      'tasks progress add [task-id] --message <markdown> [--provider <claude|codex>] [--session <id>]',
+    description: `Appends a progress entry to a task and moves draft or ready tasks to in-progress. When task-id is omitted, resolves the active task on the current Git branch. When --provider or --session are omitted, Scrumlord infers them in this order: SCRUMLORD_CLI, then CLAUDECODE=1 → claude, then CODEX_SESSION_ID → codex, then CLAUDE_SESSION_ID → claude, then the task's stored session when the stored provider matches. The stored session is never paired with a different provider. CLAUDE_PROJECT_DIR is used as the default cwd.`,
     arguments: [requiredTaskIdArgument],
     options: [
       { name: '--message', value: '<markdown>', description: 'Progress note to append.' },
@@ -189,8 +189,8 @@ const topics: HelpTopic[] = [
   {
     path: ['clear'],
     summary: 'Clear a task property.',
-    usage: 'tasks clear <branch|plan|session|start-date|due-date> <task-id>',
-    description: `Clears a single nullable field on a task. Clearing session removes both provider and session together.`,
+    usage: 'tasks clear <branch|plan|session|start-date|due-date> [task-id]',
+    description: `Clears a single nullable field on a task. Clearing session removes both provider and session together. When task-id is omitted, resolves the active task on the current Git branch.`,
     arguments: [
       '<branch|plan|session|start-date|due-date>: Property to clear.',
       requiredTaskIdArgument,

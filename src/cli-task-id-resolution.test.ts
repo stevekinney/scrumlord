@@ -192,6 +192,36 @@ describe('resolveTaskId — `current` token', () => {
     });
   });
 
+  it('progress list bare invocation falls back to current branch task', async () => {
+    const root = await workspaceRoot();
+    const { currentId } = await seedTasks(root);
+
+    await runTasksCli(['progress', 'add', 'current', '--message', 'Bare fallback entry'], {
+      cwd: root,
+      environment: {},
+    });
+
+    const result = await runTasksCli(['progress', 'list'], { cwd: root });
+    const entries = JSON.parse(result.stdout) as { taskId: string; message: string }[];
+    expect(entries).toEqual([
+      expect.objectContaining({ taskId: currentId, message: 'Bare fallback entry' }),
+    ]);
+  });
+
+  it('progress add bare invocation falls back to current branch task', async () => {
+    const root = await workspaceRoot();
+    const { currentId } = await seedTasks(root);
+
+    const result = await runTasksCli(['progress', 'add', '--message', 'Bare add fallback'], {
+      cwd: root,
+      environment: {},
+    });
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      taskId: currentId,
+      message: 'Bare add fallback',
+    });
+  });
+
   it('add-tag current adds a tag to the current branch task', async () => {
     const root = await workspaceRoot();
     const { currentId } = await seedTasks(root);
@@ -212,11 +242,11 @@ describe('resolveTaskId — `current` token', () => {
     expect(JSON.parse(result.stdout)).toMatchObject({ id: currentId, tags: [] });
   });
 
-  it('add-blocker current next adds the next task as blocker of the current task', async () => {
+  it('add-blocker current <uuid> adds the specified task as blocker of the current task', async () => {
     const root = await workspaceRoot();
     const { currentId } = await seedTasks(root);
 
-    const blockerResult = await runTasksCli(['create', '--title', 'Next task blocker'], {
+    const blockerResult = await runTasksCli(['create', '--title', 'Explicit blocker'], {
       cwd: root,
     });
     const blockerId = taskIdFromOutput(blockerResult.stdout);
@@ -225,6 +255,26 @@ describe('resolveTaskId — `current` token', () => {
     expect(JSON.parse(result.stdout)).toMatchObject({
       id: currentId,
       blockedBy: [blockerId],
+    });
+  });
+
+  it('add-blocker current next resolves next token as second operand', async () => {
+    const root = await workspaceRoot();
+    const { currentId } = await seedTasks(root);
+
+    // Create a high-priority unblocked task with no branch — it becomes the next claimable task
+    const store = await createTaskStore({ cwd: root });
+    let nextId: string;
+    try {
+      nextId = store.create({ title: 'High priority next', priority: 3 }).id;
+    } finally {
+      store.close();
+    }
+
+    const result = await runTasksCli(['add-blocker', 'current', 'next'], { cwd: root });
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      id: currentId,
+      blockedBy: [nextId!],
     });
   });
 
@@ -495,13 +545,17 @@ describe('resolveTaskId — missing argument gate (every positional task-id comm
   it('deleted symbols are absent from production source files', async () => {
     const glob = new Glob('src/**/*.ts');
     const deletedFragments = [
-      // Base64-encoded to avoid self-matching: taskIdFromArguments, hasExplicitTaskId, trailingArgumentCount
+      // Base64-encoded to avoid self-matching:
+      // taskIdFromArguments, hasExplicitTaskId, trailingArgumentCount
+      // taskCommandArguments, requiredTaskCommandArgument
       atob('dGFza0lkRnJvbUFyZ3VtZW50cw=='),
       atob('aGFzRXhwbGljaXRUYXNrSWQ='),
       atob('dHJhaWxpbmdBcmd1bWVudENvdW50'),
+      atob('dGFza0NvbW1hbmRBcmd1bWVudHM='),
+      atob('cmVxdWlyZWRUYXNrQ29tbWFuZEFyZ3VtZW50'),
     ];
     for await (const file of glob.scan('.')) {
-      if (file.endsWith('.test.ts') || file === 'src/cli-task-id-resolution.test.ts') continue;
+      if (file.endsWith('.test.ts')) continue;
       const content = await Bun.file(file).text();
       for (const fragment of deletedFragments) {
         expect(content).not.toContain(fragment);

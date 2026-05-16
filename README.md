@@ -145,8 +145,9 @@ Expected failures return JSON on stderr with a stable error code:
 - `gh_not_authenticated`: Run `gh auth login` or fix the current GitHub CLI authentication.
 - `github_repository_not_found`: Configure the repository remote so `gh repo view` can resolve it.
 - `pull_request_not_found`: Open a pull request for the current branch or continue with non-GitHub task commands.
-- `current_task_not_found`: Assign exactly one active task to the current Git branch or pass the task ID explicitly.
+- `current_task_not_found`: Assign exactly one active task to the current Git branch or pass the task ID explicitly (e.g. `tasks get <uuid>`).
 - `current_task_ambiguous`: The current Git branch has multiple active tasks. Use `tasks with-branch "$(git branch --show-current)"` and choose the correct task explicitly.
+- `next_task_not_found`: No claimable task is available. Check `tasks available` or `tasks next`.
 - `ci_status_invalid`: Update `gh` or inspect `gh pr checks --json bucket,completedAt,link,name,state,workflow`; Scrumlord expected a JSON array.
 - `git_branch_not_found`: Leave detached HEAD or set task branch metadata manually with `tasks update current --branch <branch>`.
 - `invalid_date`, `invalid_date_range`, `invalid_priority`, and `invalid_status`: Fix the supplied task field.
