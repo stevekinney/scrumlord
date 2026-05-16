@@ -341,12 +341,13 @@ describe('recoverOrphans', () => {
     const { orphans } = await recoverOrphans(store, root, runner);
     expect(orphans).toHaveLength(1);
     expect(orphans[0]?.applied).toBe(true);
-    const recovered = store.getTask('t1')!;
-    expect(recovered.status).toBe('ready');
-    expect(recovered.branch).toBeNull();
-    expect(recovered.session).toBeNull();
-    expect(recovered.plan).toBe(planPath);
-    expect(recovered.provider).toBe('claude');
+    const recovered = store.getTask('t1');
+    expect(recovered).not.toBeNull();
+    expect(recovered?.status).toBe('ready');
+    expect(recovered?.branch).toBeNull();
+    expect(recovered?.session).toBeNull();
+    expect(recovered?.plan).toBe(planPath);
+    expect(recovered?.provider).toBe('claude');
   });
 
   it('dry-run returns applied=false and does not mutate the task', async () => {
