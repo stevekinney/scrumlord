@@ -78,6 +78,7 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   'agent-hook': onePositional,
   delete: { ...requiredTaskId, booleanFlags: ['hard'] },
   cleanup: { ...onePositional, booleanFlags: ['hard'] },
+  plan: { minPositionals: 0, maxPositionals: 1 },
   create: {
     ...noPositionals,
     valueFlags: [

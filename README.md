@@ -85,6 +85,7 @@ Help output uses Bun’s native `Bun.color()` ANSI formatting. JSON data and JSO
 - `tasks priority <priority>`: Tasks with priority `1`, `2`, or `3`.
 - `tasks next`: The next available task, preferring tasks with a plan before unplanned tasks. Empty stdout with exit code 0 means there is no available task, which lets automation loops stop without parsing `null`.
 - `tasks remaining`: The number of active unfinished tasks, including tasks with future start dates. Completed, in-progress, deleted, and archived tasks are not counted.
+- `tasks plan [task-id]`: Emit a Markdown prompt directing an agent to author task plans. Without a task id, scopes to all available unplanned tasks. With a task id (UUID, `current`, or `next`), scopes to that single task. The command does not plan inline — it prints a prompt to stdout for an agent to consume.
 - `tasks repository`: The current GitHub repository name, such as `stevekinney/scrumlord`.
 - `tasks repository --url`: The full GitHub repository URL.
 - `tasks session <task-id>`: Provider, session, branch, derived worktree, plan path, session data path, and warnings for a task.

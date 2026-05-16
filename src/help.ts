@@ -124,6 +124,17 @@ const topics: HelpTopic[] = [
     examples: ['tasks remaining'],
   },
   {
+    path: ['plan'],
+    summary: 'Emit a Markdown prompt directing an agent to author task plans.',
+    usage: 'tasks plan [task-id]',
+    description:
+      'Without a task id, emits a prompt directing an agent to author plans for every available unplanned task. With a task id, scopes the prompt to that single task. Accepts a UUID, "current" (the active task on the current Git branch), or "next" (the next claimable task). The command does not plan inline — it prints a prompt to stdout for an agent to consume.',
+    arguments: [
+      '[task-id]: Optional. Task ID. Accepts a UUID, "current" (the active task on the current Git branch), or "next" (the next claimable task).',
+    ],
+    examples: ['tasks plan', 'tasks plan current', 'tasks plan next', 'tasks plan 8f7d6a'],
+  },
+  {
     path: ['repository'],
     summary: 'Show the current GitHub repository.',
     usage: 'tasks repository [--url] [--json]',

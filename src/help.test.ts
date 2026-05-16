@@ -10,6 +10,7 @@ const expectedTopics = [
   'current',
   'next',
   'remaining',
+  'plan',
   'repository',
   'session',
   'progress',

@@ -1,7 +1,9 @@
 import { resolveTaskSession } from './agent-providers.js';
 import { providerFromStartCommand } from './cli-agent-commands.js';
 import { flag, flagList, required, type ParsedArguments } from './cli-arguments.js';
+import { rawOutput } from './cli-raw-output.js';
 import { resolveTaskId } from './cli-task-id.js';
+import { planBatchPrompt, planTaskPrompt } from './plan-prompt.js';
 import { progressInputFromContext } from './cli-progress.js';
 import { currentBranchTask } from './current-branch-task.js';
 import { ScrumlordError } from './errors.js';
@@ -329,6 +331,17 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
     ),
   cleanup: (store, parsed) =>
     cleanupTasks(store, cleanupDaysFrom(parsed), { hard: parsed.flags.has('hard') }),
+  plan: async (store, parsed) => {
+    const input = parsed.positionals[0];
+    if (input === undefined) {
+      const tasks = availableTasks(store, { plan: 'unplanned' });
+      return rawOutput(planBatchPrompt(tasks, store.projectRoot));
+    }
+    const id = await resolveTaskId(store, input);
+    const task = store.getTask(id);
+    if (!task) throw new ScrumlordError('task_not_found', `Task ${id} not found.`);
+    return rawOutput(planTaskPrompt(task, store.projectRoot));
+  },
 };
 
 export const taskStoreCommands = new Set(Object.keys(storeCommandHandlers));

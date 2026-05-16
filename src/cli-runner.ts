@@ -10,6 +10,7 @@ import {
   type ParsedArguments,
 } from './cli-arguments.js';
 import { runSetupBoundaryCommand } from './cli-setup-commands.js';
+import { isRawOutput } from './cli-raw-output.js';
 import {
   runTaskStoreCommand,
   taskStoreCommands,
@@ -355,6 +356,7 @@ const openStore = async (options: CliOptions): Promise<TaskStore> => {
 
 const storeCommandResult = (parsed: ParsedArguments, value: unknown): CliResult => {
   if (parsed.command === 'next' && value === null) return emptySuccess();
+  if (isRawOutput(value)) return rawString(value.value);
   return success(value);
 };
 
