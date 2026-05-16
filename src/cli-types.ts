@@ -1,8 +1,8 @@
 import type { AgentInvocation } from './agent-providers.js';
 import type { ColorMode } from './color.js';
 import type { CommandRunner } from './command-runner.js';
-import type { PullRequestPollReport } from './github-poll.js';
 import type { PullRequestStatusReport, ReviewComment } from './github.js';
+import type { PullRequestPollReport } from './github-poll.js';
 import type { InitializeProjectOptions } from './init.js';
 import type { SetupAgentHooksOptions, SetupAgentHooksResult } from './agent-hooks.js';
 import type { SetupGitHooksResult } from './git-hooks.js';

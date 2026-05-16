@@ -158,11 +158,11 @@ const parsePollInteger = (
 ): number => {
   const raw = flags.get(name)?.[0];
   if (raw === undefined) return defaultValue;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < 1) {
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) {
     throw new ScrumlordError('pr_flag_conflict', `--${name} must be a positive integer.`);
   }
-  return value;
+  return parsed;
 };
 
 const parsePollNumber = (
@@ -172,14 +172,15 @@ const parsePollNumber = (
 ): number => {
   const raw = flags.get(name)?.[0];
   if (raw === undefined) return defaultValue;
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value <= 0) {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new ScrumlordError('pr_flag_conflict', `--${name} must be a positive number.`);
   }
-  return value;
+  return parsed;
 };
 
 const runPullRequestPollCommand: BoundaryCommandHandler = async (parsed, options) => {
+  validatePullRequestFlags(parsed);
   const github = await githubModule(options);
   const root = await resolveProjectRoot(options.cwd);
   const maxPolls = parsePollInteger(parsed.flags, 'max-polls', 5);
