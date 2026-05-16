@@ -1,7 +1,11 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { format } from 'prettier';
 import { claudePluginManifestSchema } from './plugin-manifest.js';
 import type { PluginSpec } from './plugin-spec.js';
+
+const formatJson = (value: unknown): Promise<string> =>
+  format(JSON.stringify(value), { parser: 'json' });
 
 /** Builds the YAML frontmatter block for a Claude skill SKILL.md. */
 const buildSkillFrontmatter = (description: string): string =>
@@ -77,7 +81,7 @@ export const emit = async (spec: PluginSpec, repoRoot: string): Promise<void> =>
   }
 
   mkdirSync(pluginRoot, { recursive: true });
-  await Bun.write(join(pluginRoot, 'plugin.json'), `${JSON.stringify(parsed.data, null, 2)}\n`);
+  await Bun.write(join(pluginRoot, 'plugin.json'), await formatJson(parsed.data));
 
   // MCP server config (Claude wraps in mcpServers envelope)
   const mcpConfig = {
@@ -85,12 +89,12 @@ export const emit = async (spec: PluginSpec, repoRoot: string): Promise<void> =>
       [spec.mcp.serverName]: { command: spec.mcp.command, args: spec.mcp.args },
     },
   };
-  await Bun.write(join(pluginRoot, '.mcp.json'), `${JSON.stringify(mcpConfig, null, 2)}\n`);
+  await Bun.write(join(pluginRoot, '.mcp.json'), await formatJson(mcpConfig));
 
   // Lifecycle hooks
   const hooks = buildHooks(spec);
   mkdirSync(join(pluginRoot, 'hooks'), { recursive: true });
-  await Bun.write(join(pluginRoot, 'hooks', 'hooks.json'), `${JSON.stringify(hooks, null, 2)}\n`);
+  await Bun.write(join(pluginRoot, 'hooks', 'hooks.json'), await formatJson(hooks));
 
   // Skills
   for (const skill of spec.skills) {
@@ -126,8 +130,5 @@ export const emit = async (spec: PluginSpec, repoRoot: string): Promise<void> =>
       },
     ],
   };
-  await Bun.write(
-    join(pluginRoot, 'marketplace.json'),
-    `${JSON.stringify(marketplace, null, 2)}\n`,
-  );
+  await Bun.write(join(pluginRoot, 'marketplace.json'), await formatJson(marketplace));
 };

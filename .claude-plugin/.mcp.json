@@ -1,8 +1,5 @@
 {
   "mcpServers": {
-    "scrumlord": {
-      "command": "bunx",
-      "args": ["scrumlord", "tasks-mcp"]
-    }
+    "scrumlord": { "command": "bunx", "args": ["scrumlord", "tasks-mcp"] }
   }
 }
