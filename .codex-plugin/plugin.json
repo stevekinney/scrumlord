@@ -1,0 +1,29 @@
+{
+  "name": "scrumlord",
+  "version": "0.0.1",
+  "description": "A Bun-first task graph CLI and library.",
+  "author": {
+    "name": "Steve Kinney",
+    "email": "hello@stevekinney.net"
+  },
+  "homepage": "https://github.com/stevekinney/scrumlord",
+  "repository": "https://github.com/stevekinney/scrumlord",
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "Scrumlord",
+    "shortDescription": "Local task graph for AI-driven development workflows.",
+    "longDescription": "Scrumlord stores a lightweight task graph in tmp/tasks.db at your project root. Install this plugin to get the tasks skill, the scrumlord-task-manager subagent skill, the MCP server, and lifecycle hooks that inject current-branch task context into every session. Requires the `tasks` binary on PATH (install via `bun add -g scrumlord`).",
+    "developerName": "Steve Kinney",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/stevekinney/scrumlord",
+    "defaultPrompt": [
+      "Use Scrumlord to break this roadmap into a task graph.",
+      "Use Scrumlord to show me the next available task.",
+      "Use Scrumlord to check pull request readiness."
+    ]
+  }
+}

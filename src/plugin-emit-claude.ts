@@ -1,0 +1,133 @@
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { claudePluginManifestSchema } from './plugin-manifest.js';
+import type { PluginSpec } from './plugin-spec.js';
+
+/** Builds the YAML frontmatter block for a Claude skill SKILL.md. */
+const buildSkillFrontmatter = (description: string): string =>
+  `---\ndescription: ${description}\n---\n\n`;
+
+/** Builds the YAML frontmatter block for a Claude agent .md file. */
+const buildAgentFrontmatter = (agent: {
+  name: string;
+  description: string;
+  tools: string[];
+  color: string;
+}): string => {
+  const lines = [
+    '---',
+    `name: ${agent.name}`,
+    `description: ${agent.description}`,
+    `tools: ${agent.tools.join(', ')}`,
+    'skills:',
+    '  - tasks',
+    `color: ${agent.color}`,
+    '---',
+    '',
+    '',
+  ];
+  return lines.join('\n');
+};
+
+/** Builds the hook command for Claude. */
+const buildHookCommand = (): string =>
+  'command -v tasks >/dev/null 2>&1 && tasks agent-hook claude || true';
+
+/** Builds the hooks.json structure for Claude from the spec. */
+const buildHooks = (spec: PluginSpec): Record<string, unknown> => {
+  const command = buildHookCommand();
+  const byEvent: Record<string, unknown[]> = {};
+  for (const hook of spec.hooks) {
+    if (!hook.providers.includes('claude')) continue;
+    const entries = (byEvent[hook.event] ??= []);
+    const entry: Record<string, unknown> = {
+      hooks: [{ type: 'command', command, timeout: 10 }],
+    };
+    if (hook.matcher) entry['matcher'] = hook.matcher;
+    entries.push(entry);
+  }
+  return { hooks: byEvent };
+};
+
+/** Writes the Claude Code plugin tree to `<root>/.claude-plugin/`. */
+export const emit = async (spec: PluginSpec, repoRoot: string): Promise<void> => {
+  const pluginRoot = join(repoRoot, '.claude-plugin');
+
+  const manifest = {
+    name: spec.name,
+    version: spec.version,
+    description: spec.description,
+    author: spec.author,
+    homepage: spec.homepage,
+    repository: spec.repository,
+    license: spec.license,
+    keywords: spec.keywords.length > 0 ? spec.keywords : undefined,
+    skills: './skills/',
+    agents: './agents/',
+    hooks: './hooks/hooks.json',
+    mcpServers: './.mcp.json',
+  };
+
+  const parsed = claudePluginManifestSchema.safeParse(manifest);
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((i) => ` - ${i.path.join('.')}: ${i.message}`)
+      .join('\n');
+    throw new Error(`Claude plugin manifest validation failed:\n${issues}`);
+  }
+
+  mkdirSync(pluginRoot, { recursive: true });
+  await Bun.write(join(pluginRoot, 'plugin.json'), `${JSON.stringify(parsed.data, null, 2)}\n`);
+
+  // MCP server config (Claude wraps in mcpServers envelope)
+  const mcpConfig = {
+    mcpServers: {
+      [spec.mcp.serverName]: { command: spec.mcp.command, args: spec.mcp.args },
+    },
+  };
+  await Bun.write(join(pluginRoot, '.mcp.json'), `${JSON.stringify(mcpConfig, null, 2)}\n`);
+
+  // Lifecycle hooks
+  const hooks = buildHooks(spec);
+  mkdirSync(join(pluginRoot, 'hooks'), { recursive: true });
+  await Bun.write(join(pluginRoot, 'hooks', 'hooks.json'), `${JSON.stringify(hooks, null, 2)}\n`);
+
+  // Skills
+  for (const skill of spec.skills) {
+    const body = await Bun.file(skill.sourcePath).text();
+    const skillDir = join(pluginRoot, 'skills', skill.name);
+    mkdirSync(skillDir, { recursive: true });
+    await Bun.write(
+      join(skillDir, 'SKILL.md'),
+      `${buildSkillFrontmatter(skill.description)}${body}`,
+    );
+  }
+
+  // Agents — Claude has a dedicated agents/ dir with flat .md files
+  mkdirSync(join(pluginRoot, 'agents'), { recursive: true });
+  for (const agent of spec.agents) {
+    const body = await Bun.file(agent.sourcePath).text();
+    await Bun.write(
+      join(pluginRoot, 'agents', `${agent.name}.md`),
+      `${buildAgentFrontmatter(agent)}${body}`,
+    );
+  }
+
+  // Local marketplace entry
+  const marketplace = {
+    name: 'scrumlord-local',
+    interface: { displayName: 'Scrumlord' },
+    plugins: [
+      {
+        name: spec.name,
+        source: { source: 'local', path: './.claude-plugin' },
+        policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+        category: 'Productivity',
+      },
+    ],
+  };
+  await Bun.write(
+    join(pluginRoot, 'marketplace.json'),
+    `${JSON.stringify(marketplace, null, 2)}\n`,
+  );
+};

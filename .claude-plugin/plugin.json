@@ -1,0 +1,16 @@
+{
+  "name": "scrumlord",
+  "version": "0.0.1",
+  "description": "A Bun-first task graph CLI and library.",
+  "author": {
+    "name": "Steve Kinney",
+    "email": "hello@stevekinney.net"
+  },
+  "homepage": "https://github.com/stevekinney/scrumlord",
+  "repository": "https://github.com/stevekinney/scrumlord",
+  "license": "MIT",
+  "skills": "./skills/",
+  "agents": "./agents/",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json"
+}

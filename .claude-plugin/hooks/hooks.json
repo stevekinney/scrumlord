@@ -1,0 +1,82 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v tasks >/dev/null 2>&1 && tasks agent-hook claude || true",
+            "timeout": 10
+          }
+        ],
+        "matcher": "ExitPlanMode"
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v tasks >/dev/null 2>&1 && tasks agent-hook claude || true",
+            "timeout": 10
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v tasks >/dev/null 2>&1 && tasks agent-hook claude || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v tasks >/dev/null 2>&1 && tasks agent-hook claude || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v tasks >/dev/null 2>&1 && tasks agent-hook claude || true",
+            "timeout": 10
+          }
+        ],
+        "matcher": "startup|resume"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v tasks >/dev/null 2>&1 && tasks agent-hook claude || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v tasks >/dev/null 2>&1 && tasks agent-hook claude || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

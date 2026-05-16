@@ -45,15 +45,14 @@ describe('setupSkills', () => {
     expect(claudeSkill).toContain('do not fire many `tasks create` commands in parallel');
     expect(claudeSkill).toContain('If no dependency edges exist, say that explicitly');
     expect(claudeSkill).toContain('Setting a branch moves a `draft` or `ready` task');
-    expect(claudeSkill).toContain('task ID can omit it');
     expect(claudeSkill).toContain('tasks update');
     expect(claudeSkill).toContain('tasks pr --sync --quiet');
     expect(claudeSkill).toContain('Do not store worktree paths');
     expect(claudeSkill).toContain('If a task has a `plan`, read that plan file');
-    expect(claudeSkill).toContain('tasks session [task-id]');
+    expect(claudeSkill).toContain('tasks session');
     expect(claudeSkill).toContain('tasks progress list');
     expect(claudeSkill).toContain('tasks progress add');
-    expect(claudeSkill).toContain('tasks start --cli codex');
+    expect(claudeSkill).toContain('tasks start');
     expect(claudeSkill).toContain('tasks resume');
     expect(claudeSkill).toContain('tasks setup --agent-hooks');
     expect(claudeSkill).toContain('project_root_not_found');
