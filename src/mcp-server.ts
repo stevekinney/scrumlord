@@ -642,7 +642,15 @@ const registerMutationTools = (server: McpServer, options: ScrumlordMcpServerOpt
     inputSchema: cleanupInputSchema,
     outputSchema: cleanupResultSchema,
     annotations: destructiveMutationAnnotations,
-    handler: (input, store) => cleanupTasks(store, input.days),
+    handler: async (input, store) => {
+      const result = await cleanupTasks(store, {
+        mode: 'aged',
+        days: input.days,
+        hard: false,
+        dryRun: false,
+      });
+      return { deleted: result.mode === 'aged' ? result.deleted : 0 };
+    },
   });
 };
 

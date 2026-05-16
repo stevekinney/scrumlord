@@ -1,3 +1,7 @@
+import type { CommandRunner } from './command-runner.js';
+import type { OrphanOutcome, OrphanSkip } from './orphan-recovery.js';
+import { recoverOrphans } from './orphan-recovery.js';
+import { buildCleanupPrompt } from './cleanup-prompt.js';
 import type {
   AddTaskProgressInput,
   AgentProvider,
@@ -13,9 +17,33 @@ import type {
   UpdateTaskInput,
 } from './types.js';
 
-export type CleanupTasksResult = {
-  deleted: number;
-};
+export type CleanupTasksResult =
+  | {
+      mode: 'aged';
+      hard: boolean;
+      dryRun: boolean;
+      deleted: number;
+      wouldDelete: TaskIdentifier[];
+    }
+  | {
+      mode: 'orphans-only';
+      dryRun: boolean;
+      orphans: OrphanOutcome[];
+      skipped: OrphanSkip[];
+    }
+  | {
+      mode: 'aged-and-orphans';
+      hard: boolean;
+      dryRun: boolean;
+      deleted: number;
+      wouldDelete: TaskIdentifier[];
+      orphans: OrphanOutcome[];
+      skipped: OrphanSkip[];
+    }
+  | {
+      mode: 'prompt';
+      prompt: string;
+    };
 
 export type TaskPlanFilter = 'planned' | 'unplanned';
 
@@ -404,11 +432,78 @@ export const addTaskProgress = (
   return store.addProgress(id, input);
 };
 
-/** Removes aged completed tasks. Soft-deletes by default; physically deletes with options.hard. */
-export const cleanupTasks = (
-  store: Pick<TaskStore, 'cleanup'>,
+export type CleanupTasksMode = 'aged' | 'orphans-only' | 'aged-and-orphans' | 'prompt';
+
+export type CleanupTasksOptions = {
+  mode: CleanupTasksMode;
+  hard?: boolean;
+  dryRun?: boolean;
+  runner?: CommandRunner;
+  projectRoot?: string;
+  now?: () => Date;
+};
+
+/** Orchestrates cleanup based on mode: aged-delete, orphan recovery, or prompt emission. */
+type CleanupStore = Pick<
+  TaskStore,
+  | 'cleanup'
+  | 'previewCleanup'
+  | 'inProgress'
+  | 'recoverOrphan'
+  | 'countInProgress'
+  | 'countBranched'
+>;
+
+const runAgedCleanup = (
+  store: Pick<CleanupStore, 'cleanup' | 'previewCleanup'>,
   days: number,
-  options: { hard?: boolean } = {},
-): CleanupTasksResult => {
-  return store.cleanup(days, options);
+  hard: boolean,
+  dryRun: boolean,
+): { deleted: number; wouldDelete: TaskIdentifier[] } => {
+  if (dryRun) {
+    const { wouldDelete } = store.previewCleanup(days, { hard });
+    return { deleted: 0, wouldDelete };
+  }
+  const { deleted } = store.cleanup(days, { hard });
+  return { deleted, wouldDelete: [] };
+};
+
+const requireRunner = (
+  runner: CommandRunner | undefined,
+  projectRoot: string | undefined,
+): { runner: CommandRunner; projectRoot: string } => {
+  if (!runner || !projectRoot) throw new Error('runner and projectRoot are required');
+  return { runner, projectRoot };
+};
+
+export const cleanupTasks = async (
+  store: CleanupStore,
+  options: CleanupTasksOptions & { days?: number },
+): Promise<CleanupTasksResult> => {
+  const { mode, hard = false, dryRun = false, now = () => new Date() } = options;
+
+  if (mode === 'prompt') {
+    const { runner, projectRoot } = requireRunner(options.runner, options.projectRoot);
+    const prompt = await buildCleanupPrompt({ store, projectRoot, runner, now });
+    return { mode: 'prompt', prompt };
+  }
+
+  if (mode === 'orphans-only') {
+    const { runner, projectRoot } = requireRunner(options.runner, options.projectRoot);
+    const { orphans, skipped } = await recoverOrphans(store, projectRoot, runner, { dryRun });
+    return { mode: 'orphans-only', dryRun, orphans, skipped };
+  }
+
+  const days = options.days!;
+
+  if (mode === 'aged-and-orphans') {
+    const { runner, projectRoot } = requireRunner(options.runner, options.projectRoot);
+    const { deleted, wouldDelete } = runAgedCleanup(store, days, hard, dryRun);
+    const { orphans, skipped } = await recoverOrphans(store, projectRoot, runner, { dryRun });
+    return { mode: 'aged-and-orphans', hard, dryRun, deleted, wouldDelete, orphans, skipped };
+  }
+
+  // mode === 'aged'
+  const { deleted, wouldDelete } = runAgedCleanup(store, days, hard, dryRun);
+  return { mode: 'aged', hard, dryRun, deleted, wouldDelete };
 };

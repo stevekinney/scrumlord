@@ -22,6 +22,7 @@ import { syncGitStatus } from './git-status.js';
 import { renderHelp } from './help.js';
 import { initializeProject } from './init.js';
 import { resolveProjectRoot } from './root-resolution.js';
+import type { CleanupTasksResult } from './task-commands.js';
 import type { TaskStore } from './types.js';
 
 type BoundaryCommandHandler = (parsed: ParsedArguments, options: CliOptions) => Promise<CliResult>;
@@ -353,9 +354,70 @@ const openStore = async (options: CliOptions): Promise<TaskStore> => {
   return await createTaskStore(options.cwd === undefined ? {} : { cwd: options.cwd });
 };
 
+const renderAgedLines = (
+  result: Extract<CleanupTasksResult, { mode: 'aged' | 'aged-and-orphans' }>,
+  prefix: string,
+): string[] => {
+  if (result.dryRun) {
+    return [
+      `${prefix}Aged cleanup: would delete=${result.wouldDelete.length} (hard=${result.hard})`,
+    ];
+  }
+  return [`${prefix}Aged cleanup: deleted=${result.deleted} (hard=${result.hard})`];
+};
+
+const renderOrphanLines = (
+  result: Extract<CleanupTasksResult, { mode: 'orphans-only' | 'aged-and-orphans' }>,
+  prefix: string,
+): string[] => {
+  const { orphans, skipped } = result;
+  const lines = [
+    `${prefix}Orphan recovery: recovered=${orphans.length}, skipped=${skipped.length}`,
+  ];
+  for (const orphan of orphans) {
+    const branchDesc =
+      orphan.previousBranch !== null ? `branch was ${orphan.previousBranch}` : 'no branch recorded';
+    const applied = orphan.applied ? 'in-progress→ready' : 'would recover';
+    lines.push(`  - task ${orphan.id}: ${applied} (${branchDesc}, missing in git)`);
+  }
+  for (const skip of skipped) {
+    const detail = skip.detail ?? skip.reason;
+    lines.push(
+      `  - task ${skip.id}: skipped (${detail}${skip.branch !== null ? `: "${skip.branch}"` : ''})`,
+    );
+  }
+  return lines;
+};
+
+const renderCleanupResult = (result: CleanupTasksResult): CliResult => {
+  if (result.mode === 'prompt') {
+    return { exitCode: 0, stdout: result.prompt, stderr: '' };
+  }
+
+  const prefix = result.dryRun ? '[dry-run] ' : '';
+  const lines: string[] = [];
+
+  if (result.mode === 'aged' || result.mode === 'aged-and-orphans') {
+    lines.push(...renderAgedLines(result, prefix));
+  }
+  if (result.mode === 'orphans-only' || result.mode === 'aged-and-orphans') {
+    lines.push(...renderOrphanLines(result, prefix));
+  }
+
+  return { exitCode: 0, stdout: lines.join('\n') + '\n', stderr: '' };
+};
+
+const isCleanupResult = (value: unknown): value is CleanupTasksResult =>
+  typeof value === 'object' &&
+  value !== null &&
+  'mode' in value &&
+  typeof (value as { mode: unknown }).mode === 'string' &&
+  ['aged', 'orphans-only', 'aged-and-orphans', 'prompt'].includes((value as { mode: string }).mode);
+
 const storeCommandResult = (parsed: ParsedArguments, value: unknown): CliResult => {
   if (parsed.command === 'next' && value === null) return emptySuccess();
   if (parsed.command === 'plan' && typeof value === 'string') return rawString(value);
+  if (parsed.command === 'cleanup' && isCleanupResult(value)) return renderCleanupResult(value);
   return success(value);
 };
 

@@ -138,7 +138,30 @@ const fakeStore = (calls: string[]): TaskStore => ({
   },
   cleanup(days, options) {
     calls.push(`cleanup:${days}${options?.hard ? ':hard' : ''}`);
-    return { deleted: days };
+    return { deleted: days ?? 0 };
+  },
+  previewCleanup(days) {
+    calls.push(`previewCleanup:${days}`);
+    return { wouldDelete: [] };
+  },
+  inProgress() {
+    calls.push('inProgress');
+    return [];
+  },
+  recoverOrphan() {
+    calls.push('recoverOrphan');
+    return {
+      outcome: 'stale-state',
+      actual: { status: 'in-progress', branch: null, session: null, deleted: false },
+    } as const;
+  },
+  countInProgress() {
+    calls.push('countInProgress');
+    return 0;
+  },
+  countBranched() {
+    calls.push('countBranched');
+    return 0;
   },
   addTag(id, tag) {
     calls.push(`addTag:${id}:${tag}`);
@@ -275,7 +298,6 @@ describe('runTasksCli', () => {
       ['remove-tag', 'task-id', 'frontend'],
       ['add-blocker', 'task-id', 'blocker-id'],
       ['remove-blocker', 'task-id', 'blocker-id'],
-      ['cleanup', '12'],
     ];
 
     for (const command of commands) {
@@ -284,6 +306,12 @@ describe('runTasksCli', () => {
       expect(result.stderr).toBe('');
       expect(() => JSON.parse(result.stdout)).not.toThrow();
     }
+
+    // Cleanup returns text, not JSON
+    const cleanupResult = await runTasksCli(['cleanup', '12'], options);
+    expect(cleanupResult.exitCode).toBe(0);
+    expect(cleanupResult.stderr).toBe('');
+    expect(cleanupResult.stdout).toContain('Aged cleanup:');
 
     expect(calls).toContain('create:New Task:draft:3:feature/task-graph');
     expect(calls).toContain('update:task-id:Renamed:2:feature/task-graph');
@@ -296,7 +324,8 @@ describe('runTasksCli', () => {
     expect(calls).toContain('list:active');
     expect(calls).toContain('list:all');
     expect(calls).toContain('withBranch:feature/task-graph');
-    expect(calls.filter((call) => call === 'close')).toHaveLength(commands.length);
+    // +1 for the cleanup command tested separately
+    expect(calls.filter((call) => call === 'close')).toHaveLength(commands.length + 1);
   });
 
   it('renders help for the main CLI and subcommands', async () => {

@@ -623,3 +623,153 @@ describe('createTaskStore', () => {
     store.close();
   });
 });
+
+describe('previewCleanup', () => {
+  it('returns IDs of tasks that would be soft-deleted without mutating anything', async () => {
+    const { store, setCurrentDate } = await createSeededStore();
+    store.update('blocked', { status: 'completed' });
+
+    // Advance the clock so the completed task is older than the cutoff
+    setCurrentDate(new Date('2026-05-12T12:00:00.000Z'));
+
+    const preview = store.previewCleanup(0);
+    expect(preview.wouldDelete).toContain('blocked');
+
+    // Task still exists with deleted=0
+    const stillThere = store.getTask('blocked');
+    expect(stillThere).not.toBeNull();
+    expect(stillThere?.deleted).toBe(false);
+
+    store.close();
+  });
+
+  it('returns same set as hard cleanup selection for hard mode', async () => {
+    const { store, setCurrentDate } = await createSeededStore();
+    store.update('blocked', { status: 'completed' });
+    store.delete('parent');
+
+    // Advance the clock so the tasks are older than the cutoff
+    setCurrentDate(new Date('2026-05-12T12:00:00.000Z'));
+
+    const softPreview = store.previewCleanup(0, { hard: false });
+    const hardPreview = store.previewCleanup(0, { hard: true });
+
+    // Hard should include soft-deleted (parent) + completed (blocked)
+    expect(hardPreview.wouldDelete).toContain('blocked');
+    expect(hardPreview.wouldDelete).toContain('parent');
+    expect(softPreview.wouldDelete).toContain('blocked');
+    expect(softPreview.wouldDelete).not.toContain('parent');
+
+    store.close();
+  });
+});
+
+describe('inProgress, countInProgress, countBranched', () => {
+  it('inProgress returns only in-progress non-deleted tasks', async () => {
+    const { store } = await createSeededStore();
+    store.update('blocked', { status: 'in-progress' });
+    store.update('parent', { status: 'in-progress' });
+    store.delete('parent');
+
+    const tasks = store.inProgress();
+    const ids = tasks.map((t) => t.id);
+    expect(ids).toContain('blocked');
+    expect(ids).not.toContain('parent'); // deleted
+
+    store.close();
+  });
+
+  it('countInProgress returns count of in-progress non-deleted tasks', async () => {
+    const { store } = await createSeededStore();
+    store.update('blocked', { status: 'in-progress' });
+    expect(store.countInProgress()).toBe(1);
+
+    store.close();
+  });
+
+  it('countBranched returns count of non-deleted tasks with non-empty branch', async () => {
+    const { store } = await createSeededStore();
+    // blocked already has branch 'feature/task-graph'
+    expect(store.countBranched()).toBe(1);
+
+    store.update('parent', { branch: '' });
+    expect(store.countBranched()).toBe(1); // empty branch not counted
+
+    store.delete('blocked'); // soft-delete the branched task
+    expect(store.countBranched()).toBe(0);
+
+    store.close();
+  });
+});
+
+describe('recoverOrphan', () => {
+  it('happy path: returns applied with cleared branch/session and bumped lastModifiedAt', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    let now = new Date('2026-05-11T12:00:00.000Z');
+    const store = await createTaskStore({ cwd: root, now: () => now });
+
+    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'task/x' });
+    store.update('t1', { provider: 'claude', session: 'sess123' });
+
+    now = new Date('2026-05-11T13:00:00.000Z');
+    const result = store.recoverOrphan('t1', {
+      previousBranch: 'task/x',
+      previousSession: 'sess123',
+      reason: 'branch-not-in-git',
+    });
+
+    expect(result.outcome).toBe('applied');
+    if (result.outcome !== 'applied') return;
+
+    expect(result.task.status).toBe('ready');
+    expect(result.task.branch).toBeNull();
+    expect(result.task.session).toBeNull();
+    expect(result.task.lastModifiedAt).toBe('2026-05-11T13:00:00.000Z');
+    expect(result.progress.message).toContain('[cleanup] orphan recovered');
+    expect(result.progress.message).toContain('branch-not-in-git');
+
+    store.close();
+  });
+
+  it('stale-state on status change: returns stale-state with no writes', async () => {
+    const { store } = await createSeededStore();
+    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'task/x' });
+
+    // Change status before recovery
+    store.update('t1', { status: 'in-review' });
+
+    const before = store.getTask('t1')!;
+    const result = store.recoverOrphan('t1', {
+      previousBranch: 'task/x',
+      previousSession: null,
+      reason: 'branch-not-in-git',
+    });
+
+    expect(result.outcome).toBe('stale-state');
+    if (result.outcome !== 'stale-state') return;
+    expect(result.actual.status).toBe('in-review');
+
+    // No write occurred
+    const after = store.getTask('t1')!;
+    expect(after.lastModifiedAt).toBe(before.lastModifiedAt);
+
+    store.close();
+  });
+
+  it('stale-state on branch drift: returns stale-state when branch changed', async () => {
+    const { store } = await createSeededStore();
+    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'task/x' });
+    store.update('t1', { branch: 'task/y' });
+
+    const result = store.recoverOrphan('t1', {
+      previousBranch: 'task/x',
+      previousSession: null,
+      reason: 'branch-not-in-git',
+    });
+
+    expect(result.outcome).toBe('stale-state');
+
+    store.close();
+  });
+});

@@ -178,6 +178,14 @@ export type TaskStore = {
     blocked: number;
   };
   cleanup(days: number, options?: CleanupOptions): { deleted: number };
+  previewCleanup(days: number, options?: CleanupOptions): { wouldDelete: TaskIdentifier[] };
+  inProgress(): Task[];
+  recoverOrphan(
+    id: TaskIdentifier,
+    expected: import('./orphan-recovery.js').RecoverOrphanInput,
+  ): import('./orphan-recovery.js').RecoverOrphanResult;
+  countInProgress(): number;
+  countBranched(): number;
   addTag(id: TaskIdentifier, tag: string): Task;
   removeTag(id: TaskIdentifier, tag: string): Task;
   addBlocker(id: TaskIdentifier, blockedBy: TaskReference): Task;

@@ -84,4 +84,15 @@ describe('renderHelp', () => {
   it('returns null for unknown topics', () => {
     expect(renderHelp(['unknown'], 'never')).toBeNull();
   });
+
+  it('renders cleanup help with new flags', () => {
+    const help = renderHelp(['cleanup'], 'never');
+    expect(help).toContain('--recover-orphans');
+    expect(help).toContain('--orphans-only');
+    expect(help).toContain('--dry-run');
+    expect(help).toContain('--prompt');
+    expect(help).toContain('tasks cleanup --prompt | claude --print');
+    expect(help).toContain('tasks cleanup --orphans-only');
+    expect(help).toContain('tasks cleanup 30 --recover-orphans --dry-run');
+  });
 });

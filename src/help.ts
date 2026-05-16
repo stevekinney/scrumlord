@@ -457,18 +457,48 @@ const topics: HelpTopic[] = [
   },
   {
     path: ['cleanup'],
-    summary: 'Remove old completed or soft-deleted tasks.',
-    usage: 'tasks cleanup <days> [--hard]',
+    summary:
+      'Remove old completed tasks, recover orphaned in-progress tasks, or emit an agent prompt.',
+    usage:
+      'tasks cleanup [<days>] [--hard] [--recover-orphans] [--orphans-only] [--dry-run] [--prompt]',
     description:
-      'Soft-deletes aged completed tasks by default (sets deleted=1 and clears their dependency edges, touching surviving neighbors). With --hard, physically removes completed and soft-deleted tasks via FK cascades, also touching surviving neighbors.',
-    arguments: ['<days>: Non-negative integer age threshold.'],
+      'Modes are mutually exclusive: (1) with <days>, soft-deletes aged completed tasks (use --hard to physically remove); (2) with --recover-orphans, additionally demotes in-progress tasks whose branch is missing locally and on origin back to ready, clearing branch/session; (3) with --orphans-only, runs only orphan recovery (omit <days>); (4) with --prompt, prints a Markdown prompt an agent can run for a deep cleanup pass and exits without writing. --dry-run pairs with any mutation mode and reports what would change without writing. Use --dry-run before --recover-orphans the first time.',
+    arguments: [
+      '<days>: Non-negative integer age threshold. Required for modes 1 and 2; rejected for modes 3 and 4.',
+    ],
     options: [
       {
         name: '--hard',
-        description: 'Physically remove matching tasks and cascade related rows.',
+        description: 'Physically remove matching aged tasks and cascade related rows.',
+      },
+      {
+        name: '--recover-orphans',
+        description: 'Also demote in-progress tasks with missing branches back to ready.',
+      },
+      {
+        name: '--orphans-only',
+        description: 'Run only orphan recovery; do not delete aged tasks. Omit <days>.',
+      },
+      {
+        name: '--dry-run',
+        description:
+          'Report findings without writing. Strongly recommended before --recover-orphans.',
+      },
+      {
+        name: '--prompt',
+        description:
+          'Emit a Markdown prompt for an agent to perform deep cleanup. Cannot combine with mutation flags.',
       },
     ],
-    examples: ['tasks cleanup 30', 'tasks cleanup 30 --hard'],
+    examples: [
+      'tasks cleanup 30',
+      'tasks cleanup 30 --hard',
+      'tasks cleanup 30 --recover-orphans --dry-run',
+      'tasks cleanup 30 --recover-orphans',
+      'tasks cleanup --orphans-only --dry-run',
+      'tasks cleanup --orphans-only',
+      'tasks cleanup --prompt | claude --print',
+    ],
   },
   {
     path: ['overview'],

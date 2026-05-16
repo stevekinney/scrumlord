@@ -134,7 +134,30 @@ const fakeStore = (calls: string[]): TaskStore => ({
   },
   cleanup(days, options) {
     calls.push(`cleanup:${days}${options?.hard ? ':hard' : ''}`);
-    return { deleted: days };
+    return { deleted: days ?? 0 };
+  },
+  previewCleanup(days) {
+    calls.push(`previewCleanup:${days}`);
+    return { wouldDelete: [] };
+  },
+  inProgress() {
+    calls.push('inProgress');
+    return [];
+  },
+  recoverOrphan() {
+    calls.push('recoverOrphan');
+    return {
+      outcome: 'stale-state',
+      actual: { status: 'in-progress', branch: null, session: null, deleted: false },
+    } as const;
+  },
+  countInProgress() {
+    calls.push('countInProgress');
+    return 0;
+  },
+  countBranched() {
+    calls.push('countBranched');
+    return 0;
   },
   addTag(id, tag) {
     calls.push(`addTag:${id}:${tag}`);
@@ -181,7 +204,7 @@ const fakeStore = (calls: string[]): TaskStore => ({
 });
 
 describe('library task command methods', () => {
-  it('routes task command helpers through the task store API', () => {
+  it('routes task command helpers through the task store API', async () => {
     const calls: string[] = [];
     const store = fakeStore(calls);
 
@@ -228,8 +251,12 @@ describe('library task command methods', () => {
     expect(setTaskSession(store, 'task-id', 'codex', 'session').session).toBe('session');
     expect(firstTask(tasksWithSession(store, 'codex', 'session')).session).toBe('session');
     expect(persistedTaskSession(store, 'task-id').session).toBe('codex-session');
-    expect(cleanupTasks(store, 30)).toEqual({ deleted: 30 });
-    expect(cleanupTasks(store, 30, { hard: true })).toEqual({ deleted: 30 });
+    expect(
+      await cleanupTasks(store, { mode: 'aged', days: 30, hard: false, dryRun: false }),
+    ).toMatchObject({ mode: 'aged', deleted: 30 });
+    expect(
+      await cleanupTasks(store, { mode: 'aged', days: 30, hard: true, dryRun: false }),
+    ).toMatchObject({ mode: 'aged', deleted: 30 });
 
     expect(calls).toContain('available');
     expect(calls).toContain('list:active');

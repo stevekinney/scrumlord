@@ -36,6 +36,7 @@ import {
   tasksWithBranch,
   tasksWithPriority,
   updateTask,
+  type CleanupTasksMode,
 } from './task-commands.js';
 import { next, remaining } from './task-queries.js';
 import type { CliOptions } from './cli-types.js';
@@ -154,8 +155,8 @@ const updateInputFromFlags = (flags: Map<string, string[]>): UpdateTaskInput => 
   return input;
 };
 
-const cleanupDaysFrom = (parsed: ParsedArguments): number => {
-  const days = Number(required(parsed.positionals, 'days'));
+const parseDaysPositional = (positionals: string[]): number => {
+  const days = Number(positionals[0]);
   if (!Number.isInteger(days) || days < 0) {
     throw new ScrumlordError(
       'invalid_cleanup_days',
@@ -163,6 +164,82 @@ const cleanupDaysFrom = (parsed: ParsedArguments): number => {
     );
   }
   return days;
+};
+
+type CleanupModeResult = {
+  mode: CleanupTasksMode;
+  days?: number;
+  hard: boolean;
+  dryRun: boolean;
+};
+
+const promptIncompatibleFlag = (
+  hasHard: boolean,
+  hasRecoverOrphans: boolean,
+  hasOrphansOnly: boolean,
+  hasDryRun: boolean,
+  hasDays: boolean,
+): string | null => {
+  if (hasHard) return '--hard';
+  if (hasRecoverOrphans) return '--recover-orphans';
+  if (hasOrphansOnly) return '--orphans-only';
+  if (hasDryRun) return '--dry-run';
+  if (hasDays) return '<days>';
+  return null;
+};
+
+const cleanupModeFrom = (parsed: ParsedArguments): CleanupModeResult => {
+  const hasPrompt = parsed.flags.has('prompt');
+  const hasOrphansOnly = parsed.flags.has('orphans-only');
+  const hasRecoverOrphans = parsed.flags.has('recover-orphans');
+  const hasHard = parsed.flags.has('hard');
+  const hasDryRun = parsed.flags.has('dry-run');
+  const hasDays = parsed.positionals.length > 0;
+
+  if (hasPrompt) {
+    const incompatible = promptIncompatibleFlag(
+      hasHard,
+      hasRecoverOrphans,
+      hasOrphansOnly,
+      hasDryRun,
+      hasDays,
+    );
+    if (incompatible) {
+      throw new ScrumlordError(
+        'invalid_cleanup_flags',
+        `--prompt cannot be combined with ${incompatible}.`,
+      );
+    }
+    return { mode: 'prompt', hard: false, dryRun: false };
+  }
+
+  if (hasOrphansOnly) {
+    if (hasDays) {
+      throw new ScrumlordError('invalid_cleanup_flags', '--orphans-only does not accept <days>.');
+    }
+    if (hasHard) {
+      throw new ScrumlordError(
+        'invalid_cleanup_flags',
+        '--hard has no meaning with --orphans-only.',
+      );
+    }
+    return { mode: 'orphans-only', hard: false, dryRun: hasDryRun };
+  }
+
+  if (!hasDays) {
+    throw new ScrumlordError(
+      'invalid_cleanup_flags',
+      '<days> required unless --orphans-only or --prompt.',
+    );
+  }
+
+  const days = parseDaysPositional(parsed.positionals);
+
+  if (hasRecoverOrphans) {
+    return { mode: 'aged-and-orphans', days, hard: hasHard, dryRun: hasDryRun };
+  }
+
+  return { mode: 'aged', days, hard: hasHard, dryRun: hasDryRun };
 };
 
 const taskPlanFilterFrom = (parsed: ParsedArguments): TaskPlanFilter | null => {
@@ -328,8 +405,16 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
       await resolveTaskId(store, required(parsed.positionals, 'task id')),
       await resolveTaskId(store, required(parsed.positionals.slice(1), 'blocked-by task id')),
     ),
-  cleanup: (store, parsed) =>
-    cleanupTasks(store, cleanupDaysFrom(parsed), { hard: parsed.flags.has('hard') }),
+  cleanup: async (store, parsed, options) => {
+    const { mode, days, hard, dryRun } = cleanupModeFrom(parsed);
+    const { runCommand } = await import('./command-runner.js');
+    const runner = options.runner ?? runCommand;
+    const taskOptions =
+      days !== undefined
+        ? { mode, days, hard, dryRun, runner, projectRoot: store.projectRoot }
+        : { mode, hard, dryRun, runner, projectRoot: store.projectRoot };
+    return cleanupTasks(store, taskOptions);
+  },
   plan: async (store, parsed) => {
     const input = parsed.positionals[0];
     if (input === undefined) {
@@ -402,7 +487,7 @@ const storeCommandInputValidators: Partial<Record<string, StoreCommandInputValid
     }
   },
   cleanup: (parsed) => {
-    cleanupDaysFrom(parsed);
+    cleanupModeFrom(parsed);
   },
   start: (parsed, options) => {
     providerFromStartCommand(parsed, options);

@@ -21,6 +21,7 @@ import {
 } from './database-support.js';
 import { ScrumlordError } from './errors.js';
 import { formatPipelinePhaseMarker, parsePipelineRunId } from './pipeline-markers.js';
+import type { RecoverOrphanInput, RecoverOrphanResult } from './orphan-recovery.js';
 import type {
   AddTaskProgressInput,
   AgentProvider,
@@ -35,6 +36,7 @@ import type {
   TaskProgress,
   TaskPriority,
   TaskReference,
+  TaskStatus,
   TaskStore,
   UpdateTaskInput,
 } from './types.js';
@@ -478,6 +480,139 @@ export class SqliteTaskStore implements TaskStore {
     });
     transaction();
     return { deleted };
+  }
+
+  /** Returns tasks whose branch does not exist in Git and can be demoted back to ready. */
+  inProgress(): Task[] {
+    return this.selectTasks(
+      "SELECT * FROM tasks WHERE status = 'in-progress' AND deleted = 0 ORDER BY last_modified_at DESC",
+    );
+  }
+
+  /** Returns the count of non-deleted in-progress tasks. */
+  countInProgress(): number {
+    const row = this.#database
+      .query<
+        { count: number },
+        QueryBindings
+      >("SELECT COUNT(*) as count FROM tasks WHERE status = 'in-progress' AND deleted = 0")
+      .get({});
+    return row?.count ?? 0;
+  }
+
+  /** Returns the count of non-deleted tasks with a non-empty recorded branch. */
+  countBranched(): number {
+    const row = this.#database
+      .query<
+        { count: number },
+        QueryBindings
+      >("SELECT COUNT(*) as count FROM tasks WHERE deleted = 0 AND branch IS NOT NULL AND TRIM(branch) != ''")
+      .get({});
+    return row?.count ?? 0;
+  }
+
+  /** Returns the IDs that would be deleted by cleanup without mutating anything. */
+  previewCleanup(days: number, options: CleanupOptions = {}): { wouldDelete: TaskIdentifier[] } {
+    if (!Number.isInteger(days) || days < 0) {
+      throw new ScrumlordError(
+        'invalid_cleanup_days',
+        'Cleanup days must be a non-negative integer.',
+      );
+    }
+    const cutoff = new Date(this.#now().getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+    const sql = options.hard
+      ? `SELECT id FROM tasks WHERE (status = 'completed' OR deleted = 1) AND last_modified_at < $cutoff`
+      : `SELECT id FROM tasks WHERE status = 'completed' AND deleted = 0 AND last_modified_at < $cutoff`;
+    const rows = this.#database.query<{ id: string }, QueryBindings>(sql).all({ cutoff });
+    return { wouldDelete: rows.map((row) => row.id) };
+  }
+
+  private checkOrphanPreconditions(
+    current: { status: TaskStatus; branch: string | null; session: string | null; deleted: number },
+    expected: RecoverOrphanInput,
+  ): boolean {
+    const branchMatch =
+      current.branch === expected.previousBranch ||
+      (current.branch === null && expected.previousBranch === null);
+    const sessionMatch =
+      current.session === expected.previousSession ||
+      (current.session === null && expected.previousSession === null);
+    return current.status === 'in-progress' && current.deleted === 0 && branchMatch && sessionMatch;
+  }
+
+  /** Atomically demotes an orphaned in-progress task back to ready. Guards against stale state. */
+  recoverOrphan(id: TaskIdentifier, expected: RecoverOrphanInput): RecoverOrphanResult {
+    type StateRow = {
+      status: TaskStatus;
+      branch: string | null;
+      session: string | null;
+      deleted: number;
+    };
+    let outcome: RecoverOrphanResult | null = null;
+
+    const transaction = this.#database.transaction(() => {
+      const current = this.#database
+        .query<
+          StateRow,
+          QueryBindings
+        >('SELECT status, branch, session, deleted FROM tasks WHERE id = $id')
+        .get({ id });
+
+      if (!current) {
+        outcome = {
+          outcome: 'stale-state',
+          actual: { status: 'ready', branch: null, session: null, deleted: false },
+        };
+        return;
+      }
+
+      if (!this.checkOrphanPreconditions(current, expected)) {
+        outcome = {
+          outcome: 'stale-state',
+          actual: {
+            status: current.status,
+            branch: current.branch,
+            session: current.session,
+            deleted: current.deleted === 1,
+          },
+        };
+        return;
+      }
+
+      const now = this.#now().toISOString();
+      const progressId = crypto.randomUUID();
+      const previousBranchStr = expected.previousBranch ?? 'none';
+      const previousSessionStr = expected.previousSession ?? 'none';
+      const message = `[cleanup] orphan recovered: status=in-progress→ready; branch=${previousBranchStr}; session=${previousSessionStr}; reason=${expected.reason}`;
+
+      this.#database
+        .query<
+          unknown,
+          QueryBindings
+        >(`UPDATE tasks SET status = 'ready', branch = NULL, session = NULL, last_modified_at = $now WHERE id = $id`)
+        .run({ id, now });
+
+      this.#database
+        .query<unknown, QueryBindings>(
+          `INSERT INTO task_progress (id, task_id, message, created_at, provider, session, event, tool, cwd, transcript_path, commit_sha)
+           VALUES ($id, $taskId, $message, $createdAt, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
+        )
+        .run({ id: progressId, taskId: id, message, createdAt: now });
+
+      outcome = {
+        outcome: 'applied',
+        task: this.requireTask(id),
+        progress: this.requireProgress(progressId),
+      };
+    });
+
+    transaction();
+    if (outcome === null)
+      throw new ScrumlordError(
+        'unexpected_error',
+        'recoverOrphan: transaction produced no outcome',
+      );
+    return outcome;
   }
 
   addTag(id: TaskIdentifier, tag: string): Task {
