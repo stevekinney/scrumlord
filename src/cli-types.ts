@@ -1,6 +1,7 @@
 import type { AgentInvocation } from './agent-providers.js';
 import type { ColorMode } from './color.js';
 import type { CommandRunner } from './command-runner.js';
+import type { PullRequestPollReport } from './github-poll.js';
 import type { PullRequestStatusReport, ReviewComment } from './github.js';
 import type { InitializeProjectOptions } from './init.js';
 import type { SetupAgentHooksOptions, SetupAgentHooksResult } from './agent-hooks.js';
@@ -43,6 +44,15 @@ export type CliOptions = {
     repositoryUrl(projectRoot: string): Promise<string>;
     pullRequestUrl(projectRoot: string, open: boolean): Promise<{ url: string }>;
     pullRequestStatus(projectRoot: string): Promise<PullRequestStatusReport>;
+    pullRequestPollStatus(
+      projectRoot: string,
+      options?: {
+        maxPolls?: number;
+        pollIntervalSeconds?: number;
+        botPatterns?: string;
+        sleep?: (ms: number) => Promise<void>;
+      },
+    ): Promise<PullRequestPollReport>;
     tasksOverview(store: TaskStore): Promise<PullRequestOverviewItem[]>;
     unresolvedReviewComments(projectRoot: string): Promise<ReviewComment[]>;
     resolvedReviewComments(projectRoot: string): Promise<ReviewComment[]>;

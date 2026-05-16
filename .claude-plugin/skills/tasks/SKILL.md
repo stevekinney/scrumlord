@@ -58,6 +58,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 - If `tasks setup --git-hooks` has been run in a repository with Lefthook, `tasks pr --sync --quiet` handles lifecycle transitions from Git and GitHub state.
 - If `tasks setup --agent-hooks` has been run, global Claude and Codex hooks try to keep plan, session, branch, and pull request lifecycle state synchronized, and they inject the inferred current branch task into agent context on user prompts. Hooks exit quietly when the project is not initialized for Scrumlord or `tasks` is unavailable unless `SCRUMLORD_DEBUG` is truthy.
 - Before merging, run `tasks pr`. Only treat the pull request as merge-ready when `readyToMerge` is `true`.
+- When waiting on CI or bot reviews between push cycles, use `tasks pr --poll` instead of calling `tasks pr` in a manual loop. It re-fetches up to `--max-polls` times (default 5) with `--poll-interval` seconds between each (default 20). It always exits 0; check `poll.pollsExhausted` and `readyToMerge` in the JSON output. `poll.botsPending`, `poll.mergeabilityPending`, and `poll.hasMergeConflict` mirror the `pr-status.ts` parity fields.
 
 ## GitHub Review Workflow
 
@@ -93,6 +94,8 @@ tasks add-tag current testing
 tasks pr --sync --quiet
 tasks pr --url
 tasks pr
+tasks pr --poll
+tasks pr --poll --max-polls 10 --poll-interval 15
 tasks overview
 tasks pr --comments
 tasks setup status

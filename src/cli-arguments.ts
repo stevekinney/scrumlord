@@ -46,7 +46,8 @@ const commandSpecifications: Record<string, CommandSpecification> = {
   pr: {
     minPositionals: 0,
     maxPositionals: 0,
-    booleanFlags: ['open', 'url', 'comments', 'resolved', 'all', 'sync', 'quiet'],
+    booleanFlags: ['open', 'url', 'comments', 'resolved', 'all', 'sync', 'quiet', 'poll'],
+    valueFlags: ['max-polls', 'poll-interval', 'bot-patterns'],
   },
   get: requiredTaskId,
   tagged: { minPositionals: 1, booleanFlags: ['all', ...listingBooleanFlags] },

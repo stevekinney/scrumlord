@@ -7,13 +7,21 @@ import {
   type PullRequestCheck,
   type PullRequestCheckReport,
 } from './github-checks.js';
+import {
+  mergeableStateFrom,
+  mergeStateStatusFrom,
+  type MergeableState,
+  type MergeStateStatus,
+} from './github-merge-state.js';
 import { runGitHubRestGet } from './github-rest.js';
+import { isRecord, nestedRecord, numberOrNull, stringOrNull } from './unknown.js';
 export {
   reportForCheck,
   type PullRequestCheck,
   type PullRequestCheckConclusion,
   type PullRequestCheckReport,
 } from './github-checks.js';
+export { type MergeableState, type MergeStateStatus } from './github-merge-state.js';
 export { parseIncludedGitHubApiResponse, type IncludedGitHubApiResponse } from './github-rest.js';
 
 export type PullRequest = {
@@ -31,6 +39,10 @@ export type PullRequest = {
    * structured-footer identity check.
    */
   body: string | null;
+  /** Mergeability state from GitHub. Null when not fetched. */
+  mergeable: MergeableState | null;
+  /** Detailed merge state status from GitHub. Null when not fetched. */
+  mergeStateStatus: MergeStateStatus | null;
 };
 
 export type ReviewComment = {
@@ -64,14 +76,6 @@ export type PullRequestStatusReport = {
 
 export type GitHubOptions = {
   runner?: CommandRunner;
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return Boolean(value) && typeof value === 'object';
-};
-
-const stringOrNull = (value: unknown): string | null => {
-  return typeof value === 'string' ? value : null;
 };
 
 const pullRequestUrlFrom = (record: Record<string, unknown>): string | null => {
@@ -120,19 +124,9 @@ const pullRequestFrom = (value: unknown): PullRequest | undefined => {
     baseRefName: pullRequestBaseRefFrom(value),
     mergedAt: stringOrNull(value['mergedAt']) ?? stringOrNull(value['merged_at']),
     body: stringOrNull(value['body']),
+    mergeable: mergeableStateFrom(value),
+    mergeStateStatus: mergeStateStatusFrom(value),
   };
-};
-
-const nestedRecord = (
-  record: Record<string, unknown> | undefined,
-  key: string,
-): Record<string, unknown> | undefined => {
-  const value = record?.[key];
-  return isRecord(value) ? value : undefined;
-};
-
-const numberOrNull = (value: unknown): number | null => {
-  return typeof value === 'number' ? value : null;
 };
 
 const reviewCommentFrom = (value: unknown, isResolved: boolean): ReviewComment | undefined => {

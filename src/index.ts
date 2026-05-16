@@ -10,6 +10,7 @@ import * as errorsModule from './errors.js';
 import * as gitHooksModule from './git-hooks.js';
 import * as gitStatusModule from './git-status.js';
 import * as githubModule from './github.js';
+import * as githubPollModule from './github-poll.js';
 import * as helpModule from './help.js';
 import * as initModule from './init.js';
 import * as mcpServerModule from './mcp-server.js';
@@ -57,6 +58,7 @@ export const next = taskQueriesModule.next;
 export const nextTask = taskQueriesModule.nextTask;
 export const openPullRequests = githubModule.openPullRequests;
 export const persistedTaskSession = taskCommandsModule.persistedTaskSession;
+export const pullRequestPollStatus = githubPollModule.pullRequestPollStatus;
 export const pullRequestStatus = githubModule.pullRequestStatus;
 export const pullRequestUrl = githubModule.pullRequestUrl;
 export const remaining = taskQueriesModule.remaining;
@@ -124,6 +126,8 @@ export type ScrumlordError = InstanceType<typeof errorsModule.ScrumlordError>;
 export type { SetupGitHooksOptions, SetupGitHooksResult } from './git-hooks.js';
 export type {
   GitHubOptions,
+  MergeableState,
+  MergeStateStatus,
   PullRequest,
   PullRequestCheck,
   PullRequestCheckConclusion,
@@ -131,6 +135,7 @@ export type {
   PullRequestStatusReport,
   ReviewComment,
 } from './github.js';
+export type { PullRequestPollOptions, PullRequestPollReport } from './github-poll.js';
 export type {
   SyncGitStatusOptions,
   SyncGitStatusResult,

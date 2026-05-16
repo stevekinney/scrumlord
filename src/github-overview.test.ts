@@ -169,6 +169,8 @@ describe('GitHub pull request overview', () => {
         baseRefName: '',
         mergedAt: null,
         body: null,
+        mergeable: null,
+        mergeStateStatus: null,
       });
       expect(firstOverviewItem.associatedTasks.map((item) => item.id)).toEqual([
         'task-documentation',

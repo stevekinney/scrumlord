@@ -99,8 +99,8 @@ describe('TaskStore.listClaimCandidates', () => {
       const candidates = store.listClaimCandidates(2);
       expect(candidates).toHaveLength(2);
       // Highest priority first; b (3) then c (2).
-      expect(candidates[0]!.id).toBe('b');
-      expect(candidates[1]!.id).toBe('c');
+      expect(candidates[0]?.id).toBe('b');
+      expect(candidates[1]?.id).toBe('c');
     } finally {
       store.close();
     }

@@ -11,11 +11,13 @@ import {
   reviewCommentsForPullRequest,
   unresolvedReviewComments,
 } from './github';
+import { pullRequestPollStatus } from './github-poll';
 import {
   checksForPullRequest as libraryChecksForPullRequest,
   continuousIntegrationStatus as libraryContinuousIntegrationStatus,
   currentPullRequest as libraryCurrentPullRequest,
   openPullRequests as libraryOpenPullRequests,
+  pullRequestPollStatus as libraryPullRequestPollStatus,
   pullRequestStatus as libraryPullRequestStatus,
   pullRequestUrl as libraryPullRequestUrl,
   repositoryName as libraryRepositoryName,
@@ -42,6 +44,7 @@ describe('GitHub helper functions', () => {
     expect(libraryRepositoryName).toBe(repositoryName);
     expect(libraryRepositoryUrl).toBe(repositoryUrl);
     expect(libraryPullRequestStatus).toBe(pullRequestStatus);
+    expect(libraryPullRequestPollStatus).toBe(pullRequestPollStatus);
     expect(libraryOpenPullRequests).toBe(openPullRequests);
     expect(libraryReviewCommentsForPullRequest).toBe(reviewCommentsForPullRequest);
     expect(libraryUnresolvedReviewComments).toBe(unresolvedReviewComments);
@@ -259,5 +262,154 @@ describe('GitHub helper functions', () => {
       pullRequestUrl(root, true, { runner: runnerWith({ open: failedCommand() }) }),
       'browser_open_failed',
     );
+  });
+
+  it('pullRequestPollStatus resolves immediately when readyToMerge with known mergeability', async () => {
+    const root = await workspaceRoot();
+    const sleepCalls: number[] = [];
+    const runner = runnerWith({
+      // Provide a PR with explicit MERGEABLE state so mergeabilityPending is false
+      pullRequestList: includedResponse({
+        body: JSON.stringify([
+          {
+            number: 42,
+            html_url: 'https://github.test/owner/repository/pull/42',
+            title: 'Test',
+            head: { ref: 'feature/task-graph', sha: 'abc123' },
+            base: { ref: 'main' },
+            state: 'open',
+            mergeable: true,
+            merge_state_status: 'CLEAN',
+          },
+        ]),
+      }),
+    });
+
+    const report = await pullRequestPollStatus(root, {
+      runner,
+      maxPolls: 5,
+      pollIntervalSeconds: 1,
+      sleep: async (ms) => {
+        sleepCalls.push(ms);
+      },
+    });
+
+    expect(report.poll.polls).toBe(1);
+    expect(report.poll.pollsExhausted).toBe(false);
+    expect(report.poll.maxPolls).toBe(5);
+    expect(report.poll.pollIntervalSeconds).toBe(1);
+    expect(report.poll.mergeabilityPending).toBe(false);
+    // No sleep after the last (and only) iteration
+    expect(sleepCalls).toHaveLength(0);
+  });
+
+  it('pullRequestPollStatus exhausts polls when never ready', async () => {
+    const root = await workspaceRoot();
+    const sleepCalls: number[] = [];
+    const runner = runnerWith({
+      // Unresolved review comment keeps readyToMerge false
+      reviewComments: commandResult({
+        stdout:
+          '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false,"comments":{"nodes":[{"id":"PRRC_pending","body":"still open","url":null,"path":null,"line":null,"author":null}]}}]}}}}}',
+      }),
+    });
+
+    const report = await pullRequestPollStatus(root, {
+      runner,
+      maxPolls: 3,
+      pollIntervalSeconds: 0.1,
+      sleep: async (ms) => {
+        sleepCalls.push(ms);
+      },
+    });
+
+    expect(report.poll.polls).toBe(3);
+    expect(report.poll.pollsExhausted).toBe(true);
+    expect(report.readyToMerge).toBe(false);
+    // Sleep between fetches but not after the last one: maxPolls - 1 sleeps
+    expect(sleepCalls).toHaveLength(2);
+    expect(sleepCalls[0]).toBe(100);
+  });
+
+  it('pullRequestPollStatus sets botsPending when a pending check matches the pattern', async () => {
+    const root = await workspaceRoot();
+    const runner = runnerWith({
+      checkRuns: includedResponse({
+        body: checkRunsRestBody([
+          {
+            name: 'copilot/review',
+            status: 'in_progress',
+            conclusion: null,
+            html_url: 'https://github.test/checks/copilot',
+            completed_at: null,
+            check_suite: { app: { name: 'Copilot' } },
+          },
+        ]),
+      }),
+    });
+
+    const report = await pullRequestPollStatus(root, {
+      runner,
+      maxPolls: 1,
+      sleep: async () => {},
+    });
+
+    expect(report.poll.botsPending).toBe(true);
+  });
+
+  it('pullRequestPollStatus derives mergeabilityPending from UNKNOWN mergeable', async () => {
+    const root = await workspaceRoot();
+    const runner = runnerWith({
+      // Inject a pull request with mergeable=null (not present in response — simulates unknown)
+      pullRequestList: includedResponse({
+        body: JSON.stringify([
+          {
+            number: 42,
+            html_url: 'https://github.test/owner/repository/pull/42',
+            title: 'Test',
+            head: { ref: 'feature/poll', sha: 'abc123' },
+            base: { ref: 'main' },
+            state: 'open',
+            // No mergeable field → null → UNKNOWN → mergeabilityPending: true
+          },
+        ]),
+      }),
+    });
+
+    const report = await pullRequestPollStatus(root, {
+      runner,
+      maxPolls: 1,
+      sleep: async () => {},
+    });
+
+    expect(report.poll.mergeabilityPending).toBe(true);
+  });
+
+  it('pullRequestPollStatus sets hasMergeConflict when mergeStateStatus is DIRTY', async () => {
+    const root = await workspaceRoot();
+    const runner = runnerWith({
+      pullRequestList: includedResponse({
+        body: JSON.stringify([
+          {
+            number: 42,
+            html_url: 'https://github.test/owner/repository/pull/42',
+            title: 'Test',
+            head: { ref: 'feature/poll', sha: 'abc123' },
+            base: { ref: 'main' },
+            state: 'open',
+            mergeable: true,
+            merge_state_status: 'DIRTY',
+          },
+        ]),
+      }),
+    });
+
+    const report = await pullRequestPollStatus(root, {
+      runner,
+      maxPolls: 1,
+      sleep: async () => {},
+    });
+
+    expect(report.poll.hasMergeConflict).toBe(true);
   });
 });

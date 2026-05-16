@@ -534,9 +534,10 @@ const topics: HelpTopic[] = [
   {
     path: ['pr'],
     summary: 'Show pull request status, URL, or review comments.',
-    usage: 'tasks pr [--sync [--quiet] | --url | --open | --comments [--resolved|--all]]',
+    usage:
+      'tasks pr [--sync [--quiet] | --url | --open | --comments [--resolved|--all] | --poll [--max-polls <n>] [--poll-interval <s>] [--bot-patterns <regex>]]',
     description:
-      'Returns the full PR readiness report by default (PR metadata, checks, review comments with bodies, readyToMerge). --url returns the URL as a raw string; --open launches the browser; --comments returns unresolved review comments (with --resolved or --all to filter the thread state). --sync runs syncGitStatus first, then fetches PR status; output is { pullRequest, sync }. With --sync --quiet, all output is suppressed (suitable for hooks). --quiet requires --sync.',
+      'Returns the full PR readiness report by default (PR metadata, checks, review comments with bodies, readyToMerge). --url returns the URL as a raw string; --open launches the browser; --comments returns unresolved review comments (with --resolved or --all to filter the thread state). --sync runs syncGitStatus first, then fetches PR status; output is { pullRequest, sync }. With --sync --quiet, all output is suppressed (suitable for hooks). --quiet requires --sync. --poll re-fetches until readyToMerge or --max-polls is reached; always exits 0 and signals readiness via poll.pollsExhausted and readyToMerge in the JSON output.',
     options: [
       { name: '--url', description: 'Return the pull request URL as a raw string.' },
       { name: '--open', description: 'Open the pull request URL in the system browser.' },
@@ -558,6 +559,27 @@ const topics: HelpTopic[] = [
         name: '--quiet',
         description: 'Suppress all output (requires --sync). Suitable for Lefthook hooks.',
       },
+      {
+        name: '--poll',
+        description:
+          'Poll until readyToMerge or --max-polls is reached. Always exits 0; branch on poll.pollsExhausted and readyToMerge. Cannot be combined with --url, --open, --sync, --quiet, or --comments.',
+      },
+      {
+        name: '--max-polls',
+        value: '<n>',
+        description: 'With --poll, maximum number of fetches before giving up (default: 5).',
+      },
+      {
+        name: '--poll-interval',
+        value: '<s>',
+        description: 'With --poll, seconds between fetches (default: 20).',
+      },
+      {
+        name: '--bot-patterns',
+        value: '<regex>',
+        description:
+          'With --poll, case-insensitive pattern matching bot check names (default: review|copilot|bugbot|coderabbit).',
+      },
     ],
     examples: [
       'tasks pr',
@@ -566,6 +588,8 @@ const topics: HelpTopic[] = [
       'tasks pr --comments --all',
       'tasks pr --sync',
       'tasks pr --sync --quiet',
+      'tasks pr --poll',
+      'tasks pr --poll --max-polls 10 --poll-interval 15',
     ],
   },
 ];

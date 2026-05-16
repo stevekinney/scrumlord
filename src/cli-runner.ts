@@ -73,11 +73,12 @@ const runStoreCommand = async (
 
 const githubModule = async (options: CliOptions): Promise<NonNullable<CliOptions['github']>> => {
   if (options.github) return options.github;
-  const [github, overview] = await Promise.all([
+  const [github, githubPoll, overview] = await Promise.all([
     import('./github.js'),
+    import('./github-poll.js'),
     import('./tasks-overview.js'),
   ]);
-  return { ...github, tasksOverview: overview.tasksOverview };
+  return { ...github, ...githubPoll, tasksOverview: overview.tasksOverview };
 };
 
 type PullRequestFlagRule = { when: boolean; message: string };
@@ -112,6 +113,21 @@ const syncRules = (
   },
 ];
 
+const pollRules = (
+  poll: boolean,
+  url: boolean,
+  open: boolean,
+  sync: boolean,
+  quiet: boolean,
+  commentsLike: boolean,
+): PullRequestFlagRule[] => [
+  {
+    when: poll && (url || open || sync || quiet || commentsLike),
+    message:
+      '--poll cannot be combined with --url, --open, --sync, --quiet, --comments, --resolved, or --all.',
+  },
+];
+
 const pullRequestFlagRules = (flags: ParsedArguments['flags']): PullRequestFlagRule[] => {
   const url = flags.has('url');
   const open = flags.has('open');
@@ -120,10 +136,12 @@ const pullRequestFlagRules = (flags: ParsedArguments['flags']): PullRequestFlagR
   const all = flags.has('all');
   const sync = flags.has('sync');
   const quiet = flags.has('quiet');
+  const poll = flags.has('poll');
   const commentsLike = comments || resolved || all;
   return [
     ...commentsRules(url, open, commentsLike, resolved, all),
     ...syncRules(sync, quiet, url, open, commentsLike),
+    ...pollRules(poll, url, open, sync, quiet, commentsLike),
   ];
 };
 
@@ -133,8 +151,50 @@ const validatePullRequestFlags = (parsed: ParsedArguments): void => {
   }
 };
 
+const parsePollInteger = (
+  flags: ParsedArguments['flags'],
+  name: string,
+  defaultValue: number,
+): number => {
+  const raw = flags.get(name)?.[0];
+  if (raw === undefined) return defaultValue;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new ScrumlordError('pr_flag_conflict', `--${name} must be a positive integer.`);
+  }
+  return value;
+};
+
+const parsePollNumber = (
+  flags: ParsedArguments['flags'],
+  name: string,
+  defaultValue: number,
+): number => {
+  const raw = flags.get(name)?.[0];
+  if (raw === undefined) return defaultValue;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new ScrumlordError('pr_flag_conflict', `--${name} must be a positive number.`);
+  }
+  return value;
+};
+
+const runPullRequestPollCommand: BoundaryCommandHandler = async (parsed, options) => {
+  const github = await githubModule(options);
+  const root = await resolveProjectRoot(options.cwd);
+  const maxPolls = parsePollInteger(parsed.flags, 'max-polls', 5);
+  const pollIntervalSeconds = parsePollNumber(parsed.flags, 'poll-interval', 20);
+  const botPatterns = parsed.flags.get('bot-patterns')?.[0];
+  const pollOptions =
+    botPatterns !== undefined
+      ? { maxPolls, pollIntervalSeconds, botPatterns }
+      : { maxPolls, pollIntervalSeconds };
+  return success(await github.pullRequestPollStatus(root, pollOptions));
+};
+
 const runPullRequestBoundaryCommand: BoundaryCommandHandler = async (parsed, options) => {
   validatePullRequestFlags(parsed);
+  if (parsed.flags.has('poll')) return runPullRequestPollCommand(parsed, options);
   const github = await githubModule(options);
   const root = await resolveProjectRoot(options.cwd);
   if (parsed.flags.has('url')) {
