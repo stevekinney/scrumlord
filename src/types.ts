@@ -195,5 +195,9 @@ export type TaskStore = {
   taskSession(id: TaskIdentifier): PersistedTaskSession;
   progress(id: TaskIdentifier): TaskProgress[];
   addProgress(id: TaskIdentifier, input: AddTaskProgressInput): TaskProgress;
+  /** Returns all non-deleted task IDs, sorted ascending. Used by shell completions. */
+  allIds(): string[];
+  /** Returns all distinct tag names across non-deleted tasks, sorted ascending. Tags containing newlines are excluded. Used by shell completions. */
+  allTags(): string[];
   close(): void;
 };

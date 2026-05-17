@@ -41,6 +41,7 @@ const expectedTopics = [
   'agent-hook',
   'pr',
   'search',
+  'completions',
 ];
 
 describe('renderHelp', () => {

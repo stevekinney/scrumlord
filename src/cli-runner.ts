@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { runAgentHookCommand, runResumeCommand, runStartCommand } from './cli-agent-commands.js';
+import { runCompletionsBoundaryCommand } from './cli-completions-command.js';
+import { runCompletionsDataCommand } from './cli-completions-data-command.js';
 import { runPipelineCommand } from './cli-pipeline-command.js';
 import {
   helpPath,
@@ -40,6 +42,7 @@ const storeCommands = new Set([
   'resume',
   'agent-hook',
   'pipeline',
+  'completions-data',
 ]);
 
 const renderHelpResult = (parsed: ParsedArguments, options: CliOptions): CliResult => {
@@ -334,6 +337,7 @@ const boundaryCommandHandlers: Record<string, BoundaryCommandHandler> = {
   pr: runPullRequestBoundaryCommand,
   setup: runSetupBoundaryCommand,
   'agent-hook': runAgentHookBoundaryCommand,
+  completions: runCompletionsBoundaryCommand,
 };
 
 const runBoundaryCommand = async (
@@ -436,6 +440,7 @@ const runOpenedStoreCommand = async (
   if (parsed.command === 'start') return await runStartCommand(store, parsed, options);
   if (parsed.command === 'resume') return await runResumeCommand(store, parsed, options);
   if (parsed.command === 'pipeline') return await runPipelineCommand(store, parsed, options);
+  if (parsed.command === 'completions-data') return runCompletionsDataCommand(store, parsed);
   if (parsed.command === 'pr' && parsed.flags.has('sync')) {
     return await runPullRequestSyncCommand(store, parsed, options);
   }

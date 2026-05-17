@@ -6,11 +6,27 @@ export type ParsedArguments = {
   flags: Map<string, string[]>;
 };
 
-type CommandSpecification = {
+export type PositionalKind =
+  | 'task-id'
+  | 'tag'
+  | 'status'
+  | 'priority'
+  | 'shell'
+  | 'file'
+  | 'session-id'
+  | 'free-text';
+
+export type PositionalVariant = readonly PositionalKind[];
+
+export type CommandSpecification = {
   valueFlags?: readonly string[];
   booleanFlags?: readonly string[];
   minPositionals?: number;
   maxPositionals?: number;
+  /** One or more allowed positional shapes. Each variant lists kinds, one per position. */
+  positionalVariants?: readonly PositionalVariant[];
+  /** When false, hides this command from generated completion lists. Defaults to true. */
+  visibleInCompletions?: boolean;
 };
 
 const noPositionals = { minPositionals: 0, maxPositionals: 0 };
@@ -49,14 +65,27 @@ const commandSpecifications: Record<string, CommandSpecification> = {
     booleanFlags: ['open', 'url', 'comments', 'resolved', 'all', 'sync', 'quiet', 'poll'],
     valueFlags: ['max-polls', 'poll-interval', 'bot-patterns'],
   },
-  get: requiredTaskId,
-  tagged: { minPositionals: 1, booleanFlags: ['all', ...listingBooleanFlags] },
-  'with-branch': onePositionalTaskListingCommandSpecification,
-  'blocked-by': requiredTaskIdTaskListingCommandSpecification,
-  blocking: requiredTaskIdTaskListingCommandSpecification,
-  priority: onePositionalTaskListingCommandSpecification,
-  'with-priority': onePositionalTaskListingCommandSpecification,
-  session: requiredTaskId,
+  get: { ...requiredTaskId, positionalVariants: [['task-id']] },
+  tagged: {
+    minPositionals: 1,
+    booleanFlags: ['all', ...listingBooleanFlags],
+    positionalVariants: [['tag']],
+  },
+  'with-branch': {
+    ...onePositionalTaskListingCommandSpecification,
+    positionalVariants: [['free-text']],
+  },
+  'blocked-by': {
+    ...requiredTaskIdTaskListingCommandSpecification,
+    positionalVariants: [['task-id']],
+  },
+  blocking: { ...requiredTaskIdTaskListingCommandSpecification, positionalVariants: [['task-id']] },
+  priority: { ...onePositionalTaskListingCommandSpecification, positionalVariants: [['priority']] },
+  'with-priority': {
+    ...onePositionalTaskListingCommandSpecification,
+    positionalVariants: [['priority']],
+  },
+  session: { ...requiredTaskId, positionalVariants: [['task-id']] },
   progress: {
     minPositionals: 0,
     maxPositionals: 2,
@@ -67,6 +96,7 @@ const commandSpecifications: Record<string, CommandSpecification> = {
     ...requiredTaskId,
     valueFlags: ['cli'],
     booleanFlags: ['no-worktree', 'force', 'quiet'],
+    positionalVariants: [['task-id']],
   },
   pipeline: {
     minPositionals: 0,
@@ -74,9 +104,9 @@ const commandSpecifications: Record<string, CommandSpecification> = {
     valueFlags: ['cli', 'max', 'resume'],
     booleanFlags: ['recover', 'recover-then-run', 'apply', 'quiet', 'dry-run', 'json', 'once'],
   },
-  resume: requiredTaskId,
-  'agent-hook': onePositional,
-  delete: { ...requiredTaskId, booleanFlags: ['hard'] },
+  resume: { ...requiredTaskId, positionalVariants: [['task-id']] },
+  'agent-hook': { ...onePositional, positionalVariants: [['free-text']] },
+  delete: { ...requiredTaskId, booleanFlags: ['hard'], positionalVariants: [['task-id']] },
   cleanup: {
     minPositionals: 0,
     maxPositionals: 1,
@@ -87,8 +117,9 @@ const commandSpecifications: Record<string, CommandSpecification> = {
     maxPositionals: 1,
     valueFlags: ['title', 'description'],
     booleanFlags: ['all', ...listingBooleanFlags],
+    positionalVariants: [[], ['free-text']],
   },
-  plan: { minPositionals: 0, maxPositionals: 1 },
+  plan: { minPositionals: 0, maxPositionals: 1, positionalVariants: [[], ['task-id']] },
   create: {
     ...noPositionals,
     valueFlags: [
@@ -123,11 +154,24 @@ const commandSpecifications: Record<string, CommandSpecification> = {
       'session',
       'deleted',
     ],
+    positionalVariants: [['task-id']],
   },
-  'add-tag': requiredTaskIdWithOneArgument,
-  'remove-tag': requiredTaskIdWithOneArgument,
-  'add-blocker': requiredTaskIdWithOneArgument,
-  'remove-blocker': requiredTaskIdWithOneArgument,
+  'add-tag': {
+    ...requiredTaskIdWithOneArgument,
+    positionalVariants: [['tag'], ['task-id', 'tag']],
+  },
+  'remove-tag': {
+    ...requiredTaskIdWithOneArgument,
+    positionalVariants: [['tag'], ['task-id', 'tag']],
+  },
+  'add-blocker': {
+    ...requiredTaskIdWithOneArgument,
+    positionalVariants: [['task-id'], ['task-id', 'task-id']],
+  },
+  'remove-blocker': {
+    ...requiredTaskIdWithOneArgument,
+    positionalVariants: [['task-id'], ['task-id', 'task-id']],
+  },
   setup: {
     minPositionals: 0,
     maxPositionals: 1,
@@ -146,6 +190,19 @@ const commandSpecifications: Record<string, CommandSpecification> = {
       'all',
     ],
     valueFlags: ['agent'],
+  },
+  completions: {
+    minPositionals: 1,
+    maxPositionals: 1,
+    booleanFlags: ['install', 'force'],
+    valueFlags: ['path'],
+    positionalVariants: [['shell']],
+  },
+  'completions-data': {
+    minPositionals: 1,
+    maxPositionals: 1,
+    positionalVariants: [['free-text']],
+    visibleInCompletions: false,
   },
 };
 
@@ -278,4 +335,20 @@ export const flagList = (
     throw new ScrumlordError(emptyError.code, emptyError.message);
   }
   return values;
+};
+
+/** Returns all command specifications — used by the completions generator. */
+export const getCommandSpecifications = (): Record<string, CommandSpecification> =>
+  commandSpecifications;
+
+/**
+ * Maps flag names to their value kinds for completions.
+ * Only includes flags whose values have meaningful completion candidates.
+ */
+export const flagValueKinds: Record<string, PositionalKind> = {
+  status: 'status',
+  priority: 'priority',
+  provider: 'free-text',
+  cli: 'free-text',
+  plan: 'file',
 };

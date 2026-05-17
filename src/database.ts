@@ -730,6 +730,28 @@ export class SqliteTaskStore implements TaskStore {
     return this.requireProgress(progressId);
   }
 
+  allIds(): string[] {
+    return this.#database
+      .query<{ id: string }, []>(
+        `SELECT id FROM tasks WHERE (deleted IS NULL OR deleted = 0) ORDER BY id`,
+      )
+      .all()
+      .map((row) => row.id);
+  }
+
+  allTags(): string[] {
+    return this.#database
+      .query<{ tag: string }, []>(
+        `SELECT DISTINCT tag FROM task_tags
+         INNER JOIN tasks ON tasks.id = task_tags.task_id
+         WHERE (tasks.deleted IS NULL OR tasks.deleted = 0)
+         ORDER BY tag`,
+      )
+      .all()
+      .map((row) => row.tag)
+      .filter((tag) => !tag.includes('\n'));
+  }
+
   close(): void {
     this.#database.close(false);
   }

@@ -667,6 +667,32 @@ const topics: HelpTopic[] = [
       'tasks search --title cleanup --planned',
     ],
   },
+  {
+    path: ['completions'],
+    summary: 'Generate shell completion scripts for the tasks CLI.',
+    usage: 'tasks completions <shell> [--install [--path <path>] [--force]]',
+    description:
+      'Generates a shell completion script for bash or zsh. By default the script is printed to stdout — redirect it into the appropriate completions directory, or pass --install to write the file automatically.\n\nThe generated script calls `tasks completions-data ids|tags` to dynamically complete task IDs and tag names. This helper is internal and not intended for direct use.',
+    arguments: ['<shell>: Shell to generate completions for. Supported values: bash, zsh.'],
+    options: [
+      { name: '--install', description: 'Write the script to the default location for the shell.' },
+      {
+        name: '--path',
+        value: '<path>',
+        description: 'Override the default install location (requires --install).',
+      },
+      {
+        name: '--force',
+        description: 'Overwrite an existing completion file (requires --install).',
+      },
+    ],
+    examples: [
+      'tasks completions zsh > "${fpath[1]}/_tasks"',
+      'tasks completions bash | sudo tee /etc/bash_completion.d/tasks',
+      'tasks completions zsh --install',
+      'tasks completions bash --install --path ~/.bash_completion.d/tasks',
+    ],
+  },
 ];
 
 export const helpTopics = topics.map((topic) => topic.path.join(' '));
