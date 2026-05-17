@@ -519,15 +519,20 @@ const topics: HelpTopic[] = [
     path: ['setup'],
     summary: 'Run Scrumlord setup.',
     usage:
-      'tasks setup [--skills|--subagents|--git-hooks|--agent-hooks|--prompt] [--project|--user|--local] [--agent <all|claude|codex>] [--yes]',
+      'tasks setup [--skills|--subagents|--git-hooks|--agent-hooks|--prompt|--shell] [--project|--user|--local] [--agent <all|claude|codex>] [--yes]',
     description:
-      'With no mode flag, runs the interactive numbered-choice setup. With a mode flag, runs that single piece: --skills writes agent skill files; --subagents installs task-manager subagents; --git-hooks installs the Lefthook block; --agent-hooks writes lifecycle hook configuration; --prompt emits a raw setup prompt agents can follow.',
+      'With no mode flag, runs the interactive numbered-choice setup. With a mode flag, runs that single piece: --skills writes agent skill files; --subagents installs task-manager subagents; --git-hooks installs the Lefthook block; --agent-hooks writes lifecycle hook configuration; --prompt emits a raw setup prompt agents can follow; --shell prints the tasks-teleport shell helper to stdout.',
     options: [
       { name: '--skills', description: 'Write agent skill files.' },
       { name: '--subagents', description: 'Install task-manager subagents.' },
       { name: '--git-hooks', description: 'Install managed Git hooks.' },
       { name: '--agent-hooks', description: 'Install agent lifecycle hooks.' },
       { name: '--prompt', description: 'Print a raw setup prompt for an agent.' },
+      {
+        name: '--shell',
+        description:
+          'Print the tasks-teleport shell helper to stdout. Redirect into your rc file to enable `cd "$(tasks teleport current)"` via the tasks-teleport function.',
+      },
       {
         name: '--project',
         description: 'Write to the project (default for skills/subagents/git-hooks).',
@@ -553,6 +558,7 @@ const topics: HelpTopic[] = [
       'tasks setup --git-hooks',
       'tasks setup --agent-hooks --user',
       'tasks setup --prompt',
+      'tasks setup --shell >> ~/.zshrc',
     ],
   },
   {
@@ -665,6 +671,28 @@ const topics: HelpTopic[] = [
       'tasks search --title login --description timeout',
       'tasks search bug --count',
       'tasks search --title cleanup --planned',
+    ],
+  },
+  {
+    path: ['teleport'],
+    summary: 'Print the worktree path for a task (for shell `cd`).',
+    usage: 'tasks teleport <task-id> [--json]',
+    description:
+      'Resolves <task-id> (UUID, "current", or "next") and prints the absolute path of its existing git worktree on stdout, newline-terminated. Designed for `cd "$(tasks teleport current)"` — always quote the command substitution. Never creates a worktree. On error, prints a human-readable message on stderr unless --json is passed or CLAUDECODE=1 / CODEX_MANAGED_BY_BUN=1 is set, in which case it emits the standard JSON error envelope. --json affects error output only; success output is always the raw path.',
+    arguments: [
+      '<task-id>: Task ID. Accepts a UUID, "current" (the active task on the current Git branch), or "next" (the next claimable task).',
+    ],
+    options: [
+      {
+        name: '--json',
+        description:
+          'Force the error envelope to JSON, regardless of environment. Does not affect success output.',
+      },
+    ],
+    examples: [
+      'cd "$(tasks teleport current)"',
+      'cd "$(tasks teleport next)"',
+      'tasks setup --shell >> ~/.zshrc   # install the tasks-teleport helper',
     ],
   },
   {

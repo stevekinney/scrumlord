@@ -56,21 +56,48 @@ export const currentGitBranch = async (
   return branch;
 };
 
+export type WorktreeLookupResult =
+  | { kind: 'found'; path: string }
+  | { kind: 'not_found' }
+  | { kind: 'failed'; stderr: string };
+
+/**
+ * Returns the absolute path of the worktree checked out at `branch`, or a
+ * tagged result indicating not-found or git-failure. Distinguishes "git is
+ * broken" from "branch has no worktree" so callers can surface them
+ * differently.
+ *
+ * Parses `git worktree list --porcelain` as blank-line-separated records
+ * (the documented porcelain shape), then inspects each record for a
+ * `branch refs/heads/<branch>` line that matches exactly.
+ */
+export const findWorktreeForBranch = async (
+  projectRoot: string,
+  branch: string,
+  runner: CommandRunner = runCommand,
+): Promise<WorktreeLookupResult> => {
+  const result = await runner(['git', 'worktree', 'list', '--porcelain'], projectRoot);
+  if (result.exitCode !== 0) return { kind: 'failed', stderr: result.stderr };
+
+  const target = `branch refs/heads/${branch}`;
+  for (const record of result.stdout.split(/\n\s*\n/)) {
+    const lines = record.split('\n');
+    const worktreeLine = lines.find((line) => line.startsWith('worktree '));
+    if (!worktreeLine) continue;
+    if (lines.includes(target)) {
+      return { kind: 'found', path: worktreeLine.slice('worktree '.length) };
+    }
+  }
+  return { kind: 'not_found' };
+};
+
 export const worktreeForBranch = async (
   projectRoot: string,
   branch: string,
   runner: CommandRunner = runCommand,
 ): Promise<string> => {
-  const result = await runner(['git', 'worktree', 'list', '--porcelain'], projectRoot);
-  if (result.exitCode !== 0) return projectRoot;
-
-  let currentWorktree: string | null = null;
-  for (const line of result.stdout.split('\n')) {
-    if (line.startsWith('worktree ')) currentWorktree = line.slice('worktree '.length);
-    if (line === `branch refs/heads/${branch}` && currentWorktree) return currentWorktree;
-  }
-
-  return projectRoot;
+  const result = await findWorktreeForBranch(projectRoot, branch, runner);
+  return result.kind === 'found' ? result.path : projectRoot;
 };
 
 const currentPullRequest = async (

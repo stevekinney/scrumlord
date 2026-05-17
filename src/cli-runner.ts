@@ -4,6 +4,7 @@ import { runAgentHookCommand, runResumeCommand, runStartCommand } from './cli-ag
 import { runCompletionsBoundaryCommand } from './cli-completions-command.js';
 import { runCompletionsDataCommand } from './cli-completions-data-command.js';
 import { runPipelineCommand } from './cli-pipeline-command.js';
+import { runTeleportCommand } from './cli-teleport-command.js';
 import {
   helpPath,
   isHelpRequest,
@@ -43,6 +44,7 @@ const storeCommands = new Set([
   'agent-hook',
   'pipeline',
   'completions-data',
+  'teleport',
 ]);
 
 const renderHelpResult = (parsed: ParsedArguments, options: CliOptions): CliResult => {
@@ -440,6 +442,7 @@ const runOpenedStoreCommand = async (
   if (parsed.command === 'start') return await runStartCommand(store, parsed, options);
   if (parsed.command === 'resume') return await runResumeCommand(store, parsed, options);
   if (parsed.command === 'pipeline') return await runPipelineCommand(store, parsed, options);
+  if (parsed.command === 'teleport') return await runTeleportCommand(store, parsed, options);
   if (parsed.command === 'completions-data') return runCompletionsDataCommand(store, parsed);
   if (parsed.command === 'pr' && parsed.flags.has('sync')) {
     return await runPullRequestSyncCommand(store, parsed, options);

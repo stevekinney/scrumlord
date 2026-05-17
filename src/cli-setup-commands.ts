@@ -12,6 +12,7 @@ import { resolveProjectRoot } from './root-resolution.js';
 import { setupSkills, skillTargets, type SkillTarget } from './skills.js';
 import { setupSubagents } from './subagents.js';
 import { setupAgentPrompt } from './setup-prompt.js';
+import { TELEPORT_SHELL_SNIPPET } from './cli-teleport-command.js';
 import type { ParsedArguments } from './cli-arguments.js';
 import type { CliOptions, CliResult } from './cli-types.js';
 import type { AgentProvider } from './types.js';
@@ -32,7 +33,7 @@ const successWithStderr = (value: unknown, stderr: string): CliResult => ({
   stderr,
 });
 
-const modeFlags = ['skills', 'subagents', 'git-hooks', 'agent-hooks', 'prompt'] as const;
+const modeFlags = ['skills', 'subagents', 'git-hooks', 'agent-hooks', 'prompt', 'shell'] as const;
 type ModeFlag = (typeof modeFlags)[number];
 
 const selectedMode = (parsed: ParsedArguments): ModeFlag | undefined => {
@@ -189,6 +190,28 @@ const runPromptMode = (parsed: ParsedArguments): CliResult => {
   return rawString(setupAgentPrompt);
 };
 
+const SHELL_UNEXPECTED_FLAGS = [
+  'project',
+  'user',
+  'local',
+  'claude',
+  'codex',
+  'yes',
+  'all',
+] as const;
+
+const runShellSetup = (parsed: ParsedArguments): CliResult => {
+  for (const flag of SHELL_UNEXPECTED_FLAGS) {
+    if (parsed.flags.has(flag)) {
+      throw new ScrumlordError('setup_shell_unexpected_flag', `--shell does not accept --${flag}.`);
+    }
+  }
+  if (parsed.flags.has('agent')) {
+    throw new ScrumlordError('setup_shell_unexpected_flag', '--shell does not accept --agent.');
+  }
+  return rawString(TELEPORT_SHELL_SNIPPET);
+};
+
 const runModeDispatch = async (
   mode: ModeFlag,
   parsed: ParsedArguments,
@@ -198,6 +221,7 @@ const runModeDispatch = async (
   if (mode === 'subagents') return await runSubagentsMode(parsed, options);
   if (mode === 'git-hooks') return await runGitHooksMode(parsed, options);
   if (mode === 'agent-hooks') return await runAgentHooksMode(parsed, options);
+  if (mode === 'shell') return runShellSetup(parsed);
   return runPromptMode(parsed);
 };
 

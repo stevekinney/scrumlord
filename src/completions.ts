@@ -56,6 +56,7 @@ export const commandSummaries: Record<string, string> = {
   'add-blocker': 'Add a dependency blocker.',
   'remove-blocker': 'Remove a dependency blocker.',
   setup: 'Configure Scrumlord and agent integrations.',
+  teleport: 'Print the worktree path for a task (for shell cd).',
   completions: 'Generate shell completion scripts.',
 };
 
