@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runTasksCli } from './cli-runner';
@@ -136,6 +136,31 @@ afterEach(async () => {
   );
 });
 
+/** Creates a temp directory with a real git repo checked out on `branch`. */
+const makeGitRepo = async (branch: string): Promise<string> => {
+  const root = await temporaryDirectory();
+  const run = async (args: string[]) => {
+    const proc = Bun.spawn(args, { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+    await proc.exited;
+  };
+  await run(['git', 'init']);
+  await run(['git', 'checkout', '-b', branch]);
+  // Need at least one commit for git to fully recognize the branch.
+  await writeFile(join(root, '.gitkeep'), '');
+  await run(['git', 'add', '.gitkeep']);
+  await run([
+    'git',
+    '-c',
+    'user.name=test',
+    '-c',
+    'user.email=test@test.com',
+    'commit',
+    '-m',
+    'init',
+  ]);
+  return root;
+};
+
 describe('tasks teleport — success cases', () => {
   it('returns the worktree path for a UUID task', async () => {
     const t = task('abc12345', { branch: 'task/abc12345' });
@@ -153,18 +178,10 @@ describe('tasks teleport — success cases', () => {
   });
 
   it('returns the worktree path for the current task', async () => {
-    // Use the real project root so git branch --show-current can resolve the actual branch.
-    const realRoot = process.cwd();
-    const subprocess = Bun.spawn(['git', 'branch', '--show-current'], {
-      cwd: realRoot,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    const branchText = await new Response(subprocess.stdout).text();
-    const branch = branchText.trim();
-
+    const branch = 'task/cur-branch';
+    const gitRoot = await makeGitRepo(branch);
     const t = task('cur-task', { branch });
-    const store = makeStore({ tasks: [t], projectRoot: realRoot });
+    const store = makeStore({ tasks: [t], projectRoot: gitRoot });
     const porcelain = makePorcelain([{ path: '/tmp/wt-current', branch }]);
 
     const result = await runTasksCli(['teleport', 'current'], {
@@ -422,15 +439,15 @@ describe('tasks teleport — teleport_worktree_lookup_failed', () => {
 });
 
 describe('tasks teleport — resolver and store errors', () => {
-  // These tests need the real project root so currentBranchTask can call git branch --show-current.
-  const realRoot = process.cwd();
-  const emptyStore = makeStore({ projectRoot: realRoot });
-  const runner = worktreeRunner('');
-
+  // All tests that call `tasks teleport current` need a real git repo so
+  // currentBranchTask can call `git branch --show-current`.
   it('returns human error for current with no branch task', async () => {
+    const gitRoot = await makeGitRepo('task/empty-branch');
+    const emptyStore = makeStore({ projectRoot: gitRoot });
+
     const result = await runTasksCli(['teleport', 'current'], {
       createStore: async () => emptyStore,
-      runner,
+      runner: worktreeRunner(''),
     });
 
     expect(result.exitCode).toBe(1);
@@ -439,9 +456,12 @@ describe('tasks teleport — resolver and store errors', () => {
   });
 
   it('returns JSON envelope for current with no branch task when --json', async () => {
+    const gitRoot = await makeGitRepo('task/empty-branch2');
+    const emptyStore = makeStore({ projectRoot: gitRoot });
+
     const result = await runTasksCli(['teleport', 'current', '--json'], {
       createStore: async () => emptyStore,
-      runner,
+      runner: worktreeRunner(''),
     });
 
     expect(result.exitCode).toBe(1);
@@ -450,9 +470,12 @@ describe('tasks teleport — resolver and store errors', () => {
   });
 
   it('returns JSON envelope under CLAUDECODE=1 for current_task_not_found', async () => {
+    const gitRoot = await makeGitRepo('task/empty-branch3');
+    const emptyStore = makeStore({ projectRoot: gitRoot });
+
     const result = await runTasksCli(['teleport', 'current'], {
       createStore: async () => emptyStore,
-      runner,
+      runner: worktreeRunner(''),
       environment: { CLAUDECODE: '1' },
     });
 
@@ -462,9 +485,11 @@ describe('tasks teleport — resolver and store errors', () => {
   });
 
   it('returns human error for next on empty store', async () => {
+    const emptyStore = makeStore();
+
     const result = await runTasksCli(['teleport', 'next'], {
       createStore: async () => emptyStore,
-      runner,
+      runner: worktreeRunner(''),
     });
 
     expect(result.exitCode).toBe(1);
@@ -473,9 +498,11 @@ describe('tasks teleport — resolver and store errors', () => {
   });
 
   it('returns JSON envelope for next on empty store when --json', async () => {
+    const emptyStore = makeStore();
+
     const result = await runTasksCli(['teleport', 'next', '--json'], {
       createStore: async () => emptyStore,
-      runner,
+      runner: worktreeRunner(''),
     });
 
     expect(result.exitCode).toBe(1);
@@ -484,9 +511,11 @@ describe('tasks teleport — resolver and store errors', () => {
   });
 
   it('returns human error for unknown UUID', async () => {
+    const emptyStore = makeStore();
+
     const result = await runTasksCli(['teleport', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'], {
       createStore: async () => emptyStore,
-      runner,
+      runner: worktreeRunner(''),
     });
 
     expect(result.exitCode).toBe(1);
@@ -495,11 +524,13 @@ describe('tasks teleport — resolver and store errors', () => {
   });
 
   it('returns JSON envelope for unknown UUID when --json', async () => {
+    const emptyStore = makeStore();
+
     const result = await runTasksCli(
       ['teleport', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', '--json'],
       {
         createStore: async () => emptyStore,
-        runner,
+        runner: worktreeRunner(''),
       },
     );
 
@@ -509,17 +540,11 @@ describe('tasks teleport — resolver and store errors', () => {
   });
 
   it('returns JSON envelope for ambiguous branch tasks when --json', async () => {
-    const subprocess = Bun.spawn(['git', 'branch', '--show-current'], {
-      cwd: realRoot,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    const branchText = await new Response(subprocess.stdout).text();
-    const branch = branchText.trim();
-
+    const branch = 'task/ambiguous-branch';
+    const gitRoot = await makeGitRepo(branch);
     const t1 = task('task-1', { branch });
     const t2 = task('task-2', { branch });
-    const ambiguousStore = makeStore({ tasks: [t1, t2], projectRoot: realRoot });
+    const ambiguousStore = makeStore({ tasks: [t1, t2], projectRoot: gitRoot });
 
     const result = await runTasksCli(['teleport', 'current', '--json'], {
       createStore: async () => ambiguousStore,
