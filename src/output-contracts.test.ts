@@ -178,12 +178,11 @@ describe('contract / parser drift', () => {
   });
 
   it('every jsonData/bespoke command accepts --json in its parser spec', () => {
-    const exclusions = new Set<string>([
-      // Pure rawText commands do not accept --json.
-      'plan',
-      'completions',
-      'completions-data',
-    ]);
+    // Bespoke commands (pipeline, teleport) own their own renderers but
+    // still accept --json — both honor the resolved outputMode and emit a
+    // JSON envelope when it is `'json'`. Pure rawText commands have no JSON
+    // form and are excluded.
+    const exclusions = new Set<string>(['plan', 'completions', 'completions-data']);
     for (const command of knownContractCommands) {
       if (exclusions.has(command)) continue;
       const spec = commandSpecifications[command];

@@ -78,12 +78,73 @@ describe('cli-runner output mode resolution', () => {
     expect(pretty.stdout).not.toBe('[]\n');
   });
 
-  it('still emits JSON for shapes that have no renderer yet', async () => {
-    // `start-result` is jsonFallback in Phase B. Use any handler-less code
-    // path to confirm fallback still works; rather than wire a full mock,
-    // assert via the renderer module's behavior on a known fallback shape.
-    const { renderReadiness } = await import('./output-contracts.js');
-    expect(renderReadiness['start-result']).toBe('jsonFallback');
+  it('emits JSON byte-for-byte for jsonFallback shapes even in pretty mode', async () => {
+    // `init-result` is jsonFallback in this PR. Drive the runtime path (not
+    // just the readiness constant) via the init boundary command with an
+    // injected initializer. Both --json and pretty-mode-on-TTY must produce
+    // identical JSON bytes — the fallback path is the whole point.
+    const initializeProject = async () => ({ created: false, configured: true });
+    const jsonOut = await runTasksCli(['init', '--json'], { createStore, initializeProject });
+    const prettyOut = await runTasksCli(['init'], {
+      createStore,
+      initializeProject,
+      isStdoutTty: true,
+    });
+    expect(prettyOut.stdout).toBe(jsonOut.stdout);
+    expect(jsonOut.stdout.startsWith('{')).toBe(true);
+  });
+
+  it('routes progress add vs progress list to distinct shapes', async () => {
+    const progressEntry = {
+      id: 'p1',
+      taskId: 'task-id',
+      message: 'noted',
+      createdAt: '2026-05-15T00:00:00.000Z',
+      provider: null,
+      session: null,
+      event: null,
+      tool: null,
+      cwd: null,
+      transcriptPath: null,
+      commitSha: null,
+    };
+    const progressStore = (): TaskStore =>
+      ({
+        projectRoot: '/project',
+        databasePath: '/project/tmp/tasks.db',
+        progress: () => [progressEntry, progressEntry],
+        addProgress: () => progressEntry,
+        getTask: () => ({
+          id: 'task-id',
+          title: 'T',
+          status: 'in-progress',
+          description: '',
+          priority: 1,
+          createdAt: '2026-05-15T00:00:00.000Z',
+          lastModifiedAt: '2026-05-15T00:00:00.000Z',
+          startDate: null,
+          dueDate: null,
+          branch: null,
+          plan: null,
+          provider: null,
+          session: null,
+          tags: [],
+          blockedBy: [],
+          blocking: [],
+          deleted: false,
+        }),
+        close: () => {},
+      }) as unknown as TaskStore;
+    const list = await runTasksCli(['progress', 'list', 'task-id'], {
+      createStore: async () => progressStore(),
+    });
+    const add = await runTasksCli(['progress', 'add', 'task-id', '--message', 'noted'], {
+      createStore: async () => progressStore(),
+    });
+    // `progress list` returns an array; `progress add` returns a single
+    // object. Mode is JSON because isStdoutTty is undefined.
+    expect(JSON.parse(list.stdout)).toBeInstanceOf(Array);
+    expect(JSON.parse(add.stdout)).toMatchObject({ message: 'noted' });
   });
 
   it('swallows unknown_command from the contract lookup so the parser error wins', async () => {
