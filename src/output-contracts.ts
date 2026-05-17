@@ -37,16 +37,16 @@ export type DataShape =
 export type RenderReadiness = 'implemented' | 'jsonFallback';
 
 export const renderReadiness: Record<DataShape, RenderReadiness> = {
-  'task-list': 'jsonFallback',
-  'single-task': 'jsonFallback',
+  'task-list': 'implemented',
+  'single-task': 'implemented',
   'task-progress': 'jsonFallback',
   'single-task-progress': 'jsonFallback',
   'task-session': 'jsonFallback',
   'pr-status': 'jsonFallback',
   'review-comments': 'jsonFallback',
   'pr-overview': 'jsonFallback',
-  remaining: 'jsonFallback',
-  cleanup: 'jsonFallback',
+  remaining: 'implemented',
+  cleanup: 'implemented',
   'sync-summary': 'jsonFallback',
   'init-result': 'jsonFallback',
   'setup-result': 'jsonFallback',

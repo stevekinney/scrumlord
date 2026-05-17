@@ -234,9 +234,9 @@ describe('rejectJsonOnNonDataContract', () => {
 });
 
 describe('renderReadiness', () => {
-  it('initializes every shape to jsonFallback in Phase A', () => {
+  it('reports only implemented or jsonFallback for every shape', () => {
     for (const value of Object.values(renderReadiness)) {
-      expect(value).toBe('jsonFallback');
+      expect(['implemented', 'jsonFallback']).toContain(value);
     }
   });
 });
