@@ -19,18 +19,20 @@ import {
   validateStoreCommandInput,
 } from './cli-store-commands.js';
 import type { CliOptions, CliResult } from './cli-types.js';
+import { formatStoreResult, rejectJsonOnRawForm, resolveModeForOptions } from './cli-output.js';
 import { createTaskStore } from './database-open.js';
 import { ScrumlordError, errorMessage } from './errors.js';
 import { syncGitStatus } from './git-status.js';
 import { renderHelp } from './help.js';
 import { initializeProject } from './init.js';
+import { formatJson } from './output-json.js';
 import { resolveProjectRoot } from './root-resolution.js';
 import type { CleanupTasksMode, CleanupTasksResult } from './task-commands.js';
 import type { TaskStore } from './types.js';
 
 type BoundaryCommandHandler = (parsed: ParsedArguments, options: CliOptions) => Promise<CliResult>;
 
-const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
+const json = (value: unknown): string => formatJson(value);
 const success = (value: unknown): CliResult => ({ exitCode: 0, stdout: json(value), stderr: '' });
 /** Returns a CLI result whose stdout is the raw string plus newline — no JSON wrapping. */
 const rawString = (value: string): CliResult => ({ exitCode: 0, stdout: `${value}\n`, stderr: '' });
@@ -427,11 +429,15 @@ const isCleanupResult = (value: unknown): value is CleanupTasksResult =>
   typeof (value as { mode: unknown }).mode === 'string' &&
   cleanupModes.has((value as { mode: string }).mode);
 
-const storeCommandResult = (parsed: ParsedArguments, value: unknown): CliResult => {
+const storeCommandResult = (
+  parsed: ParsedArguments,
+  value: unknown,
+  options: CliOptions,
+): CliResult => {
   if (parsed.command === 'next' && value === null) return emptySuccess();
   if (parsed.command === 'plan' && typeof value === 'string') return rawString(value);
   if (parsed.command === 'cleanup' && isCleanupResult(value)) return renderCleanupResult(value);
-  return success(value);
+  return formatStoreResult(parsed, value, options);
 };
 
 const runOpenedStoreCommand = async (
@@ -447,7 +453,7 @@ const runOpenedStoreCommand = async (
   if (parsed.command === 'pr' && parsed.flags.has('sync')) {
     return await runPullRequestSyncCommand(store, parsed, options);
   }
-  return storeCommandResult(parsed, await runStoreCommand(store, parsed, options));
+  return storeCommandResult(parsed, await runStoreCommand(store, parsed, options), options);
 };
 
 const removedCommandHints: Record<string, string> = {
@@ -470,8 +476,14 @@ export const runTasksCli = async (argv: string[], options: CliOptions = {}): Pro
     if (isHelpRequest(parsed)) return renderHelpResult(parsed, options);
     if (!parsed.command) throw new ScrumlordError('missing_command', 'A command is required.');
     validatePositionals(parsed);
+    rejectJsonOnRawForm(parsed);
 
-    const boundaryResult = await runBoundaryCommand(parsed, options);
+    const resolvedOptions: CliOptions = {
+      ...options,
+      outputMode: resolveModeForOptions(parsed, options),
+    };
+
+    const boundaryResult = await runBoundaryCommand(parsed, resolvedOptions);
     if (boundaryResult) return boundaryResult;
     if (!storeCommands.has(parsed.command)) {
       const hint = removedCommandHints[parsed.command];
@@ -480,11 +492,11 @@ export const runTasksCli = async (argv: string[], options: CliOptions = {}): Pro
         : `Unknown command: ${parsed.command}`;
       throw new ScrumlordError('unknown_command', message);
     }
-    validateStoreCommandInput(parsed, options);
+    validateStoreCommandInput(parsed, resolvedOptions);
 
-    const store = await openStore(options);
+    const store = await openStore(resolvedOptions);
     try {
-      return await runOpenedStoreCommand(store, parsed, options);
+      return await runOpenedStoreCommand(store, parsed, resolvedOptions);
     } finally {
       store.close();
     }

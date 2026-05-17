@@ -139,7 +139,7 @@ const topics: HelpTopic[] = [
     summary: 'Show the current GitHub repository.',
     usage: 'tasks repository [--url] [--json]',
     description:
-      'Returns the current GitHub repository name as a raw string by default, the full GitHub URL when --url is supplied, or a JSON object with both name and url when --json is supplied. --json overrides --url when both are given.',
+      'Returns the current GitHub repository name as a raw string by default, the full GitHub URL when --url is supplied, or a JSON object with both name and url when --json is supplied. --url and --json cannot be combined — the raw form rejects --json with json_not_supported.',
     options: [
       { name: '--url', description: 'Return the full GitHub repository URL as a raw string.' },
       { name: '--json', description: 'Return a JSON object with name and url.' },

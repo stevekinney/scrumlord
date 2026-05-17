@@ -29,6 +29,19 @@ export type CommandSpecification = {
   visibleInCompletions?: boolean;
 };
 
+/**
+ * Adds `--json` to a command spec's boolean flags. Used for every command
+ * whose contract resolves to `jsonData` or `bespoke`. Mechanical helper —
+ * never edit `booleanFlags` directly when the intent is "this command
+ * supports `--json`".
+ */
+const withJsonFlag = <T extends CommandSpecification>(spec: T): T => ({
+  ...spec,
+  booleanFlags: spec.booleanFlags?.includes('json')
+    ? spec.booleanFlags
+    : [...(spec.booleanFlags ?? []), 'json'],
+});
+
 const noPositionals = { minPositionals: 0, maxPositionals: 0 };
 const onePositional = { minPositionals: 1, maxPositionals: 1 };
 const requiredTaskId = { minPositionals: 1, maxPositionals: 1 };
@@ -49,79 +62,89 @@ const requiredTaskIdTaskListingCommandSpecification = {
 
 /** All command specifications — exported for use by the completions generator. */
 export const commandSpecifications: Record<string, CommandSpecification> = {
-  available: taskListingCommandSpecification,
-  list: { ...noPositionals, booleanFlags: ['all', ...listingBooleanFlags] },
-  blocked: taskListingCommandSpecification,
-  completed: taskListingCommandSpecification,
-  init: noPositionals,
-  overview: { ...noPositionals, booleanFlags: ['sync'] },
+  available: withJsonFlag(taskListingCommandSpecification),
+  list: withJsonFlag({ ...noPositionals, booleanFlags: ['all', ...listingBooleanFlags] }),
+  blocked: withJsonFlag(taskListingCommandSpecification),
+  completed: withJsonFlag(taskListingCommandSpecification),
+  init: withJsonFlag(noPositionals),
+  overview: withJsonFlag({ ...noPositionals, booleanFlags: ['sync'] }),
   help: { minPositionals: 0, maxPositionals: 2 },
-  current: noPositionals,
-  next: noPositionals,
-  remaining: noPositionals,
+  current: withJsonFlag(noPositionals),
+  next: withJsonFlag(noPositionals),
+  remaining: withJsonFlag(noPositionals),
   repository: { ...noPositionals, booleanFlags: ['url', 'json'] },
   pr: {
     minPositionals: 0,
     maxPositionals: 0,
-    booleanFlags: ['open', 'url', 'comments', 'resolved', 'all', 'sync', 'quiet', 'poll'],
+    booleanFlags: ['open', 'url', 'comments', 'resolved', 'all', 'sync', 'quiet', 'poll', 'json'],
     valueFlags: ['max-polls', 'poll-interval', 'bot-patterns'],
   },
-  get: { ...requiredTaskId, positionalVariants: [['task-id']] },
-  tagged: {
+  get: withJsonFlag({ ...requiredTaskId, positionalVariants: [['task-id']] }),
+  tagged: withJsonFlag({
     minPositionals: 1,
     booleanFlags: ['all', ...listingBooleanFlags],
     positionalVariants: [['tag']],
-  },
-  'with-branch': {
+  }),
+  'with-branch': withJsonFlag({
     ...onePositionalTaskListingCommandSpecification,
     positionalVariants: [['free-text']],
-  },
-  'blocked-by': {
+  }),
+  'blocked-by': withJsonFlag({
     ...requiredTaskIdTaskListingCommandSpecification,
     positionalVariants: [['task-id']],
-  },
-  blocking: { ...requiredTaskIdTaskListingCommandSpecification, positionalVariants: [['task-id']] },
-  priority: { ...onePositionalTaskListingCommandSpecification, positionalVariants: [['priority']] },
-  'with-priority': {
+  }),
+  blocking: withJsonFlag({
+    ...requiredTaskIdTaskListingCommandSpecification,
+    positionalVariants: [['task-id']],
+  }),
+  priority: withJsonFlag({
     ...onePositionalTaskListingCommandSpecification,
     positionalVariants: [['priority']],
-  },
-  session: { ...requiredTaskId, positionalVariants: [['task-id']] },
-  progress: {
+  }),
+  'with-priority': withJsonFlag({
+    ...onePositionalTaskListingCommandSpecification,
+    positionalVariants: [['priority']],
+  }),
+  session: withJsonFlag({ ...requiredTaskId, positionalVariants: [['task-id']] }),
+  progress: withJsonFlag({
     minPositionals: 0,
     maxPositionals: 2,
     valueFlags: ['message', 'provider', 'session'],
-  },
-  clear: { minPositionals: 1, maxPositionals: 2 },
-  start: {
+  }),
+  clear: withJsonFlag({ minPositionals: 1, maxPositionals: 2 }),
+  start: withJsonFlag({
     ...requiredTaskId,
     valueFlags: ['cli'],
     booleanFlags: ['no-worktree', 'force', 'quiet'],
     positionalVariants: [['task-id']],
-  },
+  }),
   pipeline: {
     minPositionals: 0,
     maxPositionals: 0,
     valueFlags: ['cli', 'max', 'resume'],
     booleanFlags: ['recover', 'recover-then-run', 'apply', 'quiet', 'dry-run', 'json', 'once'],
   },
-  resume: { ...requiredTaskId, positionalVariants: [['task-id']] },
-  'agent-hook': { ...onePositional, positionalVariants: [['free-text']] },
-  delete: { ...requiredTaskId, booleanFlags: ['hard'], positionalVariants: [['task-id']] },
-  cleanup: {
+  resume: withJsonFlag({ ...requiredTaskId, positionalVariants: [['task-id']] }),
+  'agent-hook': withJsonFlag({ ...onePositional, positionalVariants: [['free-text']] }),
+  delete: withJsonFlag({
+    ...requiredTaskId,
+    booleanFlags: ['hard'],
+    positionalVariants: [['task-id']],
+  }),
+  cleanup: withJsonFlag({
     minPositionals: 0,
     maxPositionals: 1,
     booleanFlags: ['hard', 'recover-orphans', 'orphans-only', 'dry-run', 'prompt'],
-  },
-  search: {
+  }),
+  search: withJsonFlag({
     minPositionals: 0,
     maxPositionals: 1,
     valueFlags: ['title', 'description'],
     booleanFlags: ['all', ...listingBooleanFlags],
     positionalVariants: [[], ['free-text']],
-  },
+  }),
   plan: { minPositionals: 0, maxPositionals: 1, positionalVariants: [[], ['task-id']] },
-  create: {
+  create: withJsonFlag({
     ...noPositionals,
     valueFlags: [
       'title',
@@ -139,8 +162,8 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
       'blocked-by',
     ],
     booleanFlags: ['draft'],
-  },
-  update: {
+  }),
+  update: withJsonFlag({
     ...requiredTaskId,
     valueFlags: [
       'title',
@@ -156,25 +179,25 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
       'deleted',
     ],
     positionalVariants: [['task-id']],
-  },
-  'add-tag': {
+  }),
+  'add-tag': withJsonFlag({
     ...requiredTaskIdWithOneArgument,
     positionalVariants: [['tag'], ['task-id', 'tag']],
-  },
-  'remove-tag': {
+  }),
+  'remove-tag': withJsonFlag({
     ...requiredTaskIdWithOneArgument,
     positionalVariants: [['tag'], ['task-id', 'tag']],
-  },
-  'add-blocker': {
+  }),
+  'add-blocker': withJsonFlag({
     ...requiredTaskIdWithOneArgument,
     positionalVariants: [['task-id'], ['task-id', 'task-id']],
-  },
-  'remove-blocker': {
+  }),
+  'remove-blocker': withJsonFlag({
     ...requiredTaskIdWithOneArgument,
     positionalVariants: [['task-id'], ['task-id', 'task-id']],
-  },
+  }),
   teleport: { ...onePositional, booleanFlags: ['json'] },
-  setup: {
+  setup: withJsonFlag({
     minPositionals: 0,
     maxPositionals: 1,
     booleanFlags: [
@@ -193,7 +216,7 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
       'all',
     ],
     valueFlags: ['agent'],
-  },
+  }),
   completions: {
     minPositionals: 1,
     maxPositionals: 1,

@@ -2,6 +2,7 @@ import { flag, type ParsedArguments } from './cli-arguments.js';
 import type { CliOptions, CliResult } from './cli-types.js';
 import { resolveTaskId } from './cli-task-id.js';
 import { ScrumlordError } from './errors.js';
+import { formatJson } from './output-json.js';
 import { runPipeline, type PipelineMode, type PipelineOptions } from './pipeline.js';
 import type { AgentProvider, TaskStore } from './types.js';
 import { parseAgentProvider } from './validation.js';
@@ -69,12 +70,12 @@ export const runPipelineCommand = async (
   if (resumeTaskId !== undefined) pipelineOptions.resumeTaskId = resumeTaskId;
   if (options.runner !== undefined) pipelineOptions.runner = options.runner;
   const summary = await runPipeline(store, pipelineOptions);
-  if (parsed.flags.has('json')) {
-    return {
-      exitCode: summary.exitCode,
-      stdout: `${JSON.stringify(summary, null, 2)}\n`,
-      stderr: '',
-    };
+  // The bespoke contract: emit JSON when the resolved mode is `'json'` (set
+  // by `--json`, machine-readable env, non-TTY, or `SCRUMLORD_PRETTY=0`).
+  // Otherwise stay silent — the pipeline already streams progress via its
+  // own writes, so the human view does not need a stdout summary today.
+  if (options.outputMode === 'json') {
+    return { exitCode: summary.exitCode, stdout: formatJson(summary), stderr: '' };
   }
   return { exitCode: summary.exitCode, stdout: '', stderr: '' };
 };
