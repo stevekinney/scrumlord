@@ -484,10 +484,10 @@ describe('runTasksCli', () => {
       message: '--title requires a value.',
     });
 
-    const unknownFlagResult = await runTasksCli(['available', '--json'], { createStore });
+    const unknownFlagResult = await runTasksCli(['available', '--bogus'], { createStore });
     expect(JSON.parse(unknownFlagResult.stderr).error).toEqual({
       code: 'unknown_flag',
-      message: 'Unknown flag for available: --json.',
+      message: 'Unknown flag for available: --bogus.',
     });
 
     const unexpectedArgumentResult = await runTasksCli(['get', 'task-id', 'extra'], {

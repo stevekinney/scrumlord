@@ -12,6 +12,7 @@ export type Theme = {
   success: Formatter;
   warning: Formatter;
   error: Formatter;
+  bold: Formatter;
 };
 
 const reset = '\u001b[0m';
@@ -36,6 +37,11 @@ const formatter = (color: string, mode: ColorMode): Formatter => {
   };
 };
 
+/** SGR-style bold formatter that respects the resolved color mode. */
+const boldFormatter = (mode: ColorMode): Formatter => {
+  return (value) => (colorEnabled(mode) ? `[1m${value}${reset}` : value);
+};
+
 /** Creates the color theme used for human-facing CLI output. */
 export const createTheme = (mode: ColorMode = 'auto'): Theme => ({
   title: formatter('#f97316', mode),
@@ -47,4 +53,5 @@ export const createTheme = (mode: ColorMode = 'auto'): Theme => ({
   success: formatter('#10b981', mode),
   warning: formatter('#f59e0b', mode),
   error: formatter('#ef4444', mode),
+  bold: boldFormatter(mode),
 });

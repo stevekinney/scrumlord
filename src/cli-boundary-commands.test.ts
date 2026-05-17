@@ -244,10 +244,7 @@ describe('runTasksCli boundary commands', () => {
       cwd: root,
       github,
     });
-    expect(JSON.parse(repositoryJsonOverrideResult.stdout)).toEqual({
-      name: 'owner/repository',
-      url: 'https://github.com/owner/repository',
-    });
+    expect(JSON.parse(repositoryJsonOverrideResult.stderr).error.code).toBe('json_not_supported');
     const overviewCalls: string[] = [];
     const overviewResult = await runTasksCli(['overview'], {
       cwd: root,

@@ -1,5 +1,6 @@
 import type { AgentInvocation } from './agent-providers.js';
 import type { ColorMode } from './color.js';
+import type { OutputMode } from './output-mode.js';
 import type { CommandRunner } from './command-runner.js';
 import type { PullRequestStatusReport, ReviewComment } from './github.js';
 import type { PullRequestPollReport } from './github-poll.js';
@@ -21,6 +22,15 @@ export type CliOptions = {
   cwd?: string;
   colorMode?: ColorMode;
   environment?: Record<string, string | undefined>;
+  /** Whether stdout is a TTY. Undefined is treated as `false` (JSON path). */
+  isStdoutTty?: boolean;
+  /** Terminal width in columns. Defaults to 100 when undefined. */
+  terminalWidth?: number;
+  /**
+   * Resolved output mode. Computed once at the boundary by `runTasksCli` and
+   * threaded into command handlers. Callers should not set this directly.
+   */
+  outputMode?: OutputMode;
   createStore?: (cwd: string) => Promise<TaskStore>;
   initializeProject?: (options: InitializeProjectOptions) => Promise<unknown>;
   readStdin?: () => Promise<string>;
