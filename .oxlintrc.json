@@ -41,7 +41,7 @@
     "typescript/no-floating-promises": "error",
     "typescript/await-thenable": "error"
   },
-  "ignorePatterns": ["dist/**", "build/**", "coverage/**", ".bun/**", "node_modules/**", "*.lock"],
+  "ignorePatterns": ["dist/**", "build/**", "coverage/**", ".bun/**", "node_modules/**", "*.lock", ".claude/worktrees/**"],
   "overrides": [
     {
       "files": ["**/*.test.ts", "**/*.spec.ts", "**/test/**/*.ts", "**/__tests__/**/*.ts"],
