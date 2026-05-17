@@ -14,7 +14,7 @@ import {
   renderZshAlternative,
   renderZshArgumentsLine,
 } from './completions';
-import { getCommandSpecifications } from './cli-arguments';
+import { commandSpecifications } from './cli-arguments';
 
 const tempFiles: string[] = [];
 
@@ -73,7 +73,7 @@ describe('generateBashCompletions', () => {
 
   it('every visible command appears in the discovery list', () => {
     const script = generateBashCompletions();
-    const specs = getCommandSpecifications();
+    const specs = commandSpecifications;
     const visibleCommands = Object.keys(specs).filter(
       (name) => specs[name]?.visibleInCompletions !== false,
     );
@@ -138,7 +138,7 @@ describe('generateZshCompletions', () => {
 
   it('every visible command appears in the zsh describe list', () => {
     const script = generateZshCompletions();
-    const specs = getCommandSpecifications();
+    const specs = commandSpecifications;
     const visibleCommands = Object.keys(specs).filter(
       (name) => specs[name]?.visibleInCompletions !== false,
     );
@@ -359,7 +359,7 @@ describe('escapeZshDescription', () => {
 
 describe('commandSummaries', () => {
   it('covers every visible command', () => {
-    const specs = getCommandSpecifications();
+    const specs = commandSpecifications;
     const visibleCommands = Object.keys(specs).filter(
       (name) => specs[name]?.visibleInCompletions !== false,
     );

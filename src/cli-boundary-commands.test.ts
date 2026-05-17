@@ -65,6 +65,8 @@ const fakeStore = (calls: string[]): TaskStore => ({
     branch: null,
     plan: null,
   }),
+  allIds: () => [],
+  allTags: () => [],
   ...emptyProgressStoreMethods,
   close: () => {
     calls.push('close');

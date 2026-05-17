@@ -732,9 +732,7 @@ export class SqliteTaskStore implements TaskStore {
 
   allIds(): string[] {
     return this.#database
-      .query<{ id: string }, []>(
-        `SELECT id FROM tasks WHERE (deleted IS NULL OR deleted = 0) ORDER BY id`,
-      )
+      .query<{ id: string }, []>(`SELECT id FROM tasks WHERE deleted = 0 ORDER BY id`)
       .all()
       .map((row) => row.id);
   }
@@ -744,7 +742,7 @@ export class SqliteTaskStore implements TaskStore {
       .query<{ tag: string }, []>(
         `SELECT DISTINCT tag FROM task_tags
          INNER JOIN tasks ON tasks.id = task_tags.task_id
-         WHERE (tasks.deleted IS NULL OR tasks.deleted = 0)
+         WHERE tasks.deleted = 0
          ORDER BY tag`,
       )
       .all()

@@ -1,7 +1,7 @@
 /* eslint-disable max-lines */
 import {
   flagValueKinds,
-  getCommandSpecifications,
+  commandSpecifications,
   type PositionalKind,
   type PositionalVariant,
 } from './cli-arguments.js';
@@ -68,7 +68,7 @@ export const escapeZshDescription = (value: string): string =>
   value.replace(/[:[\]'$`\\]/g, (ch) => `\\${ch}`);
 
 const visibleCommands = (): string[] => {
-  const specs = getCommandSpecifications();
+  const specs = commandSpecifications;
   return Object.keys(specs)
     .filter((name) => specs[name]?.visibleInCompletions !== false)
     .toSorted();
@@ -120,7 +120,7 @@ const renderBashMultiKindCase = (pos: number, kinds: PositionalKind[]): string =
  * Returns an empty string when the command has no positionalVariants.
  */
 export const renderBashPositionalBranch = (commandName: string): string => {
-  const spec = getCommandSpecifications()[commandName];
+  const spec = commandSpecifications[commandName];
   if (!spec?.positionalVariants?.length) return '';
   const variants = spec.positionalVariants;
   const max = maxVariantLength(variants);
@@ -154,7 +154,7 @@ export const renderBashPositionalBranch = (commandName: string): string => {
 
 /** Renders a single zsh _arguments spec line for a command (for direct unit testing). */
 export const renderZshArgumentsLine = (commandName: string, index: number): string => {
-  const spec = getCommandSpecifications()[commandName];
+  const spec = commandSpecifications[commandName];
   if (!spec?.positionalVariants?.length) return '';
   const variants = spec.positionalVariants;
   const kinds = kindsAtIndex(variants, index);
@@ -213,7 +213,7 @@ const renderZshPositionalArgs = (
 };
 
 const renderZshCommandArgs = (commandName: string): string => {
-  const spec = getCommandSpecifications()[commandName];
+  const spec = commandSpecifications[commandName];
   if (!spec) return '';
 
   const argParts: string[] = ['--help[Show help.]'];
@@ -233,7 +233,7 @@ const renderZshCommandArgs = (commandName: string): string => {
 };
 
 const renderZshAlternativeCases = (commandName: string): string[] => {
-  const spec = getCommandSpecifications()[commandName];
+  const spec = commandSpecifications[commandName];
   if (!spec?.positionalVariants?.length) return [];
   const variants = spec.positionalVariants;
   const max = maxVariantLength(variants);
@@ -254,11 +254,12 @@ export const extractCommandListRegion = (script: string, shell: 'bash' | 'zsh'):
     if (!match) return [];
     return (match[1] ?? '').trim().split(/\s+/).filter(Boolean);
   }
-  const match = script.match(/_describe 'command' \(([^)]+)\)/);
+  // Match the _tasks_commands array body between _tasks_commands=( and the closing )
+  const match = script.match(/_tasks_commands=\(\n([\s\S]*?)\n\s*\)/);
   if (!match) return [];
   return (match[1] ?? '')
-    .split(/\s+/)
-    .map((s) => s.replace(/^["']|["']$/g, ''))
+    .split('\n')
+    .map((line) => line.trim().replace(/^"([^:]+):.*"$/, '$1'))
     .filter(Boolean);
 };
 
@@ -346,7 +347,7 @@ _tasks() {
 /** Generates the bash completion script. */
 export const generateBashCompletions = (): string => {
   const visible = visibleCommands();
-  const specs = getCommandSpecifications();
+  const specs = commandSpecifications;
 
   const noSubcmdBranch = `  if [[ -z "$cmd" ]]; then
     __tasks_reply_from_words ${visible.map(escapeBashWordList).join(' ')}
@@ -413,9 +414,9 @@ export const generateZshCompletions = (): string => {
   const commandDescEntries = visible
     .map((name) => {
       const summary = commandSummaries[name] ?? '';
-      return `"${name}:${escapeZshDescription(summary)}"`;
+      return `  "${name}:${escapeZshDescription(summary)}"`;
     })
-    .join('\n    ');
+    .join('\n');
 
   const perCommandCases: string[] = [];
   for (const name of visible.toSorted()) {
@@ -442,9 +443,11 @@ export const generateZshCompletions = (): string => {
     `  _arguments -C '1: :->command' '*:: :->args'`,
     `  case $state in`,
     `    command)`,
-    `      _describe 'command' (`,
-    `    ${commandDescEntries}`,
-    `      ) ;;`,
+    `      local -a _tasks_commands`,
+    `      _tasks_commands=(`,
+    commandDescEntries,
+    `      )`,
+    `      _describe 'command' _tasks_commands ;;`,
     `    args)`,
     `      case $line[1] in`,
     ...perCommandCases,

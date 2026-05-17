@@ -37,8 +37,9 @@ afterEach(async () => {
 describe('tasks completions-data ids', () => {
   it('returns non-deleted task IDs sorted ascending', async () => {
     const { root, store } = await createStore();
-    store.create({ id: 'aaa', title: 'Task A' });
+    // Insert in reverse order so the test only passes with ORDER BY id
     store.create({ id: 'zzz', title: 'Task Z' });
+    store.create({ id: 'aaa', title: 'Task A' });
     store.create({ id: 'mmm', title: 'Task M' });
     store.delete('mmm');
     store.close();

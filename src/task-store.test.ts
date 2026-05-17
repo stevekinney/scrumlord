@@ -773,3 +773,79 @@ describe('recoverOrphan', () => {
     store.close();
   });
 });
+
+describe('TaskStore.allIds()', () => {
+  it('returns empty array for empty store', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const store = await createTaskStore({ cwd: root });
+    expect(store.allIds()).toEqual([]);
+    store.close();
+  });
+
+  it('returns non-deleted IDs sorted ascending (insertion order is reverse alphabetical)', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const store = await createTaskStore({ cwd: root });
+    store.create({ id: 'zzz', title: 'Task Z' });
+    store.create({ id: 'aaa', title: 'Task A' });
+    store.create({ id: 'mmm', title: 'Task M' });
+    expect(store.allIds()).toEqual(['aaa', 'mmm', 'zzz']);
+    store.close();
+  });
+
+  it('excludes soft-deleted tasks', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const store = await createTaskStore({ cwd: root });
+    store.create({ id: 'task-keep', title: 'Keep' });
+    store.create({ id: 'task-gone', title: 'Gone' });
+    store.delete('task-gone');
+    expect(store.allIds()).toEqual(['task-keep']);
+    store.close();
+  });
+});
+
+describe('TaskStore.allTags()', () => {
+  it('returns empty array for empty store', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const store = await createTaskStore({ cwd: root });
+    expect(store.allTags()).toEqual([]);
+    store.close();
+  });
+
+  it('returns sorted unique tag names across tasks', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const store = await createTaskStore({ cwd: root });
+    store.create({ id: 't1', title: 'T1', tags: ['beta', 'alpha'] });
+    store.create({ id: 't2', title: 'T2', tags: ['alpha', 'gamma'] });
+    expect(store.allTags()).toEqual(['alpha', 'beta', 'gamma']);
+    store.close();
+  });
+
+  it('excludes tags from soft-deleted tasks', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const store = await createTaskStore({ cwd: root });
+    store.create({ id: 't1', title: 'T1', tags: ['keep'] });
+    store.create({ id: 't2', title: 'T2', tags: ['gone'] });
+    store.delete('t2');
+    expect(store.allTags()).toEqual(['keep']);
+    store.close();
+  });
+
+  it('filters out tags containing newlines via the newline-filter', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const store = await createTaskStore({ cwd: root });
+    store.create({ id: 't1', title: 'T1', tags: ['normal', 'also-normal'] });
+    const ids = store.allIds();
+    expect(ids).toEqual(['t1']);
+    const tags = store.allTags();
+    expect(tags).toEqual(['also-normal', 'normal']);
+    expect(tags.every((tag) => !tag.includes('\n'))).toBe(true);
+    store.close();
+  });
+});

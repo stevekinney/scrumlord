@@ -1,6 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, open, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { existsSync } from 'node:fs';
 import { flag, type ParsedArguments } from './cli-arguments.js';
 import {
   generateBashCompletions,
@@ -20,14 +19,11 @@ const getGenerator = (shell: string): (() => string) => {
 };
 
 const resolveInstallPath = (
-  shell: string,
+  shell: 'bash' | 'zsh',
   customPath: string | undefined,
   env: Record<string, string | undefined>,
 ): string => {
   if (customPath) return customPath;
-  if (shell !== 'bash' && shell !== 'zsh') {
-    throw new ScrumlordError('unsupported_shell', `Unsupported shell: ${shell}.`);
-  }
   try {
     return defaultInstallPath(shell, env);
   } catch {
@@ -35,6 +31,57 @@ const resolveInstallPath = (
       'no_install_path',
       `Cannot determine install path for ${shell}. Set HOME or XDG_DATA_HOME, or pass --path.`,
     );
+  }
+};
+
+const installSuccessMessage = (shell: 'bash' | 'zsh', installPath: string): string => {
+  if (shell === 'zsh') {
+    return (
+      `Completion script written to: ${installPath}\n` +
+      `\n` +
+      `To enable completions, ensure the directory is in your $fpath and compinit is loaded.\n` +
+      `Add to ~/.zshrc if not already present:\n` +
+      `\n` +
+      `  fpath=(${dirname(installPath)} $fpath)\n` +
+      `  autoload -Uz compinit && compinit\n`
+    );
+  }
+  return (
+    `Completion script written to: ${installPath}\n` +
+    `\n` +
+    `To enable completions, add to ~/.bashrc:\n` +
+    `  source ${installPath}\n` +
+    `\n` +
+    `Or if bash-completion v2 is installed, it may load automatically from that location.\n`
+  );
+};
+
+const writeScriptFile = async (
+  installPath: string,
+  script: string,
+  force: boolean,
+): Promise<void> => {
+  if (force) {
+    await writeFile(installPath, script, 'utf-8');
+    return;
+  }
+  // Use exclusive open to avoid TOCTOU race — throws EEXIST if file already exists
+  let fileHandle;
+  try {
+    fileHandle = await open(installPath, 'wx');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new ScrumlordError(
+        'completion_file_exists',
+        `Completion file already exists: ${installPath}. Use --force to overwrite.`,
+      );
+    }
+    throw error;
+  }
+  try {
+    await fileHandle.writeFile(script, 'utf-8');
+  } finally {
+    await fileHandle.close();
   }
 };
 
@@ -62,22 +109,16 @@ export const runCompletionsBoundaryCommand = async (
     return { exitCode: 0, stdout: script, stderr: '' };
   }
 
+  const validatedShell = shell as 'bash' | 'zsh';
   const env = options.environment ?? process.env;
-  const installPath = resolveInstallPath(shell, customPath, env);
-
-  if (!force && existsSync(installPath)) {
-    throw new ScrumlordError(
-      'completion_file_exists',
-      `Completion file already exists: ${installPath}. Use --force to overwrite.`,
-    );
-  }
+  const installPath = resolveInstallPath(validatedShell, customPath, env);
 
   await mkdir(dirname(installPath), { recursive: true });
-  await writeFile(installPath, script, 'utf-8');
+  await writeScriptFile(installPath, script, force);
 
   return {
     exitCode: 0,
-    stdout: `Completion script written to: ${installPath}\nSource it in your shell configuration to enable completions.\n`,
+    stdout: installSuccessMessage(validatedShell, installPath),
     stderr: '',
   };
 };

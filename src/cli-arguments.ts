@@ -47,7 +47,8 @@ const requiredTaskIdTaskListingCommandSpecification = {
   booleanFlags: listingBooleanFlags,
 };
 
-const commandSpecifications: Record<string, CommandSpecification> = {
+/** All command specifications — exported for use by the completions generator. */
+export const commandSpecifications: Record<string, CommandSpecification> = {
   available: taskListingCommandSpecification,
   list: { ...noPositionals, booleanFlags: ['all', ...listingBooleanFlags] },
   blocked: taskListingCommandSpecification,
@@ -336,10 +337,6 @@ export const flagList = (
   }
   return values;
 };
-
-/** Returns all command specifications — used by the completions generator. */
-export const getCommandSpecifications = (): Record<string, CommandSpecification> =>
-  commandSpecifications;
 
 /**
  * Maps flag names to their value kinds for completions.

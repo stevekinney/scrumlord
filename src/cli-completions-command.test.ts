@@ -135,7 +135,7 @@ describe('tasks completions bash --install --path existing-file --force', () => 
 });
 
 describe('tasks completions zsh --install with XDG_DATA_HOME set', () => {
-  it('writes to the expected default zsh path', async () => {
+  it('writes to the expected default zsh path and shows fpath instructions', async () => {
     const dir = await temporaryDirectory();
     const expectedPath = join(dir, 'zsh', 'site-functions', '_tasks');
 
@@ -146,6 +146,9 @@ describe('tasks completions zsh --install with XDG_DATA_HOME set', () => {
     expect(existsSync(expectedPath)).toBe(true);
     const contents = await Bun.file(expectedPath).text();
     expect(contents).toBe(generateZshCompletions());
+    expect(result.stdout).toContain(expectedPath);
+    expect(result.stdout).toContain('fpath');
+    expect(result.stdout).toContain('compinit');
   });
 });
 

@@ -198,6 +198,14 @@ const fakeStore = (calls: string[]): TaskStore => ({
       plan: item.plan,
     };
   },
+  allIds() {
+    calls.push('allIds');
+    return [];
+  },
+  allTags() {
+    calls.push('allTags');
+    return [];
+  },
   ...emptyProgressStoreMethods,
   close() {
     calls.push('close');
