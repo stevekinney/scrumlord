@@ -173,6 +173,7 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
     ...requiredTaskIdWithOneArgument,
     positionalVariants: [['task-id'], ['task-id', 'task-id']],
   },
+  teleport: { ...onePositional, booleanFlags: ['json'] },
   setup: {
     minPositionals: 0,
     maxPositionals: 1,
@@ -182,6 +183,7 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
       'git-hooks',
       'agent-hooks',
       'prompt',
+      'shell',
       'project',
       'user',
       'local',

@@ -41,6 +41,7 @@ const expectedTopics = [
   'agent-hook',
   'pr',
   'search',
+  'teleport',
   'completions',
 ];
 
@@ -96,5 +97,21 @@ describe('renderHelp', () => {
     expect(help).toContain('tasks cleanup --prompt | claude --print');
     expect(help).toContain('tasks cleanup --orphans-only');
     expect(help).toContain('tasks cleanup 30 --recover-orphans --dry-run');
+  });
+});
+
+describe('renderHelp — teleport', () => {
+  it('renders teleport help with usage, argument, and quoted example', () => {
+    const help = renderHelp(['teleport'], 'never');
+    expect(help).not.toBeNull();
+    expect(help).toContain('tasks teleport <task-id>');
+    expect(help).toContain('<task-id>: Task ID');
+    expect(help).toContain('cd "$(tasks teleport current)"');
+  });
+
+  it('renders setup help listing --shell mode', () => {
+    const help = renderHelp(['setup'], 'never');
+    expect(help).toContain('--shell');
+    expect(help).toContain('tasks setup --shell');
   });
 });
