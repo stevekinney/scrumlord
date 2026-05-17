@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Bun as BunGlobal } from 'bun';
 import { createTaskStore } from './database-open';
 import { ScrumlordError } from './errors';
 import { searchTasks } from './task-search';
@@ -166,6 +165,16 @@ describe('searchTasks — field mode', () => {
     expect(taskIds(results)).toEqual([both.id]);
   });
 
+  it('finds a match scoped to the description field only', async () => {
+    const { store } = await createStore();
+    store.create({ title: 'Unrelated task', description: 'login integration details' });
+    store.create({ title: 'Login service', description: 'some description' }); // title matches, description doesn't
+
+    const results = searchTasks(store, { kind: 'field', queries: { description: 'login' } });
+    expect(results).toHaveLength(1);
+    expect(results[0]?.description).toContain('login');
+  });
+
   it('ranks by average score across fields', async () => {
     const { store } = await createStore();
     // strongBoth: both fields score very well (exact matches)
@@ -316,37 +325,45 @@ describe('searchTasks — includeInactive', () => {
   });
 });
 
+const expectErrorCode = (fn: () => unknown, expectedCode: string): void => {
+  let caught: unknown;
+  try {
+    fn();
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(ScrumlordError);
+  expect((caught as ScrumlordError).code).toBe(expectedCode);
+};
+
 describe('searchTasks — input validation', () => {
   it('throws empty_search_query for whitespace-only default query', async () => {
     const { store } = await createStore();
-
-    expect(() => searchTasks(store, { kind: 'default', query: '   ' })).toThrow(ScrumlordError);
-
-    try {
-      searchTasks(store, { kind: 'default', query: '   ' });
-    } catch (error) {
-      expect(error instanceof ScrumlordError && error.code).toBe('empty_search_query');
-    }
+    expectErrorCode(
+      () => searchTasks(store, { kind: 'default', query: '   ' }),
+      'empty_search_query',
+    );
   });
 
   it('throws empty_search_query for whitespace-only field value', async () => {
     const { store } = await createStore();
-
-    expect(() => searchTasks(store, { kind: 'field', queries: { title: '   ' } })).toThrow(
-      ScrumlordError,
+    expectErrorCode(
+      () => searchTasks(store, { kind: 'field', queries: { title: '   ' } }),
+      'empty_search_query',
     );
+  });
 
-    try {
-      searchTasks(store, { kind: 'field', queries: { title: '   ' } });
-    } catch (error) {
-      expect(error instanceof ScrumlordError && error.code).toBe('empty_search_query');
-    }
+  it('throws empty_search_query for whitespace-only description field value', async () => {
+    const { store } = await createStore();
+    expectErrorCode(
+      () => searchTasks(store, { kind: 'field', queries: { description: '   ' } }),
+      'empty_search_query',
+    );
   });
 
   it('throws empty_search_query for empty field queries object', async () => {
     const { store } = await createStore();
-
-    expect(() => searchTasks(store, { kind: 'field', queries: {} })).toThrow(ScrumlordError);
+    expectErrorCode(() => searchTasks(store, { kind: 'field', queries: {} }), 'empty_search_query');
   });
 });
 
@@ -380,33 +397,19 @@ describe('searchTasks — scorer edge cases', () => {
     expect(taskIds(results)).toContain(task.id);
   });
 
-  it('forward containment via clipped query token (t.includes(clipped_q))', async () => {
+  it('forward containment fires when clipped query is a prefix of a longer haystack token', async () => {
+    // Constructs a query token > 256 chars so the clipped version (256 chars) is a
+    // strict prefix of a haystack token. The full-string check (haystackFull.includes(fullQuery))
+    // misses because haystackFull doesn't contain the unclipped query; the forward containment
+    // check (t.includes(clippedQ)) fires and produces a near-perfect score (0.05).
     const { store } = await createStore();
-    // Haystack token: "reauthentication" (a longer word containing a prefix of our long query)
-    // Query token must be >256 chars so it gets clipped; the clipped prefix is found in the haystack token.
-    const longPrefix = 'reauth'; // what haystackFull will NOT include in full
-    // Construct a query token > 256 chars that starts with "reauth" so the clipped version is "reauth...x...x"
-    // but haystackFull only contains "reauthentication" so haystackFull.includes(fullQuery) is false.
-    const longQueryToken = 'reauth' + 'z'.repeat(260); // 266 chars; clips to 256 = "reauth" + 250 z's
-    // The haystack token "reauthentication" does NOT include "reauthzzzz..." (full), so line 52 misses.
-    // Clipped to 256 chars: "reauthzzzz..." — "reauthentication".includes("reauthzzz...") is false too.
-    // Actually the forward containment t.includes(q) where t = "reauthentication" and q = "reauth"+"z"*250 is false.
-    // Let's rethink: we need haystackFull.includes(queryToken) = false but t.includes(q) = true.
-    // That requires q (clipped) ≠ queryToken (unclipped) AND t.includes(q) but not t.includes(queryToken).
-    // Example: queryToken = "reauthentication" + "x"*300 (> 256 chars)
-    //          q = "reauthentication" + "x"*240 (clipped to 256)
-    //          t = haystack token = "reauthentication" + "x"*240 + "extra"
-    //          haystackFull contains t, so haystackFull.includes(queryToken) is false
-    //          but t.includes(q) is true → line 57-59 fires.
-    const clipped = 'atoken' + 'x'.repeat(250); // exactly 256 chars
-    const fullQuery = clipped + 'yyy'; // 259 chars — gets clipped to 256 = clipped
-    const haystackToken = clipped + 'extra'; // haystack token contains the clipped prefix
+    const clipped = 'atoken' + 'x'.repeat(250); // 256 chars — becomes the clipped q
+    const fullQuery = clipped + 'yyy'; // 259 chars, clips to clipped
+    const haystackToken = clipped + 'extra'; // contains clipped as a prefix, not the full query
     const task = store.create({ title: haystackToken });
 
     const results = searchTasks(store, { kind: 'default', query: fullQuery });
     expect(taskIds(results)).toContain(task.id);
-    // Drop the task to clean state for other tests
-    store.delete(task.id, { hard: true });
   });
 
   it('reverse containment blocked when ratio is below 0.5', async () => {

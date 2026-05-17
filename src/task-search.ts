@@ -85,8 +85,8 @@ const scoreField = (query: string, fieldValue: string): number | null => {
 const isSearchField = (key: string): key is SearchField => key === 'title' || key === 'description';
 
 const fieldEntries = (queries: Partial<Record<SearchField, string>>): [SearchField, string][] =>
-  (Object.entries(queries) as [string, string | undefined][]).flatMap(([key, value]) =>
-    isSearchField(key) && value !== undefined ? [[key, value]] : [],
+  (Object.entries(queries) as [string, string][]).flatMap(([key, value]) =>
+    isSearchField(key) ? [[key, value]] : [],
   );
 
 const validateQuery = (query: SearchQuery): void => {
@@ -154,12 +154,16 @@ export function searchTasks(
     return sum / entries.length;
   };
 
+  let matchCount = 0;
   for (const task of candidates) {
     if (!planMatches(task, options.plan)) continue;
     const score = scoreTask(task);
     if (score === null) continue;
-    ranked.push({ task, score });
+    matchCount++;
+    if (!options.count) ranked.push({ task, score });
   }
+
+  if (options.count) return matchCount;
 
   ranked.sort(
     (a, b) =>
@@ -169,6 +173,5 @@ export function searchTasks(
       a.task.id.localeCompare(b.task.id),
   );
 
-  if (options.count) return ranked.length;
   return ranked.map(({ task }) => task);
 }
