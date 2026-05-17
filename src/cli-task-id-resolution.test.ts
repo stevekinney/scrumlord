@@ -396,6 +396,15 @@ describe('resolveTaskId — `next` token', () => {
   });
 });
 
+// Returns exit 0 with --worktree in stdout so checkProviderCapabilities passes
+// without requiring the claude or codex CLI to be installed in the test environment.
+const stubProviderRunner = async (
+  cmd: string[],
+): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
+  if (cmd[1] === '--help') return { exitCode: 0, stdout: '--worktree --print -C', stderr: '' };
+  return { exitCode: 0, stdout: '', stderr: '' };
+};
+
 describe('resolveTaskId — start and resume commands', () => {
   it('start with explicit task-id starts that task', async () => {
     const root = await workspaceRoot();
@@ -405,6 +414,7 @@ describe('resolveTaskId — start and resume commands', () => {
     const result = await runTasksCli(['start', currentId, '--cli', 'claude'], {
       cwd: root,
       which: () => '/bin/provider',
+      runner: stubProviderRunner,
       runAgentInvocation: async (invocation) => {
         invocations.push(invocation.command);
         return 0;
@@ -423,6 +433,7 @@ describe('resolveTaskId — start and resume commands', () => {
     const result = await runTasksCli(['start', 'current', '--cli', 'claude'], {
       cwd: root,
       which: () => '/bin/provider',
+      runner: stubProviderRunner,
       runAgentInvocation: async (invocation) => {
         invocations.push(invocation.command);
         return 0;
@@ -448,6 +459,7 @@ describe('resolveTaskId — start and resume commands', () => {
     const result = await runTasksCli(['start', 'next', '--cli', 'claude'], {
       cwd: root,
       which: () => '/bin/provider',
+      runner: stubProviderRunner,
       runAgentInvocation: async (invocation) => {
         invocations.push(invocation.command);
         return 0;
