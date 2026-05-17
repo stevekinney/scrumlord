@@ -107,6 +107,153 @@ afterEach(async () => {
   );
 });
 
+const errorCode = (value: unknown): string | undefined => {
+  if (typeof value !== 'object' || value === null) return undefined;
+  if (!('error' in value)) return undefined;
+  const { error } = value as { error: unknown };
+  if (typeof error !== 'object' || error === null) return undefined;
+  if (!('code' in error)) return undefined;
+  const { code } = error as { code: unknown };
+  return typeof code === 'string' ? code : undefined;
+};
+
+const expectError = async (
+  root: string,
+  command: string[],
+  expectedCode: string,
+): Promise<void> => {
+  const result = await runTasksCli(command, { cwd: root });
+  expect(result.exitCode).toBe(1);
+  const parsed: unknown = JSON.parse(result.stderr);
+  expect(errorCode(parsed)).toBe(expectedCode);
+};
+
+describe('tasks search', () => {
+  it('returns matching tasks as JSON', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    await createTask(root, 'Authentication service fix');
+    await createTask(root, 'Unrelated feature');
+
+    const tasks = await readTaskList(root, ['search', 'authentication']);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]?.title).toBe('Authentication service fix');
+  });
+
+  it('returns exit 1 with missing_search_query when no query is provided', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+
+    await expectError(root, ['search'], 'missing_search_query');
+  });
+
+  it('works with --title flag only (no positional)', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    await createTask(root, 'Login service');
+    await createTask(root, 'Unrelated task');
+
+    const tasks = await readTaskList(root, ['search', '--title', 'login']);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]?.title).toBe('Login service');
+  });
+
+  it('intersects --title and --description flags', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    await createTask(root, 'Login fix');
+    await createTask(root, 'Login page', ['--description', 'timeout in mobile browser']);
+
+    const tasks = await readTaskList(root, [
+      'search',
+      '--title',
+      'login',
+      '--description',
+      'timeout',
+    ]);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]?.title).toBe('Login page');
+  });
+
+  it('returns exit 1 with search_query_conflict when positional and field flag are combined', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+
+    await expectError(root, ['search', 'foo', '--title', 'bar'], 'search_query_conflict');
+  });
+
+  it('returns exit 1 with missing_flag_value when --title has no value token', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+
+    await expectError(root, ['search', '--title'], 'missing_flag_value');
+  });
+
+  it('returns exit 1 with empty_search_query when --title is whitespace-only', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+
+    await expectError(root, ['search', '--title', '   '], 'empty_search_query');
+  });
+
+  it('returns exit 1 with empty_search_query when --description is whitespace-only', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+
+    await expectError(root, ['search', '--description', '   '], 'empty_search_query');
+  });
+
+  it('returns exit 1 with plan_filter_conflict when --planned and --unplanned are combined', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+
+    await expectError(root, ['search', 'foo', '--planned', '--unplanned'], 'plan_filter_conflict');
+  });
+
+  it('returns a number with --count', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    await createTask(root, 'Authentication fix');
+    await createTask(root, 'Authentication improvements');
+
+    const count = await readTaskCount(root, ['search', 'authentication']);
+    expect(count).toBe(2);
+  });
+
+  it('includes soft-deleted tasks with --all', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const task = await createTask(root, 'Authentication fix');
+
+    // Soft-delete the task
+    await runTasksCli(['delete', task.id], { cwd: root });
+
+    const without = await readTaskList(root, ['search', 'authentication']);
+    expect(without).toHaveLength(0);
+
+    const withAll = await readTaskList(root, ['search', 'authentication', '--all']);
+    expect(withAll.map((t) => t.id)).toContain(task.id);
+  });
+
+  it('returns tasks in correct ranked order', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+
+    // Create three tasks: exact match (best), typo (medium), different (no match expected)
+    const exact = await createTask(root, 'Authentication service', ['--priority', '1']);
+    const typo = await createTask(root, 'Authenticaton issues', ['--priority', '3']);
+    await createTask(root, 'Unrelated task', ['--priority', '3']);
+
+    const tasks = await readTaskList(root, ['search', 'authentication']);
+    const ids = tasks.map((t) => t.id);
+    // Exact match should rank first; unrelated should be absent
+    expect(ids[0]).toBe(exact.id);
+    expect(ids).not.toContain('unrelated');
+    // Both matching tasks should appear; exact before typo
+    expect(ids.indexOf(exact.id)).toBeLessThan(ids.indexOf(typo.id));
+  });
+});
+
 describe('task listing plan filters', () => {
   it('filters every task array listing command by planned or unplanned tasks', async () => {
     const root = await temporaryDirectory();

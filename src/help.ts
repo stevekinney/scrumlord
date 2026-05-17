@@ -633,6 +633,40 @@ const topics: HelpTopic[] = [
       'tasks pr --poll --max-polls 10 --poll-interval 15',
     ],
   },
+  {
+    path: ['search'],
+    summary: 'Fuzzy-search tasks by title or description.',
+    usage:
+      'tasks search [query] [--title <text>] [--description <text>] [--all] [--planned|--unplanned] [--count]',
+    description:
+      'Fuzzy-searches active tasks. Provide either a positional query (matches against the combined title+description text of each task, so multi-token queries can satisfy tokens across both fields) OR --title and/or --description (each scopes the search to that column; multiple field flags intersect by task and combine scores by average). Mixing a positional query with --title or --description is rejected. Results are ranked by match score, then priority desc, then createdAt asc.',
+    arguments: [
+      '[query]: Positional query. Required unless --title or --description is supplied. Cannot be combined with field flags.',
+    ],
+    options: [
+      {
+        name: '--title',
+        value: '<text>',
+        description: 'Match only the title field. Cannot be combined with a positional query.',
+      },
+      {
+        name: '--description',
+        value: '<text>',
+        description:
+          'Match only the description field. Cannot be combined with a positional query.',
+      },
+      { name: '--all', description: 'Include soft-deleted tasks.' },
+      ...taskListingOptions,
+    ],
+    examples: [
+      'tasks search authentication',
+      'tasks search --title login',
+      'tasks search --description "race condition"',
+      'tasks search --title login --description timeout',
+      'tasks search bug --count',
+      'tasks search --title cleanup --planned',
+    ],
+  },
 ];
 
 export const helpTopics = topics.map((topic) => topic.path.join(' '));
