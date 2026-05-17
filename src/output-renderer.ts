@@ -1,7 +1,15 @@
 import { createTheme, type ColorMode, type Theme } from './color.js';
 import { formatJson } from './output-json.js';
 import { renderReadiness, type DataShape } from './output-contracts.js';
-import type { Task, TaskPriority, TaskStatus } from './types.js';
+import type { PullRequestStatusReport, ReviewComment } from './github.js';
+import type { PullRequestOverviewItem } from './tasks-overview.js';
+import type {
+  PersistedTaskSession,
+  Task,
+  TaskPriority,
+  TaskProgress,
+  TaskStatus,
+} from './types.js';
 
 /** Context passed to every pretty renderer. */
 export type RenderContext = {
@@ -177,6 +185,177 @@ const renderCleanup = (value: unknown, context: RenderContext): string => {
   return `${color(`cleaned up ${count} task(s)`)}\n`;
 };
 
+const MAX_PROGRESS_ROWS = 10;
+
+const isTaskProgress = (value: unknown): value is TaskProgress =>
+  typeof value === 'object' &&
+  value !== null &&
+  'message' in value &&
+  'createdAt' in value &&
+  'taskId' in value;
+
+const isTaskProgressArray = (value: unknown): value is TaskProgress[] =>
+  Array.isArray(value) && value.every((item) => isTaskProgress(item));
+
+const renderProgressLine = (entry: TaskProgress, theme: Theme): string => {
+  const event = entry.event === null ? theme.muted('progress') : theme.warning(entry.event);
+  const firstLine = entry.message.split('\n')[0] ?? '';
+  return `${theme.muted(entry.createdAt)}  ${event}  ${firstLine}`;
+};
+
+const renderTaskProgress = (value: unknown, context: RenderContext): string => {
+  const { theme } = context;
+  if (!isTaskProgressArray(value)) return formatJson(value);
+  if (value.length === 0) return `${theme.muted('(no progress recorded)')}\n`;
+  const visible = value.slice(0, MAX_PROGRESS_ROWS);
+  const rows = visible.map((entry) => renderProgressLine(entry, theme));
+  if (value.length > MAX_PROGRESS_ROWS) {
+    rows.push(
+      theme.muted(`(showing ${MAX_PROGRESS_ROWS} of ${value.length} — pass --json for all)`),
+    );
+  }
+  return `${rows.join('\n')}\n`;
+};
+
+const renderSingleProgress = (value: unknown, context: RenderContext): string => {
+  if (!isTaskProgress(value)) return formatJson(value);
+  const { theme } = context;
+  return `${theme.success('recorded')}: ${value.message}  ${theme.muted(value.createdAt)}\n`;
+};
+
+const isPersistedTaskSession = (value: unknown): value is PersistedTaskSession =>
+  typeof value === 'object' &&
+  value !== null &&
+  'taskId' in value &&
+  'provider' in value &&
+  'session' in value;
+
+const renderTaskSession = (value: unknown, context: RenderContext): string => {
+  if (!isPersistedTaskSession(value)) return formatJson(value);
+  const { theme } = context;
+  const rows: ReadonlyArray<readonly [string, string]> = [
+    ['task', value.taskId],
+    ['provider', formatField(theme, value.provider)],
+    ['session', formatField(theme, value.session)],
+    ['branch', formatField(theme, value.branch)],
+    ['plan', formatField(theme, value.plan)],
+  ];
+  return `${renderKeyValueBlock(rows, theme)}\n`;
+};
+
+const isPullRequestStatus = (value: unknown): value is PullRequestStatusReport =>
+  typeof value === 'object' &&
+  value !== null &&
+  'pullRequest' in value &&
+  'continuousIntegration' in value &&
+  'reviewComments' in value;
+
+const stateColor = (theme: Theme, state: PullRequestStatusReport['pullRequest']['state']) => {
+  if (state === 'OPEN') return theme.success;
+  if (state === 'MERGED') return theme.heading;
+  return theme.muted;
+};
+
+const renderPullRequestStatus = (value: unknown, context: RenderContext): string => {
+  if (!isPullRequestStatus(value)) return formatJson(value);
+  const { theme } = context;
+  const pr = value.pullRequest;
+  const ci = value.continuousIntegration;
+  const ciSummary = `${theme.success(`success ${ci.checks.length - ci.failedCount - ci.pendingCount}`)} • ${theme.warning(`pending ${ci.pendingCount}`)} • ${theme.error(`failed ${ci.failedCount}`)}`;
+  const ready = value.readyToMerge ? theme.success('yes') : theme.warning('no');
+  const rows: ReadonlyArray<readonly [string, string]> = [
+    ['PR', `#${pr.number}  ${pr.title ?? ''}`],
+    ['state', stateColor(theme, pr.state)(pr.state)],
+    ['branch', `${pr.headRefName} → ${pr.baseRefName}`],
+    ['mergeable', formatField(theme, pr.mergeable)],
+    ['CI', ciSummary],
+    ['unresolved', String(value.reviewComments.unresolvedCount)],
+    ['ready to merge', ready],
+  ];
+  return `${renderKeyValueBlock(rows, theme)}\n`;
+};
+
+const isReviewCommentArray = (value: unknown): value is ReviewComment[] =>
+  Array.isArray(value) &&
+  value.every(
+    (item) => typeof item === 'object' && item !== null && 'body' in item && 'isResolved' in item,
+  );
+
+const MAX_COMMENT_ROWS = 10;
+
+const renderReviewComment = (
+  entry: ReviewComment,
+  index: number,
+  theme: Theme,
+  width: number,
+): string => {
+  const location =
+    entry.path === null ? '' : `  ${entry.path}${entry.line === null ? '' : `:${entry.line}`}`;
+  const firstLine = entry.body.split('\n')[0] ?? '';
+  const body = truncate(firstLine, Math.max(20, width - 8));
+  return `[${index + 1}] ${theme.muted(entry.author ?? 'unknown')}${location}\n      ${body}`;
+};
+
+const renderReviewComments = (value: unknown, context: RenderContext): string => {
+  const { theme, terminalWidth } = context;
+  if (!isReviewCommentArray(value)) return formatJson(value);
+  if (value.length === 0) return `${theme.muted('(no review comments)')}\n`;
+  const visible = value.slice(0, MAX_COMMENT_ROWS);
+  const rows = visible.map((entry, index) =>
+    renderReviewComment(entry, index, theme, terminalWidth),
+  );
+  if (value.length > MAX_COMMENT_ROWS) {
+    rows.push(
+      theme.muted(`showing ${MAX_COMMENT_ROWS} of ${value.length} — pass --json for full bodies`),
+    );
+  }
+  return `${rows.join('\n')}\n`;
+};
+
+const isPullRequestOverviewArray = (value: unknown): value is PullRequestOverviewItem[] =>
+  Array.isArray(value) &&
+  value.every(
+    (item) =>
+      typeof item === 'object' &&
+      item !== null &&
+      'pullRequest' in item &&
+      'continuousIntegration' in item &&
+      'associatedTasks' in item,
+  );
+
+const renderOverviewItem = (item: PullRequestOverviewItem, theme: Theme): string => {
+  const pr = item.pullRequest;
+  const ci = item.continuousIntegration;
+  const ciColor =
+    ci.status === 'success' ? theme.success : ci.status === 'pending' ? theme.warning : theme.error;
+  const tasksLines =
+    item.associatedTasks.length === 0
+      ? `  ${theme.muted('tasks:    (none)')}`
+      : item.associatedTasks
+          .map(
+            (task, index) =>
+              `  ${index === 0 ? 'tasks:   ' : '         '} ${theme.muted(task.id.slice(0, ID_PREFIX_LENGTH))} ${task.title}`,
+          )
+          .join('\n');
+  const ready = item.readyToMerge ? theme.success('yes') : theme.warning('no');
+  return [
+    `#${pr.number}  ${pr.title ?? ''}`,
+    `  branch:  ${pr.headRefName}`,
+    `  CI:      ${ciColor(ci.status)}  (${ci.failedCount} failed, ${ci.pendingCount} pending)`,
+    `  review:  ${item.reviewComments.unresolvedCount} unresolved comment(s)`,
+    tasksLines,
+    `  ready:   ${ready}`,
+  ].join('\n');
+};
+
+const renderPullRequestOverview = (value: unknown, context: RenderContext): string => {
+  const { theme } = context;
+  if (!isPullRequestOverviewArray(value)) return formatJson(value);
+  if (value.length === 0) return `${theme.muted('(no open pull requests)')}\n`;
+  const cards = value.map((item) => renderOverviewItem(item, theme));
+  return `${cards.join('\n\n')}\n${theme.muted(`\n${value.length} PR(s)`)}\n`;
+};
+
 /**
  * Registry of implemented pretty renderers. The exhaustiveness test enforces
  * lockstep with `renderReadiness`: every `'implemented'` shape must have an
@@ -187,6 +366,12 @@ export const renderers: Partial<Record<DataShape, PrettyRenderer>> = {
   'single-task': renderSingleTask,
   remaining: renderRemaining,
   cleanup: renderCleanup,
+  'task-progress': renderTaskProgress,
+  'single-task-progress': renderSingleProgress,
+  'task-session': renderTaskSession,
+  'pr-status': renderPullRequestStatus,
+  'review-comments': renderReviewComments,
+  'pr-overview': renderPullRequestOverview,
 };
 
 /**

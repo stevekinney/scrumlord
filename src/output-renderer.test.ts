@@ -216,6 +216,277 @@ describe('remaining renderer', () => {
   });
 });
 
+describe('task-progress renderer', () => {
+  const entry = (overrides: Partial<import('./types.js').TaskProgress> = {}) => ({
+    id: 'p1',
+    taskId: 'task-1',
+    message: 'did the thing',
+    createdAt: '2026-05-15T12:00:00.000Z',
+    provider: null,
+    session: null,
+    event: null,
+    tool: null,
+    cwd: null,
+    transcriptPath: null,
+    commitSha: null,
+    ...overrides,
+  });
+
+  it('renders muted placeholder for empty list', () => {
+    expect(renderPretty('task-progress', [], plainContext())).toBe('(no progress recorded)\n');
+  });
+
+  it('renders one line per entry with timestamp and message', () => {
+    const output = renderPretty('task-progress', [entry()], plainContext());
+    expect(output).toContain('did the thing');
+    expect(output).toContain('2026-05-15');
+    expect(output).toContain('progress');
+  });
+
+  it('truncates beyond 10 entries', () => {
+    const many = Array.from({ length: 15 }, (_, index) => entry({ id: `p${index}` }));
+    const output = renderPretty('task-progress', many, plainContext());
+    expect(output).toContain('showing 10 of 15');
+  });
+
+  it('highlights event when present', () => {
+    const output = renderPretty('task-progress', [entry({ event: 'commit' })], plainContext());
+    expect(output).toContain('commit');
+  });
+
+  it('falls back to JSON for non-array shapes', () => {
+    expect(renderPretty('task-progress', { not: 'an array' }, plainContext())).toBe(
+      formatJson({ not: 'an array' }),
+    );
+  });
+});
+
+describe('single-task-progress renderer', () => {
+  it('renders a one-line confirmation', () => {
+    const value = {
+      id: 'p1',
+      taskId: 't1',
+      message: 'noted',
+      createdAt: '2026-05-15T00:00:00.000Z',
+      provider: null,
+      session: null,
+      event: null,
+      tool: null,
+      cwd: null,
+      transcriptPath: null,
+      commitSha: null,
+    };
+    const output = renderPretty('single-task-progress', value, plainContext());
+    expect(output).toContain('recorded');
+    expect(output).toContain('noted');
+  });
+
+  it('falls back to JSON for unexpected shapes', () => {
+    expect(renderPretty('single-task-progress', { not: 'progress' }, plainContext())).toBe(
+      formatJson({ not: 'progress' }),
+    );
+  });
+});
+
+describe('task-session renderer', () => {
+  it('renders persisted task session fields', () => {
+    const output = renderPretty(
+      'task-session',
+      {
+        taskId: 'task-1',
+        provider: 'claude',
+        session: 'sess-1',
+        branch: 'feature/x',
+        plan: null,
+      },
+      plainContext(),
+    );
+    expect(output).toContain('task-1');
+    expect(output).toContain('claude');
+    expect(output).toContain('feature/x');
+    expect(output).toContain('(none)');
+  });
+
+  it('falls back to JSON for unexpected shapes', () => {
+    expect(renderPretty('task-session', { not: 'a session' }, plainContext())).toBe(
+      formatJson({ not: 'a session' }),
+    );
+  });
+});
+
+describe('pr-status renderer', () => {
+  const baseReport = {
+    pullRequest: {
+      number: 42,
+      url: 'https://example/pr/42',
+      headRefName: 'feature/x',
+      headSha: 'abc',
+      title: 'My change',
+      state: 'OPEN' as const,
+      baseRefName: 'main',
+      mergedAt: null,
+      body: null,
+      mergeable: 'MERGEABLE',
+      mergeStateStatus: 'CLEAN',
+    },
+    reviewComments: {
+      allResolved: true,
+      unresolvedCount: 0,
+      unresolved: [],
+    },
+    continuousIntegration: {
+      allGreen: true,
+      pendingCount: 0,
+      failedCount: 0,
+      checks: [],
+      pending: [],
+      failed: [],
+    },
+    readyToMerge: true,
+  };
+
+  it('renders the PR status block', () => {
+    const output = renderPretty('pr-status', baseReport, plainContext());
+    expect(output).toContain('#42');
+    expect(output).toContain('My change');
+    expect(output).toContain('feature/x → main');
+    expect(output).toContain('MERGEABLE');
+    expect(output).toContain('yes');
+  });
+
+  it('colors a non-open state via muted/heading branches', () => {
+    const merged = {
+      ...baseReport,
+      pullRequest: { ...baseReport.pullRequest, state: 'MERGED' as const },
+    };
+    const closed = {
+      ...baseReport,
+      pullRequest: { ...baseReport.pullRequest, state: 'CLOSED' as const },
+    };
+    const notReady = { ...baseReport, readyToMerge: false };
+    expect(renderPretty('pr-status', merged, coloredContext())).toContain('MERGED');
+    expect(renderPretty('pr-status', closed, coloredContext())).toContain('CLOSED');
+    expect(renderPretty('pr-status', notReady, plainContext())).toContain('no');
+  });
+
+  it('falls back to JSON for unexpected shapes', () => {
+    expect(renderPretty('pr-status', { not: 'pr' }, plainContext())).toBe(
+      formatJson({ not: 'pr' }),
+    );
+  });
+});
+
+describe('review-comments renderer', () => {
+  const comment = (overrides: Partial<import('./github.js').ReviewComment> = {}) => ({
+    id: 'c1',
+    url: null,
+    path: 'src/foo.ts',
+    line: 42,
+    body: 'nit',
+    author: 'reviewer',
+    isResolved: false,
+    ...overrides,
+  });
+
+  it('renders muted placeholder for empty list', () => {
+    expect(renderPretty('review-comments', [], plainContext())).toBe('(no review comments)\n');
+  });
+
+  it('renders one block per comment with path:line', () => {
+    const output = renderPretty('review-comments', [comment()], plainContext());
+    expect(output).toContain('[1]');
+    expect(output).toContain('reviewer');
+    expect(output).toContain('src/foo.ts:42');
+    expect(output).toContain('nit');
+  });
+
+  it('omits location when path is null', () => {
+    const output = renderPretty(
+      'review-comments',
+      [comment({ path: null, line: null, author: null })],
+      plainContext(),
+    );
+    expect(output).toContain('unknown');
+    expect(output).not.toContain('null');
+  });
+
+  it('truncates beyond 10 entries', () => {
+    const many = Array.from({ length: 15 }, (_, index) => comment({ id: `c${index}` }));
+    const output = renderPretty('review-comments', many, plainContext());
+    expect(output).toContain('showing 10 of 15');
+  });
+
+  it('falls back to JSON for unexpected shapes', () => {
+    expect(renderPretty('review-comments', { not: 'an array' }, plainContext())).toBe(
+      formatJson({ not: 'an array' }),
+    );
+  });
+});
+
+describe('pr-overview renderer', () => {
+  const overviewItem = (
+    overrides: Partial<import('./tasks-overview.js').PullRequestOverviewItem> = {},
+  ) => ({
+    pullRequest: {
+      number: 5,
+      url: 'https://example/pr/5',
+      headRefName: 'feature/y',
+      headSha: 'def',
+      title: 'Another change',
+      state: 'OPEN' as const,
+      baseRefName: 'main',
+      mergedAt: null,
+      body: null,
+      mergeable: null,
+      mergeStateStatus: null,
+    },
+    associatedTasks: [task({ id: 'taska-bbbb', title: 'Linked task' })],
+    reviewComments: { unresolvedCount: 0 },
+    continuousIntegration: {
+      status: 'success' as const,
+      pendingCount: 0,
+      failedCount: 0,
+      checks: [],
+    },
+    readyToMerge: true,
+    ...overrides,
+  });
+
+  it('renders empty placeholder when no PRs', () => {
+    expect(renderPretty('pr-overview', [], plainContext())).toBe('(no open pull requests)\n');
+  });
+
+  it('renders a card per PR with the success branch and a tasks row', () => {
+    const output = renderPretty('pr-overview', [overviewItem()], plainContext());
+    expect(output).toContain('#5');
+    expect(output).toContain('feature/y');
+    expect(output).toContain('Linked task');
+    expect(output).toContain('1 PR(s)');
+  });
+
+  it('covers pending, failed, and no-tasks branches', () => {
+    const pending = overviewItem({
+      continuousIntegration: { status: 'pending', pendingCount: 1, failedCount: 0, checks: [] },
+      associatedTasks: [],
+      readyToMerge: false,
+    });
+    const failed = overviewItem({
+      continuousIntegration: { status: 'failed', pendingCount: 0, failedCount: 1, checks: [] },
+    });
+    const pendingOut = renderPretty('pr-overview', [pending], coloredContext());
+    const failedOut = renderPretty('pr-overview', [failed], coloredContext());
+    expect(pendingOut).toContain('pending');
+    expect(pendingOut).toContain('(none)');
+    expect(failedOut).toContain('failed');
+  });
+
+  it('falls back to JSON for unexpected shapes', () => {
+    expect(renderPretty('pr-overview', { not: 'an array' }, plainContext())).toBe(
+      formatJson({ not: 'an array' }),
+    );
+  });
+});
+
 describe('cleanup renderer', () => {
   it('uses success color when tasks were deleted', () => {
     const output = renderPretty('cleanup', { deleted: 2 }, coloredContext());
