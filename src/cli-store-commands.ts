@@ -51,6 +51,9 @@ type StoreCommandHandler = (
 ) => unknown;
 type StoreCommandInputValidator = (parsed: ParsedArguments, options: CliOptions) => void;
 
+// Commands that auto-apply taskPlanFilterFrom via validateStoreCommandInput.
+// 'search' is intentionally absent: its validator (searchInputFrom) calls taskPlanFilterFrom
+// directly, so adding it here would run the check twice.
 const taskListingCommands = new Set([
   'available',
   'list',
@@ -292,7 +295,7 @@ const validateSearchFieldFlag = (name: string, value: string | undefined): void 
 };
 
 const buildSearchQuery = (
-  positional: string | undefined,
+  positional: string,
   titleValue: string | undefined,
   descriptionValue: string | undefined,
 ): SearchQuery => {
@@ -305,7 +308,7 @@ const buildSearchQuery = (
       },
     };
   }
-  return { kind: 'default', query: positional! };
+  return { kind: 'default', query: positional };
 };
 
 const searchInputFrom = (parsed: ParsedArguments): ParsedSearchInput => {
@@ -331,7 +334,9 @@ const searchInputFrom = (parsed: ParsedArguments): ParsedSearchInput => {
     );
   }
 
-  const query = buildSearchQuery(positional, titleValue, descriptionValue);
+  // After the missing_search_query guard, at least one of (positional, titleValue, descriptionValue)
+  // is defined. When no field flags are set, positional is guaranteed non-undefined here.
+  const query = buildSearchQuery(positional ?? '', titleValue, descriptionValue);
   const options: SearchTasksOptions & { count?: boolean } = {
     ...(planFilter ? { plan: planFilter } : {}),
     includeInactive: parsed.flags.has('all'),
