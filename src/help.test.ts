@@ -40,6 +40,7 @@ const expectedTopics = [
   'setup status',
   'agent-hook',
   'pr',
+  'search',
 ];
 
 describe('renderHelp', () => {

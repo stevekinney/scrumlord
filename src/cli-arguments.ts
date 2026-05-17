@@ -82,6 +82,12 @@ const commandSpecifications: Record<string, CommandSpecification> = {
     maxPositionals: 1,
     booleanFlags: ['hard', 'recover-orphans', 'orphans-only', 'dry-run', 'prompt'],
   },
+  search: {
+    minPositionals: 0,
+    maxPositionals: 1,
+    valueFlags: ['title', 'description'],
+    booleanFlags: ['all', ...listingBooleanFlags],
+  },
   plan: { minPositionals: 0, maxPositionals: 1 },
   create: {
     ...noPositionals,

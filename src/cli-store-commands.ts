@@ -1,7 +1,9 @@
+/* eslint-disable max-lines */
 import { resolveTaskSession } from './agent-providers.js';
 import { providerFromStartCommand } from './cli-agent-commands.js';
 import { flag, flagList, required, type ParsedArguments } from './cli-arguments.js';
 import { resolveTaskId } from './cli-task-id.js';
+import { searchTasks, type SearchQuery, type SearchTasksOptions } from './task-search.js';
 import { planBatchPrompt, planTaskPrompt } from './plan-prompt.js';
 import { progressInputFromContext } from './cli-progress.js';
 import { currentBranchTask } from './current-branch-task.js';
@@ -278,6 +280,67 @@ const listTasksOptionsFrom = (
   return parsed.flags.has('count') ? { ...options, count: true } : options;
 };
 
+type ParsedSearchInput = {
+  query: SearchQuery;
+  options: SearchTasksOptions & { count?: boolean };
+};
+
+const validateSearchFieldFlag = (name: string, value: string | undefined): void => {
+  if (value !== undefined && value.trim() === '') {
+    throw new ScrumlordError('empty_search_query', `--${name} requires a non-empty value.`);
+  }
+};
+
+const buildSearchQuery = (
+  positional: string | undefined,
+  titleValue: string | undefined,
+  descriptionValue: string | undefined,
+): SearchQuery => {
+  if (titleValue !== undefined || descriptionValue !== undefined) {
+    return {
+      kind: 'field',
+      queries: {
+        ...(titleValue !== undefined ? { title: titleValue } : {}),
+        ...(descriptionValue !== undefined ? { description: descriptionValue } : {}),
+      },
+    };
+  }
+  return { kind: 'default', query: positional! };
+};
+
+const searchInputFrom = (parsed: ParsedArguments): ParsedSearchInput => {
+  const planFilter = taskPlanFilterFrom(parsed);
+  const titleValue = flag(parsed.flags, 'title');
+  const descriptionValue = flag(parsed.flags, 'description');
+  const positional = parsed.positionals[0];
+
+  validateSearchFieldFlag('title', titleValue);
+  validateSearchFieldFlag('description', descriptionValue);
+
+  if (positional !== undefined && (titleValue !== undefined || descriptionValue !== undefined)) {
+    throw new ScrumlordError(
+      'search_query_conflict',
+      'Pass a positional query OR --title/--description, not both.',
+    );
+  }
+
+  if (positional === undefined && titleValue === undefined && descriptionValue === undefined) {
+    throw new ScrumlordError(
+      'missing_search_query',
+      'search requires a query argument, --title, or --description.',
+    );
+  }
+
+  const query = buildSearchQuery(positional, titleValue, descriptionValue);
+  const options: SearchTasksOptions & { count?: boolean } = {
+    ...(planFilter ? { plan: planFilter } : {}),
+    includeInactive: parsed.flags.has('all'),
+    ...(parsed.flags.has('count') ? { count: true } : {}),
+  };
+
+  return { query, options };
+};
+
 const storeCommandHandlers: Record<string, StoreCommandHandler> = {
   available: (store, parsed) => availableTasks(store, taskListingResultOptionsFrom(parsed)),
   list: (store, parsed) => listTasks(store, listTasksOptionsFrom(parsed)),
@@ -433,6 +496,10 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
     if (!task) throw new ScrumlordError('task_not_found', `Task ${id} not found.`);
     return planTaskPrompt(task, store.projectRoot);
   },
+  search: (store, parsed) => {
+    const { query, options } = searchInputFrom(parsed);
+    return searchTasks(store, query, options);
+  },
 };
 
 export const taskStoreCommands = new Set(Object.keys(storeCommandHandlers));
@@ -507,6 +574,9 @@ const storeCommandInputValidators: Partial<Record<string, StoreCommandInputValid
   },
   'with-priority': (parsed) => {
     parsePriority(Number(required(parsed.positionals, 'priority')));
+  },
+  search: (parsed) => {
+    searchInputFrom(parsed);
   },
 };
 
