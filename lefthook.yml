@@ -3,15 +3,15 @@ pre-commit:
   jobs:
     - name: format-staged
       run: bun run prettier --write {staged_files}
-      glob: "**/*.{ts,tsx,js,jsx,json,md,css}"
+      glob: '**/*.{ts,tsx,js,jsx,json,md,css}'
       stage_fixed: true
     - name: lint-fix
       run: bun run oxlint --fix {staged_files}
-      glob: "**/*.{ts,tsx,js,jsx}"
+      glob: '**/*.{ts,tsx,js,jsx}'
       stage_fixed: true
     - name: package-lock-check
       run: bun scripts/hooks/package-lock-check.ts
-      glob: "{package.json,bun.lock}"
+      glob: '{package.json,bun.lock}'
     - name: build
       run: bun run build
 
