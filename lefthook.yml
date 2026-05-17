@@ -18,30 +18,30 @@ pre-commit:
 pre-push:
   jobs:
     # scrumlord:begin
-    - name: tasks-sync-git-status
-      run: tasks sync-git-status --quiet
+    - name: tasks-pr-sync
+      run: tasks pr --sync --quiet
     # scrumlord:end
     - run: bun run validate
 
 post-checkout:
   jobs:
     # scrumlord:begin
-    - name: tasks-sync-git-status
-      run: tasks sync-git-status --quiet
+    - name: tasks-pr-sync
+      run: tasks pr --sync --quiet
     # scrumlord:end
     - run: bun scripts/hooks/post-checkout.ts {1} {2} {3}
 
 post-merge:
   jobs:
     # scrumlord:begin
-    - name: tasks-sync-git-status
-      run: tasks sync-git-status --quiet
+    - name: tasks-pr-sync
+      run: tasks pr --sync --quiet
     # scrumlord:end
     - run: bun scripts/hooks/post-merge.ts
 
 post-commit:
   jobs:
     # scrumlord:begin
-    - name: tasks-sync-git-status
-      run: tasks sync-git-status --quiet --with-progress
+    - name: tasks-pr-sync
+      run: tasks pr --sync --quiet
     # scrumlord:end
