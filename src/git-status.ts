@@ -96,16 +96,8 @@ export const worktreeForBranch = async (
   branch: string,
   runner: CommandRunner = runCommand,
 ): Promise<string> => {
-  const result = await runner(['git', 'worktree', 'list', '--porcelain'], projectRoot);
-  if (result.exitCode !== 0) return projectRoot;
-
-  let currentWorktree: string | null = null;
-  for (const line of result.stdout.split('\n')) {
-    if (line.startsWith('worktree ')) currentWorktree = line.slice('worktree '.length);
-    if (line === `branch refs/heads/${branch}` && currentWorktree) return currentWorktree;
-  }
-
-  return projectRoot;
+  const result = await findWorktreeForBranch(projectRoot, branch, runner);
+  return result.kind === 'found' ? result.path : projectRoot;
 };
 
 const currentPullRequest = async (
