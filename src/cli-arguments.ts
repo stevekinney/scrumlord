@@ -151,7 +151,6 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
     valueFlags: ['cli', 'max', 'resume'],
     booleanFlags: ['recover', 'recover-then-run', 'apply', 'quiet', 'dry-run', 'json', 'once'],
   },
-  resume: withJsonFlag({ ...requiredTaskId, positionalVariants: [['task-id']] }),
   'agent-hook': withJsonFlag({ ...onePositional, positionalVariants: [['free-text']] }),
   delete: withJsonFlag({
     ...requiredTaskId,

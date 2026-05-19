@@ -71,7 +71,6 @@ export const repositoryUrl = githubModule.repositoryUrl;
 export const resolveProjectRoot = rootResolutionModule.resolveProjectRoot;
 export const resolveTaskSession = agentProvidersModule.resolveTaskSession;
 export const reviewCommentsForPullRequest = githubModule.reviewCommentsForPullRequest;
-export const resumeTask = agentCommandModule.resumeTask;
 export const runAgentHook = agentHookModule.runAgentHook;
 export const runCommand = commandRunnerModule.runCommand;
 export const runScrumlordMcpServer = mcpServerModule.runScrumlordMcpServer;

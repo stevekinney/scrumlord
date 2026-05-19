@@ -81,7 +81,6 @@ const pureCommandContracts: Record<string, OutputContract> = {
   overview: { kind: 'jsonData', shape: 'pr-overview' },
   init: { kind: 'jsonData', shape: 'init-result' },
   start: { kind: 'jsonData', shape: 'start-result' },
-  resume: { kind: 'jsonData', shape: 'start-result' },
   'agent-hook': { kind: 'jsonData', shape: 'start-result' },
   pipeline: { kind: 'bespoke' },
   teleport: { kind: 'bespoke' },

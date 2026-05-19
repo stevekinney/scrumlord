@@ -179,16 +179,6 @@ export const runStartCommand = async (
   return { exitCode: result.exitCode, stdout: '', stderr: '' };
 };
 
-export const runResumeCommand = async (
-  store: TaskStore,
-  parsed: ParsedArguments,
-  options: CliOptions,
-): Promise<CliResult> => {
-  const taskId = await resolveTaskId(store, required(parsed.positionals, 'task id'));
-  const result = await resumeTask(store, taskId, options);
-  return { exitCode: result.exitCode, stdout: '', stderr: '' };
-};
-
 const writeStderrLine = (options: TaskAgentCommandOptions, line: string): void => {
   if (options.stderr) options.stderr(line);
   else process.stderr.write(`${line}\n`);
@@ -392,16 +382,6 @@ const reattachTask = async (
     executablePath,
   );
   return { exitCode: await runAgentInvocation(invocation, options) };
-};
-
-export const resumeTask = async (
-  store: TaskStore,
-  taskId: string,
-  options: TaskAgentCommandOptions = {},
-): Promise<TaskAgentCommandResult> => {
-  const task = store.getTask(taskId);
-  if (!task) throw new ScrumlordError('task_not_found', `Task ${taskId} not found.`);
-  return await reattachTask(store, task, options);
 };
 
 /**

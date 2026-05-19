@@ -49,7 +49,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 - When the pull request is merged into `origin/main`, move the task to `completed` with `tasks update current --status completed`.
 - Prefer `tasks start current --cli codex` or `tasks start current --cli claude` when beginning branch-local agent-owned work. It materializes a per-task worktree under `~/.scrumlord/worktrees/` (with a `tmp/worktrees/` fallback) and launches the provider in that worktree, launches the provider with task context, starts in plan mode, and records provider/session metadata when the provider supports it. The payload includes a `phase` field (`start | resume-planning | resume-implementation`) derived from observable task state, and the system prompt names the workflow: plan → implement → `committee-review` (which opens the PR) → `address-pr` (which drives it to merge). Do not run `gh pr create` yourself.
 - Use `tasks pipeline --cli <claude|codex>` to drain the ready queue end-to-end: it claims tasks atomically, materializes worktrees, delegates each per-task run to the agent CLI (Claude side uses the `next-task` skill; Codex side gets a self-contained four-phase prompt), polls each pull request to merge, then continues. The pipeline is the merge authority — agents must drive PRs to merge or exit with `STUCK: <reason>` on stderr. A single lockfile (`tmp/pipeline.lock`) protects against concurrent pipelines. `--recover` runs an annotate-only recovery sweep (pair with `--apply` to mutate). `--dry-run` previews without claiming. `--json` emits a structured summary on stdout.
-- Use `tasks resume current` to resume the current branch task's recorded Claude or Codex session from the derived worktree.
+- Re-run `tasks start current --cli <claude|codex>` on an in-progress task to reattach the recorded provider session — `start` detects the existing session and runs the provider's native resume instead of re-claiming.
 - Before changing status manually, run `tasks pr --sync` if GitHub might already know the current pull request state.
 - If `tasks setup --git-hooks` has been run in a repository with Lefthook, `tasks pr --sync --quiet` handles lifecycle transitions from Git and GitHub state.
 - If `tasks setup --agent-hooks` has been run, global Claude and Codex hooks try to keep plan, session, branch, and pull request lifecycle state synchronized, and they inject the inferred current branch task into agent context on user prompts. Hooks exit quietly when the project is not initialized for Scrumlord or `tasks` is unavailable unless `SCRUMLORD_DEBUG` is truthy.
@@ -80,7 +80,6 @@ tasks session current
 tasks progress
 tasks progress list current --full
 tasks start current --cli codex
-tasks resume current
 tasks available
 tasks blocked
 tasks status in-progress

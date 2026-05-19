@@ -260,14 +260,6 @@ const topics: HelpTopic[] = [
     examples: ['tasks start current --cli codex', 'tasks start 8f7d6a --cli codex'],
   },
   {
-    path: ['resume'],
-    summary: 'Resume an existing agent session for a task.',
-    usage: 'tasks resume <task-id>',
-    description: `Launches the provider-specific resume command for the task session from the derived worktree when available. The task must already have a recorded provider and session.`,
-    arguments: [requiredTaskIdArgument],
-    examples: ['tasks resume current', 'tasks resume 8f7d6a'],
-  },
-  {
     path: ['pipeline'],
     summary: 'Drain the ready queue end-to-end.',
     usage:
@@ -573,7 +565,7 @@ const topics: HelpTopic[] = [
     usage:
       'tasks setup [--skills|--subagents|--git-hooks|--agent-hooks|--prompt|--shell] [--project|--user|--local] [--agent <all|claude|codex>] [--yes]',
     description:
-      'With no mode flag, runs the interactive numbered-choice setup. With a mode flag, runs that single piece: --skills writes agent skill files; --subagents installs task-manager subagents; --git-hooks installs the Lefthook block; --agent-hooks writes lifecycle hook configuration; --prompt emits a raw setup prompt agents can follow; --shell prints the tasks-teleport, tasks-start, and tasks-resume shell helpers to stdout.',
+      'With no mode flag, runs the interactive numbered-choice setup. With a mode flag, runs that single piece: --skills writes agent skill files; --subagents installs task-manager subagents; --git-hooks installs the Lefthook block; --agent-hooks writes lifecycle hook configuration; --prompt emits a raw setup prompt agents can follow; --shell prints the tasks-teleport and tasks-start shell helpers to stdout.',
     options: [
       { name: '--skills', description: 'Write agent skill files.' },
       { name: '--subagents', description: 'Install task-manager subagents.' },
@@ -583,7 +575,7 @@ const topics: HelpTopic[] = [
       {
         name: '--shell',
         description:
-          'Print the tasks-teleport, tasks-start, and tasks-resume shell helpers to stdout. Redirect into your rc file to enable `cd "$(tasks teleport current)"` and have `tasks-start`/`tasks-resume` cd into the task worktree after the agent exits.',
+          'Print the tasks-teleport and tasks-start shell helpers to stdout. Redirect into your rc file to enable `cd "$(tasks teleport current)"` and have `tasks-start` cd into the task worktree after the agent exits.',
       },
       {
         name: '--project',
@@ -750,7 +742,7 @@ const topics: HelpTopic[] = [
     examples: [
       'cd "$(tasks teleport current)"',
       'cd "$(tasks teleport next)"',
-      'tasks setup --shell >> ~/.zshrc   # install the tasks-teleport, tasks-start, and tasks-resume helpers',
+      'tasks setup --shell >> ~/.zshrc   # install the tasks-teleport and tasks-start helpers',
     ],
   },
   {

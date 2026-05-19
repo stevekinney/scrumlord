@@ -47,7 +47,6 @@ export const commandSummaries: Record<string, string> = {
   clear: 'Clear a task field.',
   start: 'Start a task and launch an agent.',
   pipeline: 'Run the automated pipeline.',
-  resume: 'Resume an agent session for a task.',
   'agent-hook': 'Handle an agent lifecycle hook event.',
   delete: 'Delete a task.',
   cleanup: 'Remove old completed tasks or recover orphaned in-progress tasks.',

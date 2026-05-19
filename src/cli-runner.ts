@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { runAgentHookCommand, runResumeCommand, runStartCommand } from './cli-agent-commands.js';
+import { runAgentHookCommand, runStartCommand } from './cli-agent-commands.js';
 import { runCompletionsBoundaryCommand } from './cli-completions-command.js';
 import { runCompletionsDataCommand } from './cli-completions-data-command.js';
 import { runOverviewWatchCommand } from './cli-overview-watch.js';
@@ -53,7 +53,6 @@ const storeCommands = new Set([
   'overview',
   'pr',
   'start',
-  'resume',
   'agent-hook',
   'pipeline',
   'completions-data',
@@ -366,7 +365,6 @@ const runOpenedStoreCommand = async (
   options: CliOptions,
 ): Promise<CliResult> => {
   if (parsed.command === 'start') return await runStartCommand(store, parsed, options);
-  if (parsed.command === 'resume') return await runResumeCommand(store, parsed, options);
   if (parsed.command === 'pipeline') return await runPipelineCommand(store, parsed, options);
   if (parsed.command === 'teleport') return await runTeleportCommand(store, parsed, options);
   if (parsed.command === 'completions-data') return runCompletionsDataCommand(store, parsed);

@@ -106,7 +106,6 @@ const expectedContracts: ReadonlyArray<{
   { command: 'overview', flags: new Set(), expected: { kind: 'jsonData', shape: 'pr-overview' } },
   { command: 'init', flags: new Set(), expected: { kind: 'jsonData', shape: 'init-result' } },
   { command: 'start', flags: new Set(), expected: { kind: 'jsonData', shape: 'start-result' } },
-  { command: 'resume', flags: new Set(), expected: { kind: 'jsonData', shape: 'start-result' } },
   {
     command: 'agent-hook',
     flags: new Set(),

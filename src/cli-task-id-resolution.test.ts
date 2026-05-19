@@ -199,17 +199,27 @@ describe('resolveTaskId — start and resume commands', () => {
     expect(JSON.parse(nextResult.stdout)).toMatchObject({ status: 'in-progress' });
   });
 
-  it('resume current resumes the current branch task', async () => {
+  it('start current reattaches an in-progress task with a recorded session', async () => {
     const root = await workspaceRoot();
     const { currentId } = await seedTasks(root);
     const claudeConfigDir = join(await temporaryDirectory(), '.claude');
 
-    await runTasksCli(['update', currentId, '--provider', 'claude', '--session', 'some-session'], {
-      cwd: root,
-    });
+    await runTasksCli(
+      [
+        'update',
+        currentId,
+        '--status',
+        'in-progress',
+        '--provider',
+        'claude',
+        '--session',
+        'some-session',
+      ],
+      { cwd: root },
+    );
 
     const invocations: string[][] = [];
-    const result = await runTasksCli(['resume', 'current'], {
+    const result = await runTasksCli(['start', 'current', '--cli', 'claude'], {
       cwd: root,
       environment: { CLAUDE_CONFIG_DIR: claudeConfigDir },
       which: () => '/bin/provider',
@@ -243,7 +253,6 @@ describe('resolveTaskId — missing argument gate (every positional task-id comm
     'get',
     'session',
     'start',
-    'resume',
     'delete',
     'update',
     'tags',

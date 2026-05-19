@@ -162,8 +162,27 @@ describe('runTasksCli agent session commands', () => {
     expect(invocations[0]).toContain('--permission-mode');
     expect(invocations[0]).toContain('--session-id');
 
-    const resumeResult = await runTasksCli(['resume', 'task-id'], {
-      createStore: async () => store,
+    const reattachStore = {
+      ...fakeStore(calls),
+      getTask: (id: string) => {
+        calls.push(`get:${id}`);
+        return task(id, {
+          status: 'in-progress',
+          provider: 'codex',
+          session: 'codex-session',
+          branch: 'feature/task-graph',
+        });
+      },
+      taskSession: () => ({
+        taskId: 'task-id',
+        provider: 'codex' as const,
+        session: 'codex-session',
+        branch: null,
+        plan: null,
+      }),
+    };
+    const resumeResult = await runTasksCli(['start', 'task-id', '--cli', 'codex'], {
+      createStore: async () => reattachStore,
       environment: { CODEX_HOME: codexHome },
       which: () => '/bin/provider',
       runAgentInvocation: async (invocation) => {
@@ -242,11 +261,6 @@ describe('runTasksCli agent session commands', () => {
       });
       expect(JSON.parse(result.stderr).error.code).toBe(code);
     }
-
-    const missingSession = await runTasksCli(['resume', 'task-id'], {
-      createStore: async () => fakeStore([]),
-    });
-    expect(JSON.parse(missingSession.stderr).error.code).toBe('task_session_missing');
 
     const unreadableRoot = await temporaryDirectory();
     const unreadablePath = join(unreadableRoot, 'PLAN.md');

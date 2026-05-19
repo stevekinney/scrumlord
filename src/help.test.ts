@@ -18,7 +18,6 @@ const expectedTopics = [
   'progress add',
   'clear',
   'start',
-  'resume',
   'pipeline',
   'get',
   'tagged',
