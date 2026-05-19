@@ -162,16 +162,23 @@ describe('renderBashPositionalBranch', () => {
     expect(renderBashPositionalBranch('nonexistent')).toBe('');
   });
 
-  it('add-tag position 1 includes both task-id and tag completion', () => {
-    const branch = renderBashPositionalBranch('add-tag');
+  it('tags position 1 includes task-id and tag action completion', () => {
+    const branch = renderBashPositionalBranch('tags');
     expect(branch).toContain('__tasks_complete_ids');
+    expect(branch).toContain('add');
+    expect(branch).toContain('remove');
+  });
+
+  it('tags position 3 completes tags', () => {
+    const branch = renderBashPositionalBranch('tags');
+    expect(branch).toContain('3)');
     expect(branch).toContain('__tasks_complete_tags');
   });
 
-  it('add-tag position 2 completes tags only', () => {
-    const branch = renderBashPositionalBranch('add-tag');
+  it('tags position 2 completes task IDs', () => {
+    const branch = renderBashPositionalBranch('tags');
     expect(branch).toContain('2)');
-    expect(branch).toContain('__tasks_complete_tags');
+    expect(branch).toContain('__tasks_complete_ids');
   });
 
   it('get position 1 completes task IDs', () => {
@@ -185,12 +192,18 @@ describe('renderBashPositionalBranch', () => {
     expect(branch).toContain('zsh');
   });
 
-  it('add-blocker positions both complete task IDs', () => {
-    const branch = renderBashPositionalBranch('add-blocker');
+  it('blockers position 1 includes task-id and blocker action completion', () => {
+    const branch = renderBashPositionalBranch('blockers');
     expect(branch).toContain('__tasks_complete_ids');
-    // Should appear for both position 1 and 2
-    const idCount = (branch.match(/__tasks_complete_ids/g) ?? []).length;
-    expect(idCount).toBeGreaterThanOrEqual(2);
+    expect(branch).toContain('add');
+    expect(branch).toContain('remove');
+  });
+
+  it('blockers positions 2 and 3 complete task IDs', () => {
+    const branch = renderBashPositionalBranch('blockers');
+    expect(branch).toContain('2)');
+    expect(branch).toContain('3)');
+    expect((branch.match(/__tasks_complete_ids/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 });
 
@@ -199,8 +212,13 @@ describe('renderZshArgumentsLine', () => {
     expect(renderZshArgumentsLine('nonexistent', 0)).toBe('');
   });
 
-  it('add-tag position 1 emits _alternative', () => {
-    const line = renderZshArgumentsLine('add-tag', 0);
+  it('tags position 1 emits _alternative', () => {
+    const line = renderZshArgumentsLine('tags', 0);
+    expect(line).toContain('->pos1');
+  });
+
+  it('blockers position 1 emits _alternative', () => {
+    const line = renderZshArgumentsLine('blockers', 0);
     expect(line).toContain('->pos1');
   });
 

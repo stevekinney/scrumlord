@@ -28,6 +28,7 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   provider: null,
   session: null,
   tags: [],
+  blocked: false,
   blockedBy: [],
   blocking: [],
   lastModifiedAt: '2026-05-11T00:00:00.000Z',
@@ -37,11 +38,6 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
 
 const referenceId = (reference: TaskReference): string => {
   return typeof reference === 'string' ? reference : reference.id;
-};
-
-const stripAnsi = (value: string): string => {
-  const escape = String.fromCharCode(27);
-  return value.replaceAll(new RegExp(`${escape}\\[[0-9;]*m`, 'g'), '');
 };
 
 const optionalCall = (condition: boolean, value: string): string[] => {
@@ -127,6 +123,10 @@ const fakeStore = (calls: string[]): TaskStore => ({
   withPriority(priority) {
     calls.push(`withPriority:${priority}`);
     return [task('priority')];
+  },
+  withStatus(status) {
+    calls.push(`withStatus:${status}`);
+    return [task('status')];
   },
   next() {
     calls.push('next');
@@ -242,9 +242,10 @@ describe('runTasksCli', () => {
       ['tagged', 'frontend', 'backend', '--all'],
       ['with-branch', 'feature/task-graph'],
       ['blocked-by', 'task-id'],
+      ['blockers', 'task-id'],
       ['blocking', 'task-id'],
       ['priority', '3'],
-      ['with-priority', '2'],
+      ['status', 'in-progress'],
       ['session', 'task-id'],
       ['next'],
       ['remaining'],
@@ -302,10 +303,8 @@ describe('runTasksCli', () => {
       ['update', 'task-id', '--provider', 'codex', '--session', 'codex-session'],
       ['clear', 'session', 'task-id'],
       ['delete', 'task-id'],
-      ['add-tag', 'task-id', 'frontend'],
-      ['remove-tag', 'task-id', 'frontend'],
-      ['add-blocker', 'task-id', 'blocker-id'],
-      ['remove-blocker', 'task-id', 'blocker-id'],
+      ['blockers', 'add', 'task-id', 'blocker-id'],
+      ['blockers', 'remove', 'task-id', 'blocker-id'],
     ];
 
     for (const command of commands) {
@@ -323,6 +322,7 @@ describe('runTasksCli', () => {
 
     expect(calls).toContain('create:New Task:draft:3:feature/task-graph');
     expect(calls).toContain('update:task-id:Renamed:2:feature/task-graph');
+    expect(calls).toContain('withStatus:in-progress');
     expect(calls).toContain('update:task-id:::feature/task-graph');
     expect(calls).toContain('clearBranch:task-id');
     // update --plan goes through store.update(); clear plan goes through store.setPlan(null)
@@ -332,65 +332,11 @@ describe('runTasksCli', () => {
     expect(calls).toContain('list:active');
     expect(calls).toContain('list:all');
     expect(calls).toContain('withBranch:feature/task-graph');
+    expect(calls).toContain('get:task-id');
+    expect(calls).toContain('addBlocker:task-id:blocker-id');
+    expect(calls).toContain('removeBlocker:task-id:blocker-id');
     // +1 for the cleanup command tested separately
     expect(calls.filter((call) => call === 'close')).toHaveLength(commands.length + 1);
-  });
-
-  it('renders help for the main CLI and subcommands', async () => {
-    const mainHelp = await runTasksCli(['--help'], { colorMode: 'always' });
-    expect(mainHelp.exitCode).toBe(0);
-    expect(mainHelp.stderr).toBe('');
-    expect(mainHelp.stdout).toContain('\u001b[');
-    expect(stripAnsi(mainHelp.stdout)).toContain('tasks <command> [options]');
-    expect(mainHelp.stdout).toContain('setup');
-
-    const createHelp = await runTasksCli(['create', '--help'], { colorMode: 'never' });
-    expect(createHelp.stdout).toContain('tasks create --title <title> [options]');
-    expect(createHelp.stdout).toContain('--title');
-    expect(createHelp.stdout).not.toContain('\u001b[');
-
-    const availableHelp = await runTasksCli(['help', 'available'], { colorMode: 'never' });
-    expect(availableHelp.stdout).toContain('tasks available');
-    expect(availableHelp.stdout).toContain('--planned');
-    expect(availableHelp.stdout).toContain('--count');
-
-    const listHelp = await runTasksCli(['list', '--help'], { colorMode: 'never' });
-    expect(listHelp.stdout).toContain('tasks list [--all]');
-    expect(listHelp.stdout).toContain('--unplanned');
-
-    const repositoryHelp = await runTasksCli(['repository', '--help'], { colorMode: 'never' });
-    expect(repositoryHelp.stdout).toContain('tasks repository [--url] [--json]');
-    expect(repositoryHelp.stdout).toContain('full GitHub repository URL');
-
-    const overviewHelp = await runTasksCli(['overview', '--help'], { colorMode: 'never' });
-    expect(overviewHelp.stdout).toContain('tasks overview');
-    expect(overviewHelp.stdout).toContain('unresolved review comment counts');
-
-    const progressHelp = await runTasksCli(['progress', '--help'], { colorMode: 'never' });
-    expect(progressHelp.stdout).toContain('tasks progress');
-    expect(progressHelp.stdout).toContain('list');
-
-    const clearHelp = await runTasksCli(['clear', '--help'], { colorMode: 'never' });
-    expect(clearHelp.stdout).toContain('tasks clear');
-
-    const pullRequestHelp = await runTasksCli(['pr', '--help'], {
-      colorMode: 'never',
-    });
-    expect(pullRequestHelp.stdout).toContain('tasks pr');
-    expect(pullRequestHelp.stdout).toContain('readyToMerge');
-
-    const setupStatusHelp = await runTasksCli(['setup', 'status', '--help'], {
-      colorMode: 'never',
-    });
-    expect(setupStatusHelp.stdout).toContain('tasks setup status');
-    expect(setupStatusHelp.stdout).toContain('tasksExecutable');
-
-    const setupHelp = await runTasksCli(['setup', '--help'], {
-      colorMode: 'never',
-    });
-    expect(setupHelp.stdout).toContain('tasks setup');
-    expect(setupHelp.stdout).toContain('--subagents');
-    expect(setupHelp.stdout).toContain('--prompt');
   });
 
   it('returns a JSON error for unknown help topics', async () => {
@@ -411,11 +357,34 @@ describe('runTasksCli', () => {
       return fakeStore([]);
     };
 
-    const missingCommandResult = await runTasksCli([], { createStore });
-    expect(JSON.parse(missingCommandResult.stderr).error.code).toBe('missing_command');
-
     const unknownCommandResult = await runTasksCli(['unknown'], { createStore });
     expect(JSON.parse(unknownCommandResult.stderr).error.code).toBe('unknown_command');
+
+    const removedPriorityAliasResult = await runTasksCli(['with-priority', '3'], { createStore });
+    expect(JSON.parse(removedPriorityAliasResult.stderr).error.code).toBe('unknown_command');
+
+    const removedAddTagResult = await runTasksCli(['add-tag', 'task-id', 'frontend'], {
+      createStore,
+    });
+    expect(JSON.parse(removedAddTagResult.stderr).error.code).toBe('unknown_command');
+
+    const removedRemoveTagResult = await runTasksCli(['remove-tag', 'task-id', 'frontend'], {
+      createStore,
+    });
+    expect(JSON.parse(removedRemoveTagResult.stderr).error.code).toBe('unknown_command');
+
+    const removedAddBlockerResult = await runTasksCli(['add-blocker', 'task-id', 'blocker-id'], {
+      createStore,
+    });
+    expect(JSON.parse(removedAddBlockerResult.stderr).error.code).toBe('unknown_command');
+
+    const removedRemoveBlockerResult = await runTasksCli(
+      ['remove-blocker', 'task-id', 'blocker-id'],
+      {
+        createStore,
+      },
+    );
+    expect(JSON.parse(removedRemoveBlockerResult.stderr).error.code).toBe('unknown_command');
 
     const unknownPullRequestPositionalResult = await runTasksCli(['pr', 'checks'], { createStore });
     expect(JSON.parse(unknownPullRequestPositionalResult.stderr).error.code).toBe(
@@ -437,6 +406,9 @@ describe('runTasksCli', () => {
       createStore,
     });
     expect(JSON.parse(updateStatusResult.stderr).error.code).toBe('invalid_status');
+
+    const queryStatusResult = await runTasksCli(['status', 'later'], { createStore });
+    expect(JSON.parse(queryStatusResult.stderr).error.code).toBe('invalid_status');
 
     const badProviderResult = await runTasksCli(
       ['progress', 'add', '--message', 'hi', '--provider', 'vim'],

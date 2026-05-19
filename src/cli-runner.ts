@@ -3,7 +3,10 @@ import { join } from 'node:path';
 import { runAgentHookCommand, runResumeCommand, runStartCommand } from './cli-agent-commands.js';
 import { runCompletionsBoundaryCommand } from './cli-completions-command.js';
 import { runCompletionsDataCommand } from './cli-completions-data-command.js';
+import { runOverviewWatchCommand } from './cli-overview-watch.js';
 import { runPipelineCommand } from './cli-pipeline-command.js';
+import { parsePollInteger, parsePollNumber, validatePullRequestFlags } from './cli-pr-flags.js';
+import { runPullRequestWatchCommand } from './cli-pr-watch.js';
 import { runTeleportCommand } from './cli-teleport-command.js';
 import {
   helpPath,
@@ -19,13 +22,19 @@ import {
   validateStoreCommandInput,
 } from './cli-store-commands.js';
 import type { CliOptions, CliResult } from './cli-types.js';
-import { formatStoreResult, rejectJsonOnRawForm, resolveModeForOptions } from './cli-output.js';
+import {
+  formatCliError,
+  formatStoreResult,
+  rejectJsonOnRawForm,
+  resolveModeForOptions,
+} from './cli-output.js';
 import { createTaskStore } from './database-open.js';
-import { ScrumlordError, errorMessage } from './errors.js';
+import { ScrumlordError } from './errors.js';
 import { syncGitStatus } from './git-status.js';
 import { renderHelp } from './help.js';
 import { initializeProject } from './init.js';
 import { formatJson } from './output-json.js';
+import type { OutputMode } from './output-mode.js';
 import { resolveProjectRoot } from './root-resolution.js';
 import type { CleanupTasksMode, CleanupTasksResult } from './task-commands.js';
 import type { TaskStore } from './types.js';
@@ -34,6 +43,8 @@ type BoundaryCommandHandler = (parsed: ParsedArguments, options: CliOptions) => 
 
 const json = (value: unknown): string => formatJson(value);
 const success = (value: unknown): CliResult => ({ exitCode: 0, stdout: json(value), stderr: '' });
+const dataSuccess = (parsed: ParsedArguments, value: unknown, options: CliOptions): CliResult =>
+  formatStoreResult(parsed, value, options);
 /** Returns a CLI result whose stdout is the raw string plus newline — no JSON wrapping. */
 const rawString = (value: string): CliResult => ({ exitCode: 0, stdout: `${value}\n`, stderr: '' });
 const emptySuccess = (): CliResult => ({ exitCode: 0, stdout: '', stderr: '' });
@@ -89,104 +100,6 @@ const githubModule = async (options: CliOptions): Promise<NonNullable<CliOptions
   return { ...github, ...githubPoll, tasksOverview: overview.tasksOverview };
 };
 
-type PullRequestFlagRule = { when: boolean; message: string };
-
-const commentsRules = (
-  url: boolean,
-  open: boolean,
-  commentsLike: boolean,
-  resolved: boolean,
-  all: boolean,
-): PullRequestFlagRule[] => [
-  { when: url && (open || commentsLike), message: '--url cannot be combined with other pr flags.' },
-  {
-    when: open && commentsLike,
-    message: '--open cannot be combined with --comments / --resolved / --all.',
-  },
-  { when: (resolved || all) && !commentsLike, message: '--resolved and --all require --comments.' },
-  { when: resolved && all, message: '--resolved and --all are mutually exclusive.' },
-];
-
-const syncRules = (
-  sync: boolean,
-  quiet: boolean,
-  url: boolean,
-  open: boolean,
-  commentsLike: boolean,
-): PullRequestFlagRule[] => [
-  { when: quiet && !sync, message: '--quiet requires --sync.' },
-  {
-    when: sync && (url || open || commentsLike),
-    message: '--sync cannot be combined with --url, --open, --comments, --resolved, or --all.',
-  },
-];
-
-const pollRules = (
-  poll: boolean,
-  url: boolean,
-  open: boolean,
-  sync: boolean,
-  quiet: boolean,
-  commentsLike: boolean,
-): PullRequestFlagRule[] => [
-  {
-    when: poll && (url || open || sync || quiet || commentsLike),
-    message:
-      '--poll cannot be combined with --url, --open, --sync, --quiet, --comments, --resolved, or --all.',
-  },
-];
-
-const pullRequestFlagRules = (flags: ParsedArguments['flags']): PullRequestFlagRule[] => {
-  const url = flags.has('url');
-  const open = flags.has('open');
-  const comments = flags.has('comments');
-  const resolved = flags.has('resolved');
-  const all = flags.has('all');
-  const sync = flags.has('sync');
-  const quiet = flags.has('quiet');
-  const poll = flags.has('poll');
-  const commentsLike = comments || resolved || all;
-  return [
-    ...commentsRules(url, open, commentsLike, resolved, all),
-    ...syncRules(sync, quiet, url, open, commentsLike),
-    ...pollRules(poll, url, open, sync, quiet, commentsLike),
-  ];
-};
-
-const validatePullRequestFlags = (parsed: ParsedArguments): void => {
-  for (const rule of pullRequestFlagRules(parsed.flags)) {
-    if (rule.when) throw new ScrumlordError('pr_flag_conflict', rule.message);
-  }
-};
-
-const parsePollInteger = (
-  flags: ParsedArguments['flags'],
-  name: string,
-  defaultValue: number,
-): number => {
-  const raw = flags.get(name)?.[0];
-  if (raw === undefined) return defaultValue;
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 1) {
-    throw new ScrumlordError('pr_flag_conflict', `--${name} must be a positive integer.`);
-  }
-  return parsed;
-};
-
-const parsePollNumber = (
-  flags: ParsedArguments['flags'],
-  name: string,
-  defaultValue: number,
-): number => {
-  const raw = flags.get(name)?.[0];
-  if (raw === undefined) return defaultValue;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new ScrumlordError('pr_flag_conflict', `--${name} must be a positive number.`);
-  }
-  return parsed;
-};
-
 const runPullRequestPollCommand: BoundaryCommandHandler = async (parsed, options) => {
   validatePullRequestFlags(parsed);
   const github = await githubModule(options);
@@ -198,7 +111,7 @@ const runPullRequestPollCommand: BoundaryCommandHandler = async (parsed, options
     botPatterns !== undefined
       ? { maxPolls, pollIntervalSeconds, botPatterns }
       : { maxPolls, pollIntervalSeconds };
-  return success(await github.pullRequestPollStatus(root, pollOptions));
+  return dataSuccess(parsed, await github.pullRequestPollStatus(root, pollOptions), options);
 };
 
 const runPullRequestBoundaryCommand: BoundaryCommandHandler = async (parsed, options) => {
@@ -206,6 +119,9 @@ const runPullRequestBoundaryCommand: BoundaryCommandHandler = async (parsed, opt
   if (parsed.flags.has('poll')) return runPullRequestPollCommand(parsed, options);
   const github = await githubModule(options);
   const root = await resolveProjectRoot(options.cwd);
+  if (parsed.flags.has('watch')) {
+    return await runPullRequestWatchCommand(parsed, options, () => github.pullRequestStatus(root));
+  }
   if (parsed.flags.has('url')) {
     const result = await github.pullRequestUrl(root, false);
     return rawString(result.url);
@@ -214,11 +130,15 @@ const runPullRequestBoundaryCommand: BoundaryCommandHandler = async (parsed, opt
     return success(await github.pullRequestUrl(root, true));
   }
   if (parsed.flags.has('comments')) {
-    if (parsed.flags.has('all')) return success(await github.allReviewComments(root));
-    if (parsed.flags.has('resolved')) return success(await github.resolvedReviewComments(root));
-    return success(await github.unresolvedReviewComments(root));
+    if (parsed.flags.has('all')) {
+      return dataSuccess(parsed, await github.allReviewComments(root), options);
+    }
+    if (parsed.flags.has('resolved')) {
+      return dataSuccess(parsed, await github.resolvedReviewComments(root), options);
+    }
+    return dataSuccess(parsed, await github.unresolvedReviewComments(root), options);
   }
-  return success(await github.pullRequestStatus(root));
+  return dataSuccess(parsed, await github.pullRequestStatus(root), options);
 };
 
 const runPullRequestSyncCommand = async (
@@ -453,6 +373,9 @@ const runOpenedStoreCommand = async (
   if (parsed.command === 'pr' && parsed.flags.has('sync')) {
     return await runPullRequestSyncCommand(store, parsed, options);
   }
+  if (parsed.command === 'overview' && parsed.flags.has('watch')) {
+    return await runOverviewWatchCommand(store, parsed, options, runStoreCommand);
+  }
   return storeCommandResult(parsed, await runStoreCommand(store, parsed, options), options);
 };
 
@@ -469,10 +392,28 @@ const removedCommandHints: Record<string, string> = {
   'clear-session': "Use 'tasks clear session' instead.",
 };
 
+const parseErrorMode = (
+  argv: string[],
+  parsed: ParsedArguments | undefined,
+  options: CliOptions,
+): OutputMode => {
+  if (options.outputMode !== undefined) return options.outputMode;
+  if (parsed) return resolveModeForOptions(parsed, options);
+  return resolveModeForOptions(
+    {
+      command: undefined,
+      positionals: [],
+      flags: new Map(argv.includes('--json') ? [['json', []]] : []),
+    },
+    options,
+  );
+};
+
 /** Runs the tasks CLI and returns captured output for process wrappers and tests. */
 export const runTasksCli = async (argv: string[], options: CliOptions = {}): Promise<CliResult> => {
+  let parsed: ParsedArguments | undefined;
   try {
-    const parsed = parseArguments(argv);
+    parsed = parseArguments(argv);
     if (isHelpRequest(parsed)) return renderHelpResult(parsed, options);
     if (!parsed.command) throw new ScrumlordError('missing_command', 'A command is required.');
     validatePositionals(parsed);
@@ -501,11 +442,6 @@ export const runTasksCli = async (argv: string[], options: CliOptions = {}): Pro
       store.close();
     }
   } catch (error) {
-    const code = error instanceof ScrumlordError ? error.code : 'unexpected_error';
-    return {
-      exitCode: 1,
-      stdout: '',
-      stderr: json({ error: { code, message: errorMessage(error) } }),
-    };
+    return formatCliError(error, { ...options, outputMode: parseErrorMode(argv, parsed, options) });
   }
 };

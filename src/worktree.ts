@@ -123,15 +123,15 @@ export const deriveBranchAndShortId = (
 };
 
 /**
- * Picks the Codex worktree root. Prefers `~/.codex/worktrees/` when writable,
- * otherwise falls back to `<projectRoot>/tmp/worktrees/`.
+ * Picks the Scrumlord worktree root. Prefers `~/.scrumlord/worktrees/` when
+ * writable, otherwise falls back to `<projectRoot>/tmp/worktrees/`.
  */
-export const codexWorktreeRoot = async (
+export const scrumlordWorktreeRoot = async (
   projectRoot: string,
   options: { home?: string } = {},
 ): Promise<string> => {
   const home = options.home ?? homedir();
-  const preferred = join(home, '.codex', 'worktrees');
+  const preferred = join(home, '.scrumlord', 'worktrees');
   if (await canCreateInside(preferred)) return preferred;
   return join(projectRoot, 'tmp', 'worktrees');
 };
@@ -146,26 +146,27 @@ const canCreateInside = async (path: string): Promise<boolean> => {
   }
 };
 
-/** Returns the absolute Codex worktree path for a task short-id. */
-export const codexWorktreePath = async (
+/** Returns the absolute Scrumlord-managed worktree path for a task short-id. */
+export const scrumlordWorktreePath = async (
   projectRoot: string,
   slug: string,
   shortId: string,
   options: { home?: string } = {},
 ): Promise<string> => {
-  const root = await codexWorktreeRoot(projectRoot, options);
+  const root = await scrumlordWorktreeRoot(projectRoot, options);
   return join(root, `${slug}-${shortId}`);
 };
 
 /**
- * Ensures a Codex worktree exists for the task's branch. Reuses an existing
- * worktree when one matches the branch, otherwise materializes one according
- * to the resolution decision tree (local branch → remote-tracking → base ref).
+ * Ensures a Scrumlord-managed worktree exists for the task's branch. Reuses an
+ * existing worktree when one matches the branch, otherwise materializes one
+ * according to the resolution decision tree (local branch → remote-tracking →
+ * base ref).
  */
 export type WorktreeLog = (line: string) => void;
 
 // eslint-disable-next-line complexity
-export const ensureCodexWorktree = async (
+export const ensureTaskWorktree = async (
   projectRoot: string,
   branch: string,
   base: BaseBranch,

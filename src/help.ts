@@ -31,6 +31,13 @@ const taskListingOptions: HelpOption[] = [
   { name: '--count', description: 'Print only the number of matching tasks.' },
 ];
 
+const taskListOptions: HelpOption[] = [
+  { name: '--all', description: 'Include soft-deleted tasks.' },
+  { name: '--completed', description: 'Only include completed tasks.' },
+  { name: '--incomplete', description: 'Only include tasks that are not completed.' },
+  ...taskListingOptions,
+];
+
 const taskFieldOptions: HelpOption[] = [
   { name: '--title', value: '<title>', description: 'Short task title.' },
   { name: '--description', value: '<markdown>', description: 'Markdown task description.' },
@@ -54,7 +61,7 @@ const taskFieldOptions: HelpOption[] = [
 ];
 
 const requiredTaskIdArgument =
-  '<task-id>: Task ID. Accepts a UUID, "current" (the active task on the current Git branch), or "next" (the next claimable task).';
+  '<task-id>: Task ID. Accepts a UUID, a unique UUID prefix, "current" (the active task on the current Git branch), or "next" (the next claimable task).';
 
 const topics: HelpTopic[] = [
   {
@@ -77,11 +84,11 @@ const topics: HelpTopic[] = [
   {
     path: ['list'],
     summary: 'List tasks for graph reconciliation.',
-    usage: 'tasks list [--all] [--planned|--unplanned] [--count]',
+    usage: 'tasks list [--all] [--completed|--incomplete] [--planned|--unplanned] [--count]',
     description:
       'Returns active tasks by default. Use --all to include soft-deleted tasks when reconciling long documents against the full graph.',
-    options: [{ name: '--all', description: 'Include soft-deleted tasks.' }, ...taskListingOptions],
-    examples: ['tasks list', 'tasks list --all'],
+    options: taskListOptions,
+    examples: ['tasks list', 'tasks list --all', 'tasks list --completed'],
   },
   {
     path: ['blocked'],
@@ -128,9 +135,9 @@ const topics: HelpTopic[] = [
     summary: 'Emit a Markdown prompt directing an agent to author task plans.',
     usage: 'tasks plan [task-id]',
     description:
-      'Without a task id, emits a prompt directing an agent to author plans for every available unplanned task. With a task id, scopes the prompt to that single task. Accepts a UUID, "current" (the active task on the current Git branch), or "next" (the next claimable task). The command does not plan inline — it prints a prompt to stdout for an agent to consume.',
+      'Without a task id, emits a prompt directing an agent to author plans for every available unplanned task. With a task id, scopes the prompt to that single task. Accepts a UUID, a unique UUID prefix, "current" (the active task on the current Git branch), or "next" (the next claimable task). The command does not plan inline — it prints a prompt to stdout for an agent to consume.',
     arguments: [
-      '[task-id]: Optional. Task ID. Accepts a UUID, "current" (the active task on the current Git branch), or "next" (the next claimable task).',
+      '[task-id]: Optional. Task ID. Accepts a UUID, a unique UUID prefix, "current" (the active task on the current Git branch), or "next" (the next claimable task).',
     ],
     examples: ['tasks plan', 'tasks plan current', 'tasks plan next', 'tasks plan 8f7d6a'],
   },
@@ -157,18 +164,40 @@ const topics: HelpTopic[] = [
   {
     path: ['progress'],
     summary: 'Inspect or record task progress.',
-    usage: 'tasks progress <list|add> [options]',
+    usage: 'tasks progress [list|add] [options]',
     description:
-      'Namespaced command for listing or recording task progress entries. Use `tasks progress list` to view entries and `tasks progress add` to append a new one.',
-    examples: ['tasks progress list', 'tasks progress add --message "Plan approved"'],
+      'Namespaced command for listing or recording task progress entries. With no subcommand, defaults to `tasks progress list`.',
+    options: [
+      {
+        name: '--full',
+        description: 'Show every progress entry in pretty output instead of the recent summary.',
+      },
+    ],
+    examples: [
+      'tasks progress',
+      'tasks progress list',
+      'tasks progress add --message "Plan approved"',
+    ],
   },
   {
     path: ['progress', 'list'],
     summary: 'List progress entries for a task.',
-    usage: 'tasks progress list [task-id]',
-    description: `Returns chronological progress entries recorded for the task, including provider and session metadata when available. When task-id is omitted, resolves the active task on the current Git branch.`,
+    usage: 'tasks progress list [task-id] [--full]',
+    description: `Returns chronological progress entries recorded for the task, including provider and session metadata when available. Pretty output shows the most recent entries by default; pass --full to show every entry. When task-id is omitted, resolves the active task on the current Git branch.`,
     arguments: [requiredTaskIdArgument],
-    examples: ['tasks progress list', 'tasks progress list current', 'tasks progress list 8f7d6a'],
+    options: [
+      {
+        name: '--full',
+        description: 'Show every progress entry in pretty output instead of the recent summary.',
+      },
+    ],
+    examples: [
+      'tasks progress',
+      'tasks progress list',
+      'tasks progress list --full',
+      'tasks progress list current',
+      'tasks progress list 8f7d6a',
+    ],
   },
   {
     path: ['progress', 'add'],
@@ -216,24 +245,25 @@ const topics: HelpTopic[] = [
   },
   {
     path: ['start'],
-    summary: 'Start work on a task in an agent CLI.',
+    summary: 'Start or resume work on a task in an agent CLI.',
     usage: 'tasks start <task-id> --cli <claude|codex>',
-    description: `Moves a startable task to in-progress, records provider/session metadata, and launches the selected agent in plan mode with task context.`,
+    description: `For a new task: moves it to in-progress, records provider/session metadata, and launches the selected agent in plan mode with task context. For an in-progress task with a recorded session: reattaches the existing provider session from the derived worktree, leaving task state untouched.`,
     arguments: [requiredTaskIdArgument],
     options: [
       {
         name: '--cli',
         value: '<claude|codex>',
-        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
+        description:
+          'Agent CLI to launch. Defaults to SCRUMLORD_CLI. Ignored on resume; must match the recorded provider if provided.',
       },
     ],
     examples: ['tasks start current --cli codex', 'tasks start 8f7d6a --cli codex'],
   },
   {
     path: ['resume'],
-    summary: 'Resume a task agent session.',
+    summary: 'Resume an existing agent session for a task.',
     usage: 'tasks resume <task-id>',
-    description: `Launches the provider-specific resume command for the task session from the derived worktree when available.`,
+    description: `Launches the provider-specific resume command for the task session from the derived worktree when available. The task must already have a recorded provider and session.`,
     arguments: [requiredTaskIdArgument],
     examples: ['tasks resume current', 'tasks resume 8f7d6a'],
   },
@@ -356,13 +386,13 @@ const topics: HelpTopic[] = [
     examples: ['tasks priority 3'],
   },
   {
-    path: ['with-priority'],
-    summary: 'Alias for tasks priority.',
-    usage: 'tasks with-priority <1|2|3> [--planned|--unplanned] [--count]',
-    description: 'Returns tasks with the supplied priority.',
-    arguments: ['<1|2|3>: Priority to match.'],
+    path: ['status'],
+    summary: 'List tasks with a status.',
+    usage: 'tasks status <status> [--planned|--unplanned] [--count]',
+    description: 'Returns active tasks with the supplied status.',
+    arguments: ['<status>: One of draft, ready, in-progress, in-review, completed.'],
     options: taskListingOptions,
-    examples: ['tasks with-priority 2'],
+    examples: ['tasks status in-progress', 'tasks status completed --count'],
   },
   {
     path: ['create'],
@@ -418,41 +448,58 @@ const topics: HelpTopic[] = [
     examples: ['tasks delete current', 'tasks delete 8f7d6a', 'tasks delete 8f7d6a --hard'],
   },
   {
-    path: ['add-tag'],
+    path: ['tags'],
+    summary: 'List tags for a task.',
+    usage: 'tasks tags <task-id>',
+    description: `Returns the normalized tags on a task.`,
+    arguments: [requiredTaskIdArgument],
+    examples: ['tasks tags current', 'tasks tags 8f7d6a'],
+  },
+  {
+    path: ['tags', 'add'],
     summary: 'Add a tag to a task.',
-    usage: 'tasks add-tag <task-id> <tag>',
+    usage: 'tasks tags add <task-id> <tag>',
     description: `Adds a normalized tag to a task.`,
     arguments: [requiredTaskIdArgument, '<tag>: Tag to add.'],
-    examples: ['tasks add-tag current testing', 'tasks add-tag 8f7d6a testing'],
+    examples: ['tasks tags add current testing', 'tasks tags add 8f7d6a testing'],
   },
   {
-    path: ['remove-tag'],
+    path: ['tags', 'remove'],
     summary: 'Remove a tag from a task.',
-    usage: 'tasks remove-tag <task-id> <tag>',
+    usage: 'tasks tags remove <task-id> <tag>',
     description: `Removes a normalized tag from a task.`,
     arguments: [requiredTaskIdArgument, '<tag>: Tag to remove.'],
-    examples: ['tasks remove-tag current testing', 'tasks remove-tag 8f7d6a testing'],
+    examples: ['tasks tags remove current testing', 'tasks tags remove 8f7d6a testing'],
   },
   {
-    path: ['add-blocker'],
+    path: ['blockers'],
+    summary: 'List blockers for a task.',
+    usage: 'tasks blockers <task-id> [--planned|--unplanned] [--count]',
+    description: `Returns the tasks that block the supplied task.`,
+    arguments: [requiredTaskIdArgument],
+    options: taskListingOptions,
+    examples: ['tasks blockers current', 'tasks blockers 8f7d6a'],
+  },
+  {
+    path: ['blockers', 'add'],
     summary: 'Add a dependency blocker.',
-    usage: 'tasks add-blocker <task-id> <blocked-by-task-id>',
+    usage: 'tasks blockers add <task-id> <blocked-by-task-id>',
     description: `Adds a dependency edge showing that one task is blocked by another.`,
     arguments: [requiredTaskIdArgument, '<blocked-by-task-id>: Blocking task.'],
     examples: [
-      'tasks add-blocker current prerequisite-id',
-      'tasks add-blocker feature-id prerequisite-id',
+      'tasks blockers add current prerequisite-id',
+      'tasks blockers add feature-id prerequisite-id',
     ],
   },
   {
-    path: ['remove-blocker'],
+    path: ['blockers', 'remove'],
     summary: 'Remove a dependency blocker.',
-    usage: 'tasks remove-blocker <task-id> <blocked-by-task-id>',
+    usage: 'tasks blockers remove <task-id> <blocked-by-task-id>',
     description: `Removes a dependency edge between two tasks.`,
     arguments: [requiredTaskIdArgument, '<blocked-by-task-id>: Blocking task.'],
     examples: [
-      'tasks remove-blocker current prerequisite-id',
-      'tasks remove-blocker feature-id prerequisite-id',
+      'tasks blockers remove current prerequisite-id',
+      'tasks blockers remove feature-id prerequisite-id',
     ],
   },
   {
@@ -503,17 +550,22 @@ const topics: HelpTopic[] = [
   {
     path: ['overview'],
     summary: 'List open pull requests with task readiness.',
-    usage: 'tasks overview [--sync]',
+    usage: 'tasks overview [--sync] [--watch]',
     description:
-      'Returns open pull requests with CI status, unresolved review comment counts, and tasks whose branch matches the pull request head branch. Matching active tasks move to in-review. With --sync, also runs syncGitStatus for the current branch before the per-PR iteration, and wraps output as { items, sync }. Does not perform a per-PR sync of branches you do not have checked out.',
+      'Returns open pull requests with CI status, unresolved review comment counts, merge-conflict state, and tasks whose branch matches the pull request head branch. Human output renders as a terminal-width table. Matching active tasks move to in-review. With --sync, also runs syncGitStatus for the current branch before the per-PR iteration, and wraps output as { items, sync }. With --watch, refreshes the human dashboard every 30 seconds using the existing GitHub ETag cache. Does not perform a per-PR sync of branches you do not have checked out.',
     options: [
       {
         name: '--sync',
         description:
           'Runs syncGitStatus for the current branch in addition to the per-open-PR in-review reconciliation already performed by overview. Does not perform a per-PR sync of branches you do not have checked out.',
       },
+      {
+        name: '--watch',
+        description:
+          'Keep a terminal dashboard open and refresh it every 30 seconds. Uses cached GitHub ETags on REST calls.',
+      },
     ],
-    examples: ['tasks overview', 'tasks overview --sync'],
+    examples: ['tasks overview', 'tasks overview --sync', 'tasks overview --watch'],
   },
   {
     path: ['setup'],
@@ -521,7 +573,7 @@ const topics: HelpTopic[] = [
     usage:
       'tasks setup [--skills|--subagents|--git-hooks|--agent-hooks|--prompt|--shell] [--project|--user|--local] [--agent <all|claude|codex>] [--yes]',
     description:
-      'With no mode flag, runs the interactive numbered-choice setup. With a mode flag, runs that single piece: --skills writes agent skill files; --subagents installs task-manager subagents; --git-hooks installs the Lefthook block; --agent-hooks writes lifecycle hook configuration; --prompt emits a raw setup prompt agents can follow; --shell prints the tasks-teleport shell helper to stdout.',
+      'With no mode flag, runs the interactive numbered-choice setup. With a mode flag, runs that single piece: --skills writes agent skill files; --subagents installs task-manager subagents; --git-hooks installs the Lefthook block; --agent-hooks writes lifecycle hook configuration; --prompt emits a raw setup prompt agents can follow; --shell prints the tasks-teleport, tasks-start, and tasks-resume shell helpers to stdout.',
     options: [
       { name: '--skills', description: 'Write agent skill files.' },
       { name: '--subagents', description: 'Install task-manager subagents.' },
@@ -531,7 +583,7 @@ const topics: HelpTopic[] = [
       {
         name: '--shell',
         description:
-          'Print the tasks-teleport shell helper to stdout. Redirect into your rc file to enable `cd "$(tasks teleport current)"` via the tasks-teleport function.',
+          'Print the tasks-teleport, tasks-start, and tasks-resume shell helpers to stdout. Redirect into your rc file to enable `cd "$(tasks teleport current)"` and have `tasks-start`/`tasks-resume` cd into the task worktree after the agent exits.',
       },
       {
         name: '--project',
@@ -582,10 +634,15 @@ const topics: HelpTopic[] = [
     path: ['pr'],
     summary: 'Show pull request status, URL, or review comments.',
     usage:
-      'tasks pr [--sync [--quiet] | --url | --open | --comments [--resolved|--all] | --poll [--max-polls <n>] [--poll-interval <s>] [--bot-patterns <regex>]]',
+      'tasks pr [--watch | --sync [--quiet] | --url | --open | --comments [--resolved|--all] | --poll [--max-polls <n>] [--poll-interval <s>] [--bot-patterns <regex>]]',
     description:
-      'Returns the full PR readiness report by default (PR metadata, checks, review comments with bodies, readyToMerge). --url returns the URL as a raw string; --open launches the browser; --comments returns unresolved review comments (with --resolved or --all to filter the thread state). --sync runs syncGitStatus first, then fetches PR status; output is { pullRequest, sync }. With --sync --quiet, all output is suppressed (suitable for hooks). --quiet requires --sync. --poll re-fetches until readyToMerge or --max-polls is reached; always exits 0 and signals readiness via poll.pollsExhausted and readyToMerge in the JSON output.',
+      'Returns the full PR readiness report by default (PR metadata, checks, review comments with bodies, readyToMerge). --watch refreshes the human-readable report every 30 seconds. --url returns the URL as a raw string; --open launches the browser; --comments returns unresolved review comments (with --resolved or --all to filter the thread state). --sync runs syncGitStatus first, then fetches PR status; output is { pullRequest, sync }. With --sync --quiet, all output is suppressed (suitable for hooks). --quiet requires --sync. --poll re-fetches until readyToMerge or --max-polls is reached; always exits 0 and signals readiness via poll.pollsExhausted and readyToMerge in the JSON output.',
     options: [
+      {
+        name: '--watch',
+        description:
+          'Refresh the human-readable pull request readiness report every 30 seconds. Cannot be combined with --json.',
+      },
       { name: '--url', description: 'Return the pull request URL as a raw string.' },
       { name: '--open', description: 'Open the pull request URL in the system browser.' },
       { name: '--comments', description: 'Return review comments instead of the full report.' },
@@ -630,6 +687,7 @@ const topics: HelpTopic[] = [
     ],
     examples: [
       'tasks pr',
+      'tasks pr --watch',
       'tasks pr --url',
       'tasks pr --comments',
       'tasks pr --comments --all',
@@ -678,9 +736,9 @@ const topics: HelpTopic[] = [
     summary: 'Print the worktree path for a task (for shell `cd`).',
     usage: 'tasks teleport <task-id> [--json]',
     description:
-      'Resolves <task-id> (UUID, "current", or "next") and prints the absolute path of its existing git worktree on stdout, newline-terminated. Designed for `cd "$(tasks teleport current)"` — always quote the command substitution. Never creates a worktree. On error, prints a human-readable message on stderr unless --json is passed or CLAUDECODE=1 / CODEX_MANAGED_BY_BUN=1 is set, in which case it emits the standard JSON error envelope. --json affects error output only; success output is always the raw path.',
+      'Resolves <task-id> (UUID, unique UUID prefix, "current", or "next") and prints the absolute path of its existing git worktree on stdout, newline-terminated. Designed for `cd "$(tasks teleport current)"` — always quote the command substitution. Never creates a worktree. On error, uses the shared CLI output mode: interactive terminals get a human-readable message, while --json, agents, CI, and non-TTY consumers get the standard JSON error envelope. --json affects error output only; success output is always the raw path.',
     arguments: [
-      '<task-id>: Task ID. Accepts a UUID, "current" (the active task on the current Git branch), or "next" (the next claimable task).',
+      '<task-id>: Task ID. Accepts a UUID, a unique UUID prefix, "current" (the active task on the current Git branch), or "next" (the next claimable task).',
     ],
     options: [
       {
@@ -692,7 +750,7 @@ const topics: HelpTopic[] = [
     examples: [
       'cd "$(tasks teleport current)"',
       'cd "$(tasks teleport next)"',
-      'tasks setup --shell >> ~/.zshrc   # install the tasks-teleport helper',
+      'tasks setup --shell >> ~/.zshrc   # install the tasks-teleport, tasks-start, and tasks-resume helpers',
     ],
   },
   {

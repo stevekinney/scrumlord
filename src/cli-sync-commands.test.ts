@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { runTasksCli } from './cli-runner';
 import { emptyProgressStoreMethods } from './test-progress-store-methods';
+import type { PullRequestOverviewItem } from './tasks-overview';
 import type { Task, TaskStore } from './types';
 
 const task = (id: string): Task => ({
@@ -17,6 +18,7 @@ const task = (id: string): Task => ({
   provider: null,
   session: null,
   tags: [],
+  blocked: false,
   blockedBy: [],
   blocking: [],
   lastModifiedAt: '2026-05-11T00:00:00.000Z',
@@ -77,6 +79,31 @@ const noopGithub = {
   repositoryName: async () => '',
   repositoryUrl: async () => '',
 };
+
+const overviewItem = (): PullRequestOverviewItem => ({
+  pullRequest: {
+    number: 7,
+    url: 'https://example.test/pull/7',
+    headRefName: 'feature/watch',
+    headSha: 'sha',
+    title: 'Watch dashboard',
+    state: 'OPEN',
+    baseRefName: 'main',
+    mergedAt: null,
+    body: null,
+    mergeable: 'MERGEABLE',
+    mergeStateStatus: 'CLEAN',
+  },
+  associatedTasks: [task('task-watch')],
+  reviewComments: { unresolvedCount: 0 },
+  continuousIntegration: {
+    status: 'success',
+    pendingCount: 0,
+    failedCount: 0,
+    checks: [],
+  },
+  readyToMerge: true,
+});
 
 describe('tasks pr --sync', () => {
   it('--quiet returns empty success and runs syncGitStatus', async () => {
@@ -161,5 +188,44 @@ describe('tasks overview --sync', () => {
     const parsed = JSON.parse(result.stdout);
     expect(Array.isArray(parsed)).toBe(true);
     expect(calls).not.toContain('syncGitStatus');
+  });
+
+  it('--watch refreshes the pretty dashboard every 30 seconds', async () => {
+    const writes: string[] = [];
+    const sleeps: number[] = [];
+    let overviewCalls = 0;
+
+    const result = await runTasksCli(['overview', '--watch'], {
+      createStore: async () => fakeStore([]),
+      github: {
+        ...noopGithub,
+        tasksOverview: async () => {
+          overviewCalls += 1;
+          return [overviewItem()];
+        },
+      },
+      sleep: async (milliseconds) => {
+        sleeps.push(milliseconds);
+      },
+      writeStdout: (text) => writes.push(text),
+      watchIterations: 2,
+    });
+
+    expect(result).toEqual({ exitCode: 0, stdout: '', stderr: '' });
+    expect(overviewCalls).toBe(2);
+    expect(sleeps).toEqual([30_000]);
+    expect(writes).toHaveLength(2);
+    expect(writes[0]).toStartWith('\u001B[2J\u001B[H');
+    expect(writes[0]).toContain('feature/watch');
+  });
+
+  it('--watch rejects --json', async () => {
+    const result = await runTasksCli(['overview', '--watch', '--json'], {
+      createStore: async () => fakeStore([]),
+      github: { ...noopGithub, tasksOverview: async () => [overviewItem()] },
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('overview_watch_json_unsupported');
   });
 });

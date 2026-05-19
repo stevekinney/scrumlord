@@ -59,6 +59,7 @@ describe('agent providers', () => {
       provider: null,
       session: null,
       tags: [],
+      blocked: false,
       blockedBy: [],
       blocking: [],
       lastModifiedAt: '2026-05-11T00:00:00.000Z',

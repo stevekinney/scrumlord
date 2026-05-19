@@ -12,6 +12,8 @@ const staticChoices: Partial<Record<PositionalKind, string[]>> = {
   status: [...taskStatuses],
   priority: ['1', '2', '3'],
   shell: ['bash', 'zsh'],
+  'tag-action': ['add', 'remove'],
+  'blocker-action': ['add', 'remove'],
 };
 
 /**
@@ -33,11 +35,13 @@ export const commandSummaries: Record<string, string> = {
   pr: 'Inspect or sync the current pull request.',
   get: 'Get a task by ID.',
   tagged: 'List tasks with a specific tag.',
+  tags: 'Inspect or update tags for a task.',
+  blockers: 'Inspect or update blockers for a task.',
   'with-branch': 'List tasks assigned to a specific branch.',
   'blocked-by': 'List tasks blocked by a given task.',
   blocking: 'List tasks that block a given task.',
   priority: 'List tasks at a given priority level.',
-  'with-priority': 'List tasks at a given priority level.',
+  status: 'List tasks at a given status.',
   session: 'Show task agent session metadata.',
   progress: 'Inspect or record task progress.',
   clear: 'Clear a task field.',
@@ -51,10 +55,6 @@ export const commandSummaries: Record<string, string> = {
   plan: 'Emit a Markdown prompt directing an agent to author task plans.',
   create: 'Create a new task.',
   update: 'Update a task.',
-  'add-tag': 'Add a tag to a task.',
-  'remove-tag': 'Remove a tag from a task.',
-  'add-blocker': 'Add a dependency blocker.',
-  'remove-blocker': 'Remove a dependency blocker.',
   setup: 'Configure Scrumlord and agent integrations.',
   teleport: 'Print the worktree path for a task (for shell cd).',
   completions: 'Generate shell completion scripts.',
@@ -109,6 +109,10 @@ const renderBashMultiKindCase = (pos: number, kinds: PositionalKind[]): string =
     } else if (kind === 'tag') {
       lines.push(
         `          local _tags_tmp=( "\${COMPREPLY[@]}" ); __tasks_complete_tags; COMPREPLY=( "\${_tags_tmp[@]}" "\${COMPREPLY[@]}" )`,
+      );
+    } else if (staticChoices[kind]) {
+      lines.push(
+        `          local _static_tmp=( "\${COMPREPLY[@]}" ); ${bashKindCompletion(kind)}; COMPREPLY=( "\${_static_tmp[@]}" "\${COMPREPLY[@]}" )`,
       );
     }
   }

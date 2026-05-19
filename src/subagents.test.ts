@@ -62,7 +62,7 @@ describe('setupSubagents', () => {
     expect(codex).toContain('sandbox_mode = "workspace-write"');
     expect(codex).toContain('which tasks');
     expect(codex).toContain('tasks setup status');
-    expect(codex).toContain('tasks add-blocker');
+    expect(codex).toContain('tasks blockers add');
     expect(codex).toContain('build a candidate graph');
     expect(codex).toContain('Treat dependency language as graph data');
     expect(codex).toContain('Scrumlord priorities are only');

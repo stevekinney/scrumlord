@@ -21,6 +21,7 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   provider: null,
   session: null,
   tags: [],
+  blocked: false,
   blockedBy: [],
   blocking: [],
   lastModifiedAt: '2026-05-11T00:00:00.000Z',
@@ -310,6 +311,8 @@ describe('tasks teleport — teleport_no_branch', () => {
     const result = await runTasksCli(['teleport', 'no-branch-task'], {
       createStore: async () => store,
       runner,
+      isStdoutTty: true,
+      colorMode: 'never',
     });
 
     expect(result.exitCode).toBe(1);
@@ -363,6 +366,8 @@ describe('tasks teleport — teleport_no_worktree', () => {
     const result = await runTasksCli(['teleport', 'orphan-task'], {
       createStore: async () => store,
       runner,
+      isStdoutTty: true,
+      colorMode: 'never',
     });
 
     expect(result.exitCode).toBe(1);
@@ -391,6 +396,8 @@ describe('tasks teleport — teleport_worktree_lookup_failed', () => {
     const result = await runTasksCli(['teleport', 'fail-task'], {
       createStore: async () => store,
       runner: failingWorktreeRunner('fatal: not a git repository'),
+      isStdoutTty: true,
+      colorMode: 'never',
     });
 
     expect(result.exitCode).toBe(1);
@@ -448,6 +455,8 @@ describe('tasks teleport — resolver and store errors', () => {
     const result = await runTasksCli(['teleport', 'current'], {
       createStore: async () => emptyStore,
       runner: worktreeRunner(''),
+      isStdoutTty: true,
+      colorMode: 'never',
     });
 
     expect(result.exitCode).toBe(1);
@@ -490,6 +499,8 @@ describe('tasks teleport — resolver and store errors', () => {
     const result = await runTasksCli(['teleport', 'next'], {
       createStore: async () => emptyStore,
       runner: worktreeRunner(''),
+      isStdoutTty: true,
+      colorMode: 'never',
     });
 
     expect(result.exitCode).toBe(1);
@@ -516,6 +527,8 @@ describe('tasks teleport — resolver and store errors', () => {
     const result = await runTasksCli(['teleport', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'], {
       createStore: async () => emptyStore,
       runner: worktreeRunner(''),
+      isStdoutTty: true,
+      colorMode: 'never',
     });
 
     expect(result.exitCode).toBe(1);
@@ -568,23 +581,5 @@ describe('tasks teleport — missing argument', () => {
     expect(result.exitCode).toBe(1);
     const parsed = JSON.parse(result.stderr);
     expect(parsed.error.code).toBe('missing_argument');
-  });
-});
-
-describe('tasks teleport — negative env-var values', () => {
-  it('CLAUDECODE=0 does not trigger JSON mode', async () => {
-    const t = task('env-task', { branch: null });
-    const store = makeStore({ tasks: [t] });
-
-    const result = await runTasksCli(['teleport', 'env-task'], {
-      createStore: async () => store,
-      runner: worktreeRunner(''),
-      environment: { CLAUDECODE: '0' },
-    });
-
-    expect(result.exitCode).toBe(1);
-    // Human error: message on stderr, not JSON
-    expect(() => JSON.parse(result.stderr)).toThrow();
-    expect(result.stderr).toContain('has no branch set');
   });
 });

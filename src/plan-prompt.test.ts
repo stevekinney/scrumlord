@@ -16,6 +16,7 @@ const task = (overrides: Partial<Task> = {}): Task => ({
   provider: null,
   session: null,
   tags: [],
+  blocked: false,
   blockedBy: [],
   blocking: [],
   lastModifiedAt: '2026-01-01T00:00:00.000Z',
@@ -169,6 +170,8 @@ describe('planBatchPrompt', () => {
       task({ id: 'task-b', title: 'Task B' }),
     ];
     const result = planBatchPrompt(tasks, projectRoot);
+    expect(result).toContain('| ID | Title |');
+    expect(result).not.toContain('| ID | Title | Priority | Tags |');
     expect(result).toContain('task-a');
     expect(result).toContain('task-b');
   });
@@ -221,10 +224,12 @@ describe('planBatchPrompt', () => {
     expect(result).toContain('Line1 Line2');
   });
 
-  it('renders "none" for tasks with no tags in the table', () => {
-    const result = planBatchPrompt([task({ tags: [] })], projectRoot);
-    // The table row should have "none" in the tags column
-    expect(result).toContain('| none |');
+  it('omits priority and tags from the task table', () => {
+    const result = planBatchPrompt([task({ priority: 3, tags: ['cli'] })], projectRoot);
+    expect(result).not.toContain('| Priority |');
+    expect(result).not.toContain('| Tags |');
+    expect(result).not.toContain('| 3 |');
+    expect(result).not.toContain('| cli |');
   });
 
   it('includes projectRoot in the deliverable path', () => {

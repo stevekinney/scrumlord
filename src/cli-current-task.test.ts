@@ -52,6 +52,33 @@ describe('tasks current', () => {
     });
   });
 
+  it('does not truncate the current task description in pretty output', async () => {
+    const root = await workspaceRoot();
+    const description = Array.from({ length: 12 }, (_, index) => `line ${index}`).join('\n');
+    await runTasksCli(
+      [
+        'create',
+        '--title',
+        'Current task',
+        '--description',
+        description,
+        '--branch',
+        'feature/current-task',
+      ],
+      { cwd: root },
+    );
+
+    const result = await runTasksCli(['current'], {
+      cwd: root,
+      isStdoutTty: true,
+      colorMode: 'never',
+      environment: {},
+    });
+
+    expect(result.stdout).toContain('line 11');
+    expect(result.stdout).not.toContain('pass --json');
+  });
+
   it('returns null when no active task is assigned to the current Git branch', async () => {
     const result = await runTasksCli(['current'], { cwd: await workspaceRoot() });
 

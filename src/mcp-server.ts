@@ -35,6 +35,7 @@ import {
   tasksWithBranch,
   tasksWithPriority,
   tasksWithSession,
+  tasksWithStatus,
   tasksWithTag,
   updateTask,
 } from './task-commands.js';
@@ -114,6 +115,7 @@ const tagInputSchema = z.object({ tag: z.string() });
 const tagsInputSchema = z.object({ tags: z.array(z.string()).min(1) });
 const branchInputSchema = z.object({ branch: z.string() });
 const priorityInputSchema = z.object({ priority: z.number() });
+const statusInputSchema = z.object({ status: z.string() });
 const dependencyInputSchema = z.object({
   id: z.string().min(1),
   blockedBy: z.string().min(1),
@@ -438,6 +440,15 @@ const registerQueryTools = (server: McpServer, options: ScrumlordMcpServerOption
     outputSchema: tasksResultSchema,
     annotations: readOnlyAnnotations,
     handler: (input, store) => tasksResult(tasksWithPriority(store, parsePriority(input.priority))),
+  });
+  registerInputTool(server, options, {
+    name: 'scrumlord_tasks_with_status',
+    title: 'Tasks With Status',
+    description: 'Return tasks with the supplied status.',
+    inputSchema: statusInputSchema,
+    outputSchema: tasksResultSchema,
+    annotations: readOnlyAnnotations,
+    handler: (input, store) => tasksResult(tasksWithStatus(store, parseStatus(input.status))),
   });
   registerInputTool(server, options, {
     name: 'scrumlord_blocked_by',

@@ -32,6 +32,7 @@ import type {
   DeleteOptions,
   PersistedTaskSession,
   Task,
+  TaskBlocker,
   TaskIdentifier,
   TaskProgress,
   TaskPriority,
@@ -253,6 +254,13 @@ export class SqliteTaskStore implements TaskStore {
     return this.selectTasks(
       'SELECT * FROM tasks WHERE priority = $priority AND deleted = 0 ORDER BY created_at ASC, id ASC',
       { priority: parsePriority(priority) },
+    );
+  }
+
+  withStatus(status: TaskStatus): Task[] {
+    return this.selectTasks(
+      'SELECT * FROM tasks WHERE status = $status AND deleted = 0 ORDER BY priority DESC, created_at ASC, id ASC',
+      { status },
     );
   }
 
@@ -763,23 +771,40 @@ export class SqliteTaskStore implements TaskStore {
 
   private hydrate(row: TaskRow): Task {
     return hydrateTask(row, {
-      tags: this.values('SELECT tag FROM task_tags WHERE task_id = $id ORDER BY tag ASC', row.id),
-      blockedBy: this.values(
-        'SELECT blocked_by_task_id AS id FROM task_dependencies WHERE task_id = $id ORDER BY blocked_by_task_id ASC',
+      tags: this.tagValues(row.id),
+      blockedBy: this.blockerValues(
+        `SELECT blocker.id AS id, blocker.status AS status
+         FROM task_dependencies
+         JOIN tasks AS blocker ON blocker.id = task_dependencies.blocked_by_task_id
+         WHERE task_dependencies.task_id = $id AND blocker.deleted = 0
+         ORDER BY blocker.id ASC`,
         row.id,
       ),
-      blocking: this.values(
-        'SELECT task_id AS id FROM task_dependencies WHERE blocked_by_task_id = $id ORDER BY task_id ASC',
+      blocking: this.blockerValues(
+        `SELECT dependent.id AS id, dependent.status AS status
+         FROM task_dependencies
+         JOIN tasks AS dependent ON dependent.id = task_dependencies.task_id
+         WHERE task_dependencies.blocked_by_task_id = $id AND dependent.deleted = 0
+         ORDER BY dependent.id ASC`,
         row.id,
       ),
     });
   }
 
-  private values(sql: string, id: string): string[] {
+  private tagValues(id: string): string[] {
     return this.#database
-      .query<{ id?: string; tag?: string }, QueryBindings>(sql)
+      .query<{ tag: string }, QueryBindings>(
+        'SELECT tag FROM task_tags WHERE task_id = $id ORDER BY tag ASC',
+      )
       .all({ id })
-      .map((row) => row.id ?? row.tag ?? '');
+      .map((row) => row.tag);
+  }
+
+  private blockerValues(sql: string, id: string): TaskBlocker[] {
+    return this.#database
+      .query<{ id: string; status: TaskStatus }, QueryBindings>(sql)
+      .all({ id })
+      .map((row) => ({ id: row.id, status: row.status }));
   }
 
   private requireTask(id: TaskIdentifier): Task {

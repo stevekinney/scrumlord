@@ -135,6 +135,11 @@ const listValue = (values: readonly string[]): string => {
   return values.length === 0 ? 'none' : values.join(', ');
 };
 
+const blockerListValue = (blockers: Task['blockedBy']): string => {
+  if (blockers.length === 0) return 'none';
+  return blockers.map((blocker) => `${blocker.id} (${blocker.status})`).join(', ');
+};
+
 const maybeLine = (label: string, value: string | null): string | null => {
   const summarized = value ? summarize(value, 600) : '';
   return summarized ? `${label}: ${summarized}` : null;
@@ -153,8 +158,9 @@ const promptContextForTask = (task: Task): string => {
     `provider: ${task.provider ?? 'not recorded'}`,
     `session: ${task.session ?? 'not recorded'}`,
     `tags: ${listValue(task.tags)}`,
-    `blocked by: ${listValue(task.blockedBy)}`,
-    `blocking: ${listValue(task.blocking)}`,
+    `blocked: ${task.blocked}`,
+    `blocked by: ${blockerListValue(task.blockedBy)}`,
+    `blocking: ${blockerListValue(task.blocking)}`,
     maybeLine('description', task.description),
     'Use branch-local task commands without a task ID when acting on this task; pass an explicit ID for any other task.',
     'Before resuming or handing off, inspect `tasks progress list`; after meaningful work, run `tasks progress add --message "<note>"`.',

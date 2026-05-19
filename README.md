@@ -37,7 +37,8 @@ tasks update current --branch "$(git branch --show-current)"
 tasks start current --cli codex
 tasks session current
 tasks progress add current --message "Wrote the failing regression test"
-tasks progress list current
+tasks progress
+tasks progress list current --full
 tasks resume current
 tasks overview
 tasks available
@@ -46,8 +47,8 @@ tasks next
 tasks remaining
 tasks blocked
 tasks blocked-by current
-tasks add-blocker current $BLOCKER_TASK_ID
-tasks add-tag current testing
+tasks blockers add current $BLOCKER_TASK_ID
+tasks tags add current testing
 ```
 
 ### Initialization
@@ -68,13 +69,15 @@ tasks add-tag current testing
 - `tasks setup status --help`: Show help for the nested setup status command.
 - `tasks pr status --help`: Show help for the nested pull request readiness command.
 
-Help output uses Bun’s native `Bun.color()` ANSI formatting. JSON data and JSON errors remain plain, parseable JSON for automation.
+Help output uses Bun’s native `Bun.color()` ANSI formatting. Interactive terminal users get human-readable task output and error messages. Automation, agents, CI, non-TTY output, and `--json` keep data and errors as plain, parseable JSON.
 
 ### Query Commands
 
 - `tasks available`: Ready tasks that are not blocked, deleted, or archived and have no future start date.
 - `tasks list`: Active tasks that are not deleted or archived.
 - `tasks list --all`: All tasks, including archived and soft-deleted tasks.
+- `tasks list --completed`: Only completed tasks.
+- `tasks list --incomplete`: Only tasks whose status is not `completed`.
 - `tasks blocked`: Active tasks with at least one incomplete blocker.
 - `tasks completed`: Completed tasks that have not been soft-deleted.
 - `tasks get <task-id>`: A single task by ID.
@@ -83,17 +86,19 @@ Help output uses Bun’s native `Bun.color()` ANSI formatting. JSON data and JSO
 - `tasks blocked-by <task-id>`: Tasks blocking the supplied task.
 - `tasks blocking <task-id>`: Tasks blocked by the supplied task.
 - `tasks priority <priority>`: Tasks with priority `1`, `2`, or `3`.
+- `tasks status <status>`: Tasks with status `draft`, `ready`, `in-progress`, `in-review`, or `completed`.
 - `tasks next`: The next available task, preferring tasks with a plan before unplanned tasks. Empty stdout with exit code 0 means there is no available task, which lets automation loops stop without parsing `null`.
 - `tasks remaining`: The number of active unfinished tasks, including tasks with future start dates. Completed, in-progress, deleted, and archived tasks are not counted.
-- `tasks plan [task-id]`: Emit a Markdown prompt directing an agent to author task plans. Without a task id, scopes to all available unplanned tasks. With a task id (UUID, `current`, or `next`), scopes to that single task. The command does not plan inline — it prints a prompt to stdout for an agent to consume.
+- `tasks plan [task-id]`: Emit a Markdown prompt directing an agent to author task plans. Without a task id, scopes to all available unplanned tasks. With a task id (UUID, unique UUID prefix, `current`, or `next`), scopes to that single task. The command does not plan inline — it prints a prompt to stdout for an agent to consume.
 - `tasks repository`: The current GitHub repository name, such as `stevekinney/scrumlord`.
 - `tasks repository --url`: The full GitHub repository URL.
 - `tasks session <task-id>`: Provider, session, branch, derived worktree, plan path, session data path, and warnings for a task.
-- `tasks progress list <task-id>`: Chronological progress entries recorded for a task.
+- `tasks progress`: Alias for `tasks progress list` against the current-branch task.
+- `tasks progress list <task-id> [--full]`: Chronological progress entries recorded for a task. Pretty output shows the most recent entries by default; pass `--full` to show every entry.
 
-Task listing commands that return task arrays accept `--planned` to keep only tasks with a plan path and `--unplanned` to keep only tasks without one. The filters are mutually exclusive. Add `--count` to any task array listing command to print only the number of matching tasks, for example `tasks available --planned --count`.
+Task listing commands that return task arrays accept `--planned` to keep only tasks with a plan path and `--unplanned` to keep only tasks without one. `tasks list` also accepts `--completed` and `--incomplete` to filter by completion state. Paired filters are mutually exclusive. Add `--count` to any task array listing command to print only the number of matching tasks, for example `tasks available --planned --count`.
 
-Commands that accept a `<task-id>` accept a UUID, the literal `current` (the single active task on the current Git branch), or the literal `next` (the next claimable task). Tokens are case-sensitive. If `current` is used and no active task is assigned, the command fails with `current_task_not_found`; if more than one active task matches, it fails with `current_task_ambiguous`.
+Commands that accept a `<task-id>` accept a UUID, a unique UUID prefix, the literal `current` (the single active task on the current Git branch), or the literal `next` (the next claimable task). Tokens are case-sensitive. If a UUID prefix matches multiple tasks, the command fails with `task_id_ambiguous`. If `current` is used and no active task is assigned, the command fails with `current_task_not_found`; if more than one active task matches, it fails with `current_task_ambiguous`.
 
 ### Mutation Commands
 
@@ -101,21 +106,24 @@ Commands that accept a `<task-id>` accept a UUID, the literal `current` (the sin
 - `tasks update <task-id> [--title <title>] [--description <markdown>] [--priority 1|2|3] [--status <status>] [--start-date <date>] [--due-date <date>] [--branch <branch>] [--plan <path>] [--provider claude|codex] [--session <id>]`
 - `tasks clear <branch|plan|session|start-date|due-date> [task-id]`: Clear a single nullable field. Omitting task-id falls back to `current`. Clearing `session` removes both provider and session together.
 - `tasks progress add <task-id> --message <markdown> [--provider claude|codex] [--session <id>]`: Append a progress entry and move `draft` or `ready` tasks to `in-progress`. Provider and session are inferred from the environment when omitted, with strict provider→session pairing so sessions are never attributed to the wrong agent.
-- `tasks progress list <task-id>`: List chronological progress entries for a task.
+- `tasks progress`: Alias for `tasks progress list` against the current-branch task.
+- `tasks progress list <task-id> [--full]`: List chronological progress entries for a task. Pretty output shows the most recent entries by default; pass `--full` to show every entry.
 - `tasks delete <task-id>`: Soft-delete a task.
-- `tasks add-tag <task-id> <tag>`
-- `tasks remove-tag <task-id> <tag>`
-- `tasks add-blocker <task-id> <blocked-by-task-id>`
-- `tasks remove-blocker <task-id> <blocked-by-task-id>`
+- `tasks tags <task-id>`: List tags for a task.
+- `tasks tags add <task-id> <tag>`
+- `tasks tags remove <task-id> <tag>`
+- `tasks blockers <task-id>`: List blockers for a task.
+- `tasks blockers add <task-id> <blocked-by-task-id>`
+- `tasks blockers remove <task-id> <blocked-by-task-id>`
 - `tasks cleanup <days>`: Permanently remove completed or archived tasks whose last modified timestamp is older than the supplied day count.
 
 All flags use kebab case. Tags are trimmed and lowercased before storage. `branch`, `plan`, `provider`, and `session` are optional. Plan paths inside the project are stored relative to the project root; paths outside the project are stored as absolute paths. Worktree paths are not stored; Scrumlord derives the worktree from `git worktree list --porcelain`.
 
 ### Agent Sessions
 
-- `tasks start <task-id> --cli <claude|codex>`: Start a task in an agent CLI. Use `current` or `next` as the task-id to resolve by branch or queue position. Scrumlord creates the worktree and branch (Claude: `claude --worktree`; Codex: `~/.codex/worktrees/<slug>-<short-id>` with a `<projectRoot>/tmp/worktrees/` fallback when the home location is unwritable) before launching the provider. The agent receives a JSON payload with `worktree`, `branch`, and `phase` (`start | resume-planning | resume-implementation`), and a system prompt that names the four-phase workflow: plan → implement → `committee-review` (which opens the PR) → `address-pr` (which drives it to merge). Pass `--no-worktree` to skip worktree creation (refused on the resolved base branch unless `--force`); pass `--quiet` to suppress the pre-launch status line. If `--cli` is omitted, Scrumlord uses `SCRUMLORD_CLI`; if neither is present, it fails before launching anything.
-- `tasks resume <task-id>`: Resume the recorded provider session from the derived worktree when available, falling back to the project root.
-- `tasks pipeline --cli <claude|codex>`: Drain the ready queue serially. For each task it claims atomically via `claimNext`, materializes the worktree (Claude `--worktree`; Codex managed dir), delegates the per-task run to the agent CLI (the Claude prompt invokes the `next-task` skill; the Codex prompt inlines the four-phase workflow), polls the task's pull request to merge, and continues to the next task. A single global lockfile at `tmp/pipeline.lock` prevents concurrent pipelines on the same checkout; stale lockfiles (dead PID or older than 6 hours) are reaped automatically. Flags: `--max <n>` caps claim attempts; `--recover` runs the recovery sweep and exits (annotate-only by default; pair with `--apply` to mutate); `--recover-then-run` sweeps first and refuses to drain while any task is in `resumable` state; `--resume <task-id>` resumes a single in-flight task; `--dry-run` previews would-be claims without mutating anything; `--quiet` suppresses progress lines (errors still emit); `--json` emits the structured summary on stdout. Exit codes: `0` success, `1` stuck, `2` argument/capability error, `3` lock held, `4` manual recovery verdicts present, `5` runtime git/GitHub failure during drain, `130/143` SIGINT/SIGTERM.
+- `tasks start <task-id> --cli <claude|codex>`: Start (or resume) a task in an agent CLI. Use `current` or `next` as the task-id to resolve by branch or queue position. Scrumlord materializes a per-task worktree under `~/.scrumlord/worktrees/<slug>-<short-id>` (with a `<projectRoot>/tmp/worktrees/` fallback when the home location is unwritable) and launches the provider with `cwd` set to that worktree, regardless of provider. The agent receives a JSON payload with `worktree`, `branch`, and `phase` (`start | resume-planning | resume-implementation`), and a system prompt that names the four-phase workflow: plan → implement → `committee-review` (which opens the PR) → `address-pr` (which drives it to merge). When the task is already in-progress with a recorded provider+session, `start` reattaches the existing session via the provider's native resume command instead of re-claiming. Pass `--no-worktree` to skip worktree creation (refused on the resolved base branch unless `--force`); pass `--quiet` to suppress the pre-launch status line. If `--cli` is omitted, Scrumlord uses `SCRUMLORD_CLI`; if neither is present, it fails before launching anything. When invoked through the `tasks-start` shell function (installed by `tasks setup --shell`), the shell follows the agent into the task worktree after the session exits.
+- `tasks resume <task-id>`: Resume the recorded provider session from the derived worktree when available, falling back to the project root. The `tasks-resume` shell function (installed by `tasks setup --shell`) follows the agent into the worktree on exit, same as `tasks-start`.
+- `tasks pipeline --cli <claude|codex>`: Drain the ready queue serially. For each task it claims atomically via `claimNext`, materializes the worktree under `~/.scrumlord/worktrees/`, delegates the per-task run to the agent CLI (the Claude prompt invokes the `next-task` skill; the Codex prompt inlines the four-phase workflow), polls the task's pull request to merge, and continues to the next task. A single global lockfile at `tmp/pipeline.lock` prevents concurrent pipelines on the same checkout; stale lockfiles (dead PID or older than 6 hours) are reaped automatically. Flags: `--max <n>` caps claim attempts; `--recover` runs the recovery sweep and exits (annotate-only by default; pair with `--apply` to mutate); `--recover-then-run` sweeps first and refuses to drain while any task is in `resumable` state; `--resume <task-id>` resumes a single in-flight task; `--dry-run` previews would-be claims without mutating anything; `--quiet` suppresses progress lines (errors still emit); `--json` emits the structured summary on stdout. Exit codes: `0` success, `1` stuck, `2` argument/capability error, `3` lock held, `4` manual recovery verdicts present, `5` runtime git/GitHub failure during drain, `130/143` SIGINT/SIGTERM.
 - `tasks session <task-id>`: Return the task session report as JSON.
 - `tasks current`: Show the task for the current branch when you need to inspect the inferred ID directly.
 - `tasks progress add <task-id> --message <markdown>`: Record what changed, what was learned, or why work is blocked. Recording progress moves `draft` or `ready` tasks to `in-progress`. Agent start prompts ask agents to use this after planning, major implementation steps, blockers, and handoffs.
@@ -131,7 +139,9 @@ Scrumlord can keep branch-bound tasks synchronized with Git and GitHub state:
 
 - `tasks pr --sync`: Look at the current Git branch, inspect the matching pull request with `gh`, and update tasks whose `branch` equals the current branch. Returns `{ pullRequest, sync }`.
 - `tasks pr --sync --quiet`: Run the same synchronization without printing JSON, which is useful in hooks. Non-`pull_request_not_found` PR-fetch errors are swallowed so hooks degrade gracefully.
+- `tasks pr --watch`: Refresh the human-readable pull request readiness report every 30 seconds.
 - `tasks overview --sync`: Runs `syncGitStatus` for the current branch, then the per-open-PR `in-review` reconciliation. Returns `{ items, sync }`.
+- `tasks overview --watch`: Keeps a terminal-width pull request dashboard open and refreshes it every 30 seconds using the GitHub ETag cache.
 - `tasks setup --git-hooks`: If a Lefthook configuration is present, add jobs for `post-checkout`, `post-commit`, `post-merge`, and `pre-push` that run `tasks pr --sync --quiet`, then run `bun run lefthook install`.
 
 The synchronization rules are intentionally small: assigning a branch to a `draft` or `ready` task moves it to `in-progress`, an open pull request for a task branch moves the task to `in-review`, and a pull request merged into `main` as the `origin/main` integration branch marks it `completed`.
@@ -169,13 +179,13 @@ These commands resolve the current branch’s open pull request with the GitHub 
 - `tasks pr`: Print the pull request URL. This is the same as `tasks pr --url`.
 - `tasks pr --open`: Print the URL and open it in the system browser.
 - `tasks pr status`: Print a full readiness report for the current pull request, including unresolved review comment IDs and URLs, pending CI checks, failed CI checks, and `readyToMerge`.
-- `tasks overview`: Print all open pull requests for the project with CI status, unresolved review comment counts, and tasks whose `branch` matches each pull request head branch. Matching active tasks move to `in-review`.
+- `tasks overview`: Print all open pull requests for the project as a terminal-width table with pull request number, branch, task, readiness, unresolved review comment count, CI status, and merge-conflict state. Matching active tasks move to `in-review`.
 - `tasks comments`: Print unresolved pull request review comments.
 - `tasks ci`: Print pull request check status from `gh pr checks`.
 
 `tasks pr status` sets `readyToMerge` to `true` only when every review thread is resolved and every reported check is green. Pending, failed, cancelled, errored, or unknown check states keep `readyToMerge` false and appear in the JSON report with any available check URL.
 
-`tasks overview` returns an array. Each item includes `pullRequest`, `associatedTasks`, `reviewComments.unresolvedCount`, `continuousIntegration.status`, `continuousIntegration.checks`, and `readyToMerge`. The CI status is `success`, `failed`, or `pending`.
+`tasks overview` returns an array in JSON mode. Each item includes `pullRequest`, `associatedTasks`, `reviewComments.unresolvedCount`, `continuousIntegration.status`, `continuousIntegration.checks`, and `readyToMerge`. The CI status is `success`, `failed`, or `pending`.
 
 Scrumlord stores GitHub REST ETags in `tmp/github-etag-cache.json` and revalidates cached REST responses with `If-None-Match`. A `304 Not Modified` response reuses the cached JSON body, reducing primary REST rate-limit usage while keeping pull request and check data fresh. Review-thread reads stay on GraphQL and are not ETag cached.
 
@@ -203,7 +213,7 @@ tasks setup-subagents --all
 tasks setup-subagents codex --global
 ```
 
-The generated subagents are named `scrumlord-task-manager`. They start by running `which tasks`; if the CLI is missing, they stop with a clear installation message. They use `tasks setup status` before changing setup, decompose long documents into a candidate graph before writing, normalize priorities to `1`-`3`, create tasks with `tasks create`, use `current` as the task-id to operate on the current branch task, record progress with `tasks progress add <task-id>`, transition status with `tasks update <task-id> --status`, wire dependencies with `tasks add-blocker`, inspect existing work with `tasks list`, `tasks get`, `tasks progress list`, `tasks with-tag`, `tasks blocked-by`, and `tasks blocking`, and never edit `tmp/tasks.db` directly.
+The generated subagents are named `scrumlord-task-manager`. They start by running `which tasks`; if the CLI is missing, they stop with a clear installation message. They use `tasks setup status` before changing setup, decompose long documents into a candidate graph before writing, normalize priorities to `1`-`3`, create tasks with `tasks create`, use `current` as the task-id to operate on the current branch task, record progress with `tasks progress add <task-id>`, transition status with `tasks update <task-id> --status`, wire dependencies with `tasks blockers add`, inspect existing work with `tasks list`, `tasks get`, `tasks progress list`, `tasks with-tag`, `tasks blockers`, and `tasks blocking`, and never edit `tmp/tasks.db` directly.
 
 Claude subagents are written to `.claude/agents/scrumlord-task-manager.md` for local scope or `~/.claude/agents/scrumlord-task-manager.md` for global scope. Scrumlord also merges `Bash(tasks:*)` and `Bash(which tasks:*)` into the selected Claude settings file.
 
@@ -228,7 +238,7 @@ If `--cwd` is omitted, `tasks-mcp` uses the process working directory. Startup f
 
 The server registers typed `scrumlord_` tools for the task graph:
 
-- Query tools: `scrumlord_available_tasks`, `scrumlord_list_tasks`, `scrumlord_blocked_tasks`, `scrumlord_completed_tasks`, `scrumlord_get_task`, `scrumlord_next_task`, `scrumlord_remaining_tasks`, tag, branch, priority, dependency, session, and progress queries.
+- Query tools: `scrumlord_available_tasks`, `scrumlord_list_tasks`, `scrumlord_blocked_tasks`, `scrumlord_completed_tasks`, `scrumlord_get_task`, `scrumlord_next_task`, `scrumlord_remaining_tasks`, tag, branch, priority, status, dependency, session, and progress queries.
 - Mutation tools: `scrumlord_create_task`, `scrumlord_update_task`, `scrumlord_delete_task`, `scrumlord_archive_task`, `scrumlord_restore_task`, tag, status, branch, parent, blocker, plan, session, progress, and cleanup mutations.
 
 MCP tool errors return `isError: true` with structured content shaped as `{ "error": { "code": "...", "message": "..." } }`.
@@ -281,8 +291,9 @@ The package root intentionally exposes the same operations as the CLI. These are
 - Agent provider helpers: `agentProviders`, `getAgentProvider`, `buildTaskStartInvocation`, `buildTaskResumeInvocation`, `buildSetupInvocation`, `defaultTaskPlanPath`, `absoluteTaskPlanPath`, `resolveTaskSession`, `startTask`, `resumeTask`, `setupAgentHooks`, and `runAgentHook`.
 - Skill, Git hook, and Git status helpers: `skillTargets`, `setupSkills`, `setupGitHooks`, `syncGitStatus`, `currentGitBranch`, `worktreeForBranch`, and `runCommand`.
 - GitHub and overview helpers: `repositoryName`, `repositoryUrl`, `currentPullRequest`, `pullRequestUrl`, `pullRequestStatus`, `tasksOverview`, `unresolvedReviewComments`, `continuousIntegrationStatus`, `openPullRequests`, `reviewCommentsForPullRequest`, and `checksForPullRequest`.
-- Task query helpers: `availableTasks`, `blockedTasks`, `completedTasks`, `getTask`, `currentBranchTask`, `listTasks`, `tasksWithTag`, `tasksWithAllTags`, `tasksWithAnyTags`, `tasksWithBranch`, `tasksBlockedBy`, `tasksBlocking`, `tasksWithPriority`, `tasksWithSession`, `persistedTaskSession`, `taskProgress`, `next`, `nextTask`, `remaining`, and `remainingTasks`.
+- Task query helpers: `availableTasks`, `blockedTasks`, `completedTasks`, `getTask`, `currentBranchTask`, `listTasks`, `taskTags`, `tasksWithTag`, `tasksWithAllTags`, `tasksWithAnyTags`, `tasksWithBranch`, `tasksBlockedBy`, `tasksBlocking`, `tasksWithPriority`, `tasksWithSession`, `persistedTaskSession`, `taskProgress`, `next`, `nextTask`, `remaining`, and `remainingTasks`.
 - Task mutation helpers: `createTask`, `updateTask`, `deleteTask`, `archiveTask`, `restoreTask`, `addTaskTag`, `removeTaskTag`, `setTaskStatus`, `setTaskBranch`, `clearTaskBranch`, `setTaskParent`, `clearTaskParent`, `addTaskBlocker`, `removeTaskBlocker`, `setTaskPlan`, `clearTaskPlan`, `setTaskSession`, `clearTaskSession`, `addTaskProgress`, and `cleanupTasks`.
+- Task query helpers include `tasksWithStatus(store, status)` for status-specific lists.
 - Error helper: `ScrumlordError`.
 
 The package root also exports companion types for every public function signature:

@@ -17,6 +17,7 @@ export type RenderContext = {
   colorMode: ColorMode;
   terminalWidth: number;
   flags: ReadonlySet<string>;
+  command?: string;
   countLabel?: string;
 };
 
@@ -25,12 +26,14 @@ export const createRenderContext = (input: {
   colorMode: ColorMode;
   terminalWidth?: number;
   flags: ReadonlySet<string>;
+  command?: string;
   countLabel?: string;
 }): RenderContext => ({
   theme: createTheme(input.colorMode),
   colorMode: input.colorMode,
   terminalWidth: input.terminalWidth ?? 100,
   flags: input.flags,
+  ...(input.command !== undefined ? { command: input.command } : {}),
   ...(input.countLabel !== undefined ? { countLabel: input.countLabel } : {}),
 });
 
@@ -41,6 +44,9 @@ const isTask = (value: unknown): value is Task =>
 
 const isTaskArray = (value: unknown): value is Task[] =>
   Array.isArray(value) && value.every((item) => isTask(item));
+
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string');
 
 const isCountShape = (value: unknown): value is { count: number } =>
   typeof value === 'object' &&
@@ -66,8 +72,60 @@ const truncate = (value: string, width: number): string => {
   return `${value.slice(0, Math.max(0, width - 1))}…`;
 };
 
+const ansiEscapeSequenceEnd = (value: string, index: number): number | null => {
+  if (value.charCodeAt(index) !== 27 || value[index + 1] !== '[') return null;
+  for (let cursor = index + 2; cursor < value.length; cursor += 1) {
+    const code = value.charCodeAt(cursor);
+    if (code >= 0x40 && code <= 0x7e) return cursor + 1;
+  }
+  return null;
+};
+
+const visibleLength = (value: string): number => {
+  let width = 0;
+  for (let index = 0; index < value.length; ) {
+    const escapeEnd = ansiEscapeSequenceEnd(value, index);
+    if (escapeEnd !== null) {
+      index = escapeEnd;
+      continue;
+    }
+    const [character] = Array.from(value.slice(index));
+    if (!character) break;
+    width += 1;
+    index += character.length;
+  }
+  return width;
+};
+
+const truncateVisible = (value: string, width: number): string => {
+  if (visibleLength(value) <= width) return value;
+  if (width <= 0) return '';
+
+  let visible = 0;
+  let output = '';
+  const target = Math.max(0, width - 1);
+  for (let index = 0; index < value.length && visible < target; ) {
+    const escapeEnd = ansiEscapeSequenceEnd(value, index);
+    if (escapeEnd !== null) {
+      output += value.slice(index, escapeEnd);
+      index = escapeEnd;
+      continue;
+    }
+    const [character] = Array.from(value.slice(index));
+    if (!character) break;
+    output += character;
+    visible += 1;
+    index += character.length;
+  }
+
+  return output.includes('\u001B[') ? `${output}…\u001B[0m` : `${output}…`;
+};
+
 const padEnd = (value: string, width: number): string =>
   value + ' '.repeat(Math.max(0, width - value.length));
+
+const padEndVisible = (value: string, width: number): string =>
+  value + ' '.repeat(Math.max(0, width - visibleLength(value)));
 
 const STATUS_WIDTH = Math.max(
   ...['draft', 'ready', 'in-progress', 'in-review', 'completed'].map((s) => s.length),
@@ -75,13 +133,18 @@ const STATUS_WIDTH = Math.max(
 const MAX_LIST_ROWS = 50;
 const ID_PREFIX_LENGTH = 8;
 
-const renderTaskRow = (task: Task, theme: Theme, titleWidth: number): string => {
+const renderTaskRow = (
+  task: Task,
+  theme: Theme,
+  titleWidth: number,
+  terminalWidth: number,
+): string => {
   const id = theme.muted(task.id.slice(0, ID_PREFIX_LENGTH));
   const status = statusColor(theme, task.status)(padEnd(task.status, STATUS_WIDTH));
   const priority = priorityColor(theme, task.priority)(`P${task.priority}`);
   const title = truncate(task.title, titleWidth);
   const tags = task.tags.length > 0 ? `  ${theme.muted(task.tags.join(','))}` : '';
-  return `${id}  ${status}  ${priority}  ${title}${tags}`;
+  return truncateVisible(`${id}  ${status}  ${priority}  ${title}${tags}`, terminalWidth);
 };
 
 const renderTaskList = (value: unknown, context: RenderContext): string => {
@@ -97,56 +160,31 @@ const renderTaskList = (value: unknown, context: RenderContext): string => {
   const titleWidth = Math.max(20, terminalWidth - overhead);
 
   const visible = value.slice(0, MAX_LIST_ROWS);
-  const rows = visible.map((task) => renderTaskRow(task, theme, titleWidth));
+  const rows = visible.map((task) => renderTaskRow(task, theme, titleWidth, terminalWidth));
 
   if (value.length > MAX_LIST_ROWS) {
+    rows.push('');
     rows.push(
-      theme.muted(`\nshowing ${MAX_LIST_ROWS} of ${value.length} — pass --json for the full list`),
+      truncateVisible(
+        theme.muted(`showing ${MAX_LIST_ROWS} of ${value.length} — pass --json for the full list`),
+        terminalWidth,
+      ),
     );
     return `${rows.join('\n')}\n`;
   }
 
   const label = countLabel ?? 'task(s)';
-  rows.push(theme.muted(`\n${value.length} ${label}`));
+  rows.push('');
+  rows.push(truncateVisible(theme.muted(`${value.length} ${label}`), terminalWidth));
   return `${rows.join('\n')}\n`;
 };
 
+type YamlScalar = string | number | boolean | null;
+type YamlBlocker = { readonly id: string; readonly status: string };
+type YamlValue = YamlScalar | readonly string[] | readonly YamlBlocker[];
+
 const formatField = (theme: Theme, value: string | null, fallback = '(none)'): string =>
   value === null || value === '' ? theme.muted(fallback) : value;
-
-const formatList = (theme: Theme, values: readonly string[]): string =>
-  values.length === 0 ? theme.muted('(none)') : values.join(', ');
-
-const renderTaskDescription = (theme: Theme, description: string): string => {
-  if (!description.trim()) return '';
-  const lines = description.split('\n');
-  const visible = lines.slice(0, 8);
-  const indented = visible.map((line) => `  ${line}`).join('\n');
-  if (lines.length > 8) {
-    return `\n\n${theme.muted('description:')}\n${indented}\n${theme.muted(`  (… ${lines.length - 8} more lines — pass --json)`)}\n`;
-  }
-  return `\n\n${theme.muted('description:')}\n${indented}\n`;
-};
-
-const taskFieldRows = (task: Task, theme: Theme): ReadonlyArray<readonly [string, string]> => [
-  ['id', task.id],
-  ['title', task.title],
-  ['status', statusColor(theme, task.status)(task.status)],
-  ['priority', priorityColor(theme, task.priority)(`P${task.priority}`)],
-  ['branch', formatField(theme, task.branch)],
-  ['plan', formatField(theme, task.plan)],
-  ['tags', formatList(theme, task.tags)],
-  ['blocked by', formatList(theme, task.blockedBy)],
-  ['blocking', formatList(theme, task.blocking)],
-  [
-    'session',
-    task.provider !== null || task.session !== null
-      ? `${task.provider ?? '?'}:${task.session ?? '?'}`
-      : theme.muted('(none)'),
-  ],
-  ['created', theme.muted(task.createdAt)],
-  ['modified', theme.muted(task.lastModifiedAt)],
-];
 
 const renderKeyValueBlock = (
   entries: ReadonlyArray<readonly [string, string]>,
@@ -158,13 +196,70 @@ const renderKeyValueBlock = (
     .join('\n');
 };
 
+const renderYamlScalar = (value: YamlScalar): string => {
+  if (value === null) return 'null';
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return JSON.stringify(value);
+};
+
+const isYamlArray = (value: YamlValue): value is readonly string[] | readonly YamlBlocker[] =>
+  Array.isArray(value);
+
+const isBlockerArray = (
+  value: readonly string[] | readonly YamlBlocker[],
+): value is readonly YamlBlocker[] => value.length > 0 && typeof value[0] === 'object';
+
+const renderYamlBlocker = (blocker: YamlBlocker): string =>
+  `{ id: ${renderYamlScalar(blocker.id)}, status: ${renderYamlScalar(blocker.status)} }`;
+
+const renderYamlField = (key: string, value: YamlValue): string => {
+  if (!isYamlArray(value)) return `${key}: ${renderYamlScalar(value)}`;
+  if (value.length === 0) return `${key}: []`;
+  if (isBlockerArray(value)) {
+    return [`${key}:`, ...value.map((item) => `  - ${renderYamlBlocker(item)}`)].join('\n');
+  }
+  return [`${key}:`, ...value.map((item) => `  - ${renderYamlScalar(item)}`)].join('\n');
+};
+
+const taskFrontMatterFields = (task: Task): ReadonlyArray<readonly [string, YamlValue]> => [
+  ['id', task.id],
+  ['title', task.title],
+  ['status', task.status],
+  ['priority', task.priority],
+  ['createdAt', task.createdAt],
+  ['startDate', task.startDate],
+  ['dueDate', task.dueDate],
+  ['branch', task.branch],
+  ['plan', task.plan],
+  ['provider', task.provider],
+  ['session', task.session],
+  ['tags', task.tags],
+  ['blocked', task.blocked],
+  ['blockedBy', task.blockedBy],
+  ['blocking', task.blocking],
+  ['lastModifiedAt', task.lastModifiedAt],
+  ['deleted', task.deleted],
+];
+
+const renderTaskMarkdownDocument = (task: Task): string => {
+  const frontMatter = taskFrontMatterFields(task)
+    .map(([key, value]) => renderYamlField(key, value))
+    .join('\n');
+  return `---\n${frontMatter}\n---\n\n${task.description}\n`;
+};
+
 const renderSingleTask = (value: unknown, context: RenderContext): string => {
   const { theme } = context;
   if (value === null) return `${theme.muted('(no task)')}\n`;
   if (!isTask(value)) return formatJson(value);
-  const block = renderKeyValueBlock(taskFieldRows(value, theme), theme);
-  const description = renderTaskDescription(theme, value.description);
-  return `${block}${description}\n`;
+  return renderTaskMarkdownDocument(value);
+};
+
+const renderTagList = (value: unknown, context: RenderContext): string => {
+  const { theme } = context;
+  if (!isStringArray(value)) return formatJson(value);
+  if (value.length === 0) return `${theme.muted('(no tags)')}\n`;
+  return `${value.map((tag) => `- ${tag}`).join('\n')}\n`;
 };
 
 const renderRemaining = (value: unknown, context: RenderContext): string => {
@@ -207,11 +302,14 @@ const renderTaskProgress = (value: unknown, context: RenderContext): string => {
   const { theme } = context;
   if (!isTaskProgressArray(value)) return formatJson(value);
   if (value.length === 0) return `${theme.muted('(no progress recorded)')}\n`;
-  const visible = value.slice(0, MAX_PROGRESS_ROWS);
+  const isFull = context.flags.has('full');
+  const visible = isFull ? value : value.slice(-MAX_PROGRESS_ROWS);
   const rows = visible.map((entry) => renderProgressLine(entry, theme));
-  if (value.length > MAX_PROGRESS_ROWS) {
+  if (!isFull && value.length > MAX_PROGRESS_ROWS) {
     rows.push(
-      theme.muted(`(showing ${MAX_PROGRESS_ROWS} of ${value.length} — pass --json for all)`),
+      theme.muted(
+        `(showing most recent ${MAX_PROGRESS_ROWS} of ${value.length} — pass --full for all)`,
+      ),
     );
   }
   return `${rows.join('\n')}\n`;
@@ -323,37 +421,123 @@ const isPullRequestOverviewArray = (value: unknown): value is PullRequestOvervie
       'associatedTasks' in item,
   );
 
-const renderOverviewItem = (item: PullRequestOverviewItem, theme: Theme): string => {
-  const pr = item.pullRequest;
+type OverviewColumn = {
+  header: string;
+  cells: string[];
+};
+
+const overviewTaskCell = (item: PullRequestOverviewItem, theme: Theme): string => {
+  const [task] = item.associatedTasks;
+  if (!task) return theme.muted('-');
+  const suffix = item.associatedTasks.length > 1 ? ` +${item.associatedTasks.length - 1}` : '';
+  return `${theme.muted(task.id.slice(0, ID_PREFIX_LENGTH))} ${task.title}${suffix}`;
+};
+
+const overviewCiCell = (item: PullRequestOverviewItem, theme: Theme): string => {
   const ci = item.continuousIntegration;
-  const ciColor =
-    ci.status === 'success' ? theme.success : ci.status === 'pending' ? theme.warning : theme.error;
-  const tasksLines =
-    item.associatedTasks.length === 0
-      ? `  ${theme.muted('tasks:    (none)')}`
-      : item.associatedTasks
-          .map(
-            (task, index) =>
-              `  ${index === 0 ? 'tasks:   ' : '         '} ${theme.muted(task.id.slice(0, ID_PREFIX_LENGTH))} ${task.title}`,
-          )
-          .join('\n');
-  const ready = item.readyToMerge ? theme.success('yes') : theme.warning('no');
-  return [
-    `#${pr.number}  ${pr.title ?? ''}`,
-    `  branch:  ${pr.headRefName}`,
-    `  CI:      ${ciColor(ci.status)}  (${ci.failedCount} failed, ${ci.pendingCount} pending)`,
-    `  review:  ${item.reviewComments.unresolvedCount} unresolved comment(s)`,
-    tasksLines,
-    `  ready:   ${ready}`,
-  ].join('\n');
+  if (ci.status === 'success') return theme.success('ok');
+  if (ci.status === 'pending') return theme.warning(`wait ${ci.pendingCount}`);
+  return theme.error(`fail ${ci.failedCount}`);
+};
+
+const hasMergeConflicts = (item: PullRequestOverviewItem): boolean | null => {
+  const { mergeable, mergeStateStatus } = item.pullRequest;
+  if (mergeable === 'CONFLICTING' || mergeStateStatus === 'DIRTY') return true;
+  if (mergeable === null && mergeStateStatus === null) return null;
+  if (mergeable === 'UNKNOWN' || mergeStateStatus === 'UNKNOWN') return null;
+  return false;
+};
+
+const overviewMergeConflictsCell = (item: PullRequestOverviewItem, theme: Theme): string => {
+  const conflicts = hasMergeConflicts(item);
+  if (conflicts === null) return theme.muted('?');
+  return conflicts ? theme.error('yes') : theme.success('no');
+};
+
+const overviewColumns = (value: PullRequestOverviewItem[], theme: Theme): OverviewColumn[] => [
+  {
+    header: 'PR',
+    cells: value.map((item) => `#${item.pullRequest.number}`),
+  },
+  {
+    header: 'Branch',
+    cells: value.map((item) => item.pullRequest.headRefName),
+  },
+  {
+    header: 'Task',
+    cells: value.map((item) => overviewTaskCell(item, theme)),
+  },
+  {
+    header: 'Rd',
+    cells: value.map((item) => (item.readyToMerge ? theme.success('✔') : theme.warning('X'))),
+  },
+  {
+    header: 'Cmt',
+    cells: value.map((item) => String(item.reviewComments.unresolvedCount)),
+  },
+  {
+    header: 'CI',
+    cells: value.map((item) => overviewCiCell(item, theme)),
+  },
+  {
+    header: 'Conf',
+    cells: value.map((item) => overviewMergeConflictsCell(item, theme)),
+  },
+];
+
+const desiredColumnWidth = (column: OverviewColumn): number => {
+  return Math.max(visibleLength(column.header), ...column.cells.map((cell) => visibleLength(cell)));
+};
+
+const overviewColumnWidths = (columns: OverviewColumn[], terminalWidth: number): number[] => {
+  const separatorWidth = 2;
+  const available = Math.max(0, terminalWidth - separatorWidth * (columns.length - 1));
+  const widths = columns.map(desiredColumnWidth);
+  while (widths.reduce((sum, width) => sum + width, 0) > available) {
+    let widestIndex = 0;
+    for (let index = 1; index < widths.length; index += 1) {
+      if ((widths[index] ?? 0) > (widths[widestIndex] ?? 0)) widestIndex = index;
+    }
+    if (widths[widestIndex] === 0) break;
+    widths[widestIndex] = (widths[widestIndex] ?? 0) - 1;
+  }
+  return widths;
+};
+
+const renderOverviewTableRow = (cells: string[], widths: number[]): string => {
+  return truncateVisible(
+    cells
+      .map((cell, index) =>
+        padEndVisible(truncateVisible(cell, widths[index] ?? 0), widths[index] ?? 0),
+      )
+      .join('  '),
+    widths.reduce((sum, width) => sum + width, 0) + 2 * Math.max(0, widths.length - 1),
+  );
 };
 
 const renderPullRequestOverview = (value: unknown, context: RenderContext): string => {
-  const { theme } = context;
+  const { theme, terminalWidth } = context;
   if (!isPullRequestOverviewArray(value)) return formatJson(value);
-  if (value.length === 0) return `${theme.muted('(no open pull requests)')}\n`;
-  const cards = value.map((item) => renderOverviewItem(item, theme));
-  return `${cards.join('\n\n')}\n${theme.muted(`\n${value.length} PR(s)`)}\n`;
+  if (value.length === 0) return `${theme.muted('(No open pull requests.)')}\n`;
+  const columns = overviewColumns(value, theme);
+  const widths = overviewColumnWidths(columns, terminalWidth);
+  const header = renderOverviewTableRow(
+    columns.map((column) => theme.bold(column.header)),
+    widths,
+  );
+  const dividerWidth = Math.min(
+    terminalWidth,
+    widths.reduce((sum, width) => sum + width, 0) + 2 * Math.max(0, widths.length - 1),
+  );
+  const rows = value.map((_, rowIndex) =>
+    renderOverviewTableRow(
+      columns.map((column) => column.cells[rowIndex] ?? ''),
+      widths,
+    ),
+  );
+  rows.push('');
+  rows.push(truncateVisible(theme.muted(`${value.length} PR(s)`), terminalWidth));
+  return `${[header, '-'.repeat(dividerWidth), ...rows].join('\n')}\n`;
 };
 
 /**
@@ -364,6 +548,7 @@ const renderPullRequestOverview = (value: unknown, context: RenderContext): stri
 export const renderers: Partial<Record<DataShape, PrettyRenderer>> = {
   'task-list': renderTaskList,
   'single-task': renderSingleTask,
+  'tag-list': renderTagList,
   remaining: renderRemaining,
   cleanup: renderCleanup,
   'task-progress': renderTaskProgress,

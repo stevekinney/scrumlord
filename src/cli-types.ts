@@ -48,6 +48,9 @@ export type CliOptions = {
     options?: SetupAgentHooksOptions,
   ) => Promise<SetupAgentHooksResult>;
   setupGitHooks?: (projectRoot: string) => Promise<SetupGitHooksResult>;
+  sleep?: (milliseconds: number) => Promise<void>;
+  writeStdout?: (text: string) => void;
+  watchIterations?: number;
   syncGitStatus?: (store: TaskStore) => Promise<unknown>;
   github?: {
     repositoryName(projectRoot: string): Promise<string>;

@@ -21,6 +21,50 @@ const emptyStore = (): TaskStore =>
 describe('cli-runner output mode resolution', () => {
   const createStore = async () => emptyStore();
 
+  it('renders human-readable errors for TTY users', async () => {
+    const result = await runTasksCli(['available', '--planned', '--unplanned'], {
+      createStore,
+      isStdoutTty: true,
+      colorMode: 'never',
+      environment: {},
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('error: Use either --planned or --unplanned, not both.');
+    expect(result.stderr).toContain('code: plan_filter_conflict');
+    expect(() => JSON.parse(result.stderr)).toThrow();
+  });
+
+  it('keeps JSON errors for agents and non-TTY consumers', async () => {
+    const agent = await runTasksCli(['available', '--planned', '--unplanned'], {
+      createStore,
+      isStdoutTty: true,
+      environment: { CLAUDECODE: '1' },
+    });
+    const nonTty = await runTasksCli(['available', '--planned', '--unplanned'], {
+      createStore,
+      isStdoutTty: false,
+      environment: {},
+    });
+
+    expect(JSON.parse(agent.stderr).error.code).toBe('plan_filter_conflict');
+    expect(agent.stderr).toBe(nonTty.stderr);
+  });
+
+  it('renders main help for an empty invocation before output mode resolution', async () => {
+    const result = await runTasksCli([], {
+      createStore,
+      isStdoutTty: true,
+      environment: { CODEX_MANAGED_BY_BUN: '1' },
+      colorMode: 'never',
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toContain('tasks <command> [options]');
+  });
+
   it('rejects --json on raw text invocations', async () => {
     const result = await runTasksCli(['pr', '--url', '--json'], { createStore });
     expect(JSON.parse(result.stderr).error).toEqual({
@@ -114,6 +158,28 @@ describe('cli-runner output mode resolution', () => {
         databasePath: '/project/tmp/tasks.db',
         progress: () => [progressEntry, progressEntry],
         addProgress: () => progressEntry,
+        list: () => [
+          {
+            id: 'task-id',
+            title: 'T',
+            status: 'in-progress',
+            description: '',
+            priority: 1,
+            createdAt: '2026-05-15T00:00:00.000Z',
+            lastModifiedAt: '2026-05-15T00:00:00.000Z',
+            startDate: null,
+            dueDate: null,
+            branch: null,
+            plan: null,
+            provider: null,
+            session: null,
+            tags: [],
+            blocked: false,
+            blockedBy: [],
+            blocking: [],
+            deleted: false,
+          },
+        ],
         getTask: () => ({
           id: 'task-id',
           title: 'T',
@@ -129,6 +195,7 @@ describe('cli-runner output mode resolution', () => {
           provider: null,
           session: null,
           tags: [],
+          blocked: false,
           blockedBy: [],
           blocking: [],
           deleted: false,

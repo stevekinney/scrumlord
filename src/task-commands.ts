@@ -47,6 +47,7 @@ export type CleanupTasksResult =
     };
 
 export type TaskPlanFilter = 'planned' | 'unplanned';
+export type TaskCompletionFilter = 'completed' | 'incomplete';
 
 export type TaskListingOptions = {
   plan?: TaskPlanFilter;
@@ -57,6 +58,7 @@ export type CountTaskListingOptions = TaskListingOptions & {
 };
 
 export type ListTasksOptions = TaskListingOptions & {
+  completion?: TaskCompletionFilter;
   includeInactive?: boolean;
 };
 
@@ -76,6 +78,15 @@ const filterTasksByPlan = <TaskValue extends Task>(
   return tasks.filter((task) =>
     options.plan === 'planned' ? task.plan !== null : task.plan === null,
   );
+};
+
+const filterTasksByCompletion = <TaskValue extends Task>(
+  tasks: TaskValue[],
+  completion: TaskCompletionFilter | undefined,
+): TaskValue[] => {
+  if (completion === 'completed') return tasks.filter((task) => task.status === 'completed');
+  if (completion === 'incomplete') return tasks.filter((task) => task.status !== 'completed');
+  return tasks;
 };
 
 const taskListingResult = <TaskValue extends Task>(
@@ -139,6 +150,13 @@ export const getTask = (store: Pick<TaskStore, 'getTask'>, id: TaskIdentifier): 
   return store.getTask(id);
 };
 
+/** Returns tags for one task. */
+export const taskTags = (store: Pick<TaskStore, 'getTask'>, id: TaskIdentifier): string[] => {
+  const task = store.getTask(id);
+  if (!task) throw new ScrumlordError('task_not_found', `Task ${id} not found.`);
+  return task.tags;
+};
+
 /** Returns active tasks, or all tasks when inactive records are requested. */
 export function listTasks(store: Pick<TaskStore, 'list'>, options: CountListTasksOptions): number;
 export function listTasks(store: Pick<TaskStore, 'list'>, options?: ListTasksOptions): Task[];
@@ -146,7 +164,8 @@ export function listTasks(
   store: Pick<TaskStore, 'list'>,
   options: ListTasksOptions & { count?: boolean } = {},
 ): Task[] | number {
-  return taskListingResult(store.list(options), options);
+  const filteredTasks = filterTasksByCompletion(store.list(options), options.completion);
+  return taskListingResult(filteredTasks, options);
 }
 
 /** Returns tasks with one normalized tag. */
@@ -286,6 +305,25 @@ export function tasksWithPriority(
   options: TaskListingResultOptions = {},
 ): Task[] | number {
   return taskListingResult(store.withPriority(priority), options);
+}
+
+/** Returns tasks with the supplied status. */
+export function tasksWithStatus(
+  store: Pick<TaskStore, 'withStatus'>,
+  status: TaskStatus,
+  options: CountTaskListingOptions,
+): number;
+export function tasksWithStatus(
+  store: Pick<TaskStore, 'withStatus'>,
+  status: TaskStatus,
+  options?: TaskListingOptions,
+): Task[];
+export function tasksWithStatus(
+  store: Pick<TaskStore, 'withStatus'>,
+  status: TaskStatus,
+  options: TaskListingResultOptions = {},
+): Task[] | number {
+  return taskListingResult(store.withStatus(status), options);
 }
 
 /** Creates a task. */

@@ -28,15 +28,18 @@ import {
   type CountListTasksOptions,
   type CountTaskListingOptions,
   type ListTasksOptions,
+  type TaskCompletionFilter,
   type TaskListingOptions,
   type TaskPlanFilter,
   taskProgress,
+  taskTags,
   tasksBlockedBy,
   tasksBlocking,
   tasksWithAllTags,
   tasksWithAnyTags,
   tasksWithBranch,
   tasksWithPriority,
+  tasksWithStatus,
   updateTask,
 } from './task-commands.js';
 import { next, remaining } from './task-queries.js';
@@ -62,9 +65,10 @@ const taskListingCommands = new Set([
   'tagged',
   'with-branch',
   'blocked-by',
+  'blockers',
   'blocking',
   'priority',
-  'with-priority',
+  'status',
 ]);
 
 const applyOptionalCreateFlags = (input: CreateTaskInput, flags: Map<string, string[]>): void => {
@@ -266,6 +270,18 @@ const taskListingOptionsFrom = (parsed: ParsedArguments): TaskListingOptions => 
   return planFilter ? { plan: planFilter } : {};
 };
 
+const taskCompletionFilterFrom = (parsed: ParsedArguments): TaskCompletionFilter | null => {
+  if (parsed.flags.has('completed') && parsed.flags.has('incomplete')) {
+    throw new ScrumlordError(
+      'completion_filter_conflict',
+      'Use either --completed or --incomplete, not both.',
+    );
+  }
+  if (parsed.flags.has('completed')) return 'completed';
+  if (parsed.flags.has('incomplete')) return 'incomplete';
+  return null;
+};
+
 const taskListingResultOptionsFrom = (
   parsed: ParsedArguments,
 ): TaskListingOptions | CountTaskListingOptions => {
@@ -276,8 +292,10 @@ const taskListingResultOptionsFrom = (
 const listTasksOptionsFrom = (
   parsed: ParsedArguments,
 ): ListTasksOptions | CountListTasksOptions => {
+  const completionFilter = taskCompletionFilterFrom(parsed);
   const options = {
     ...taskListingOptionsFrom(parsed),
+    ...(completionFilter ? { completion: completionFilter } : {}),
     includeInactive: parsed.flags.has('all'),
   };
   return parsed.flags.has('count') ? { ...options, count: true } : options;
@@ -346,6 +364,18 @@ const searchInputFrom = (parsed: ParsedArguments): ParsedSearchInput => {
   return { query, options };
 };
 
+const tagsSubcommandFrom = (parsed: ParsedArguments): 'add' | 'remove' | 'list' => {
+  const first = parsed.positionals[0];
+  if (first === 'add' || first === 'remove') return first;
+  return 'list';
+};
+
+const blockersSubcommandFrom = (parsed: ParsedArguments): 'add' | 'remove' | 'list' => {
+  const first = parsed.positionals[0];
+  if (first === 'add' || first === 'remove') return first;
+  return 'list';
+};
+
 const storeCommandHandlers: Record<string, StoreCommandHandler> = {
   available: (store, parsed) => availableTasks(store, taskListingResultOptionsFrom(parsed)),
   list: (store, parsed) => listTasks(store, listTasksOptionsFrom(parsed)),
@@ -384,10 +414,10 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
       parsePriority(Number(required(parsed.positionals, 'priority'))),
       taskListingResultOptionsFrom(parsed),
     ),
-  'with-priority': (store, parsed) =>
-    tasksWithPriority(
+  status: (store, parsed) =>
+    tasksWithStatus(
       store,
-      parsePriority(Number(required(parsed.positionals, 'priority'))),
+      parseStatus(required(parsed.positionals, 'status')),
       taskListingResultOptionsFrom(parsed),
     ),
   session: async (store, parsed, options) =>
@@ -396,8 +426,48 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
       await resolveTaskId(store, required(parsed.positionals, 'task id')),
       options.environment ? { environment: options.environment } : {},
     ),
+  tags: async (store, parsed) => {
+    const subcommand = tagsSubcommandFrom(parsed);
+    if (subcommand === 'add') {
+      return addTaskTag(
+        store,
+        await resolveTaskId(store, required(parsed.positionals.slice(1), 'task id')),
+        required(parsed.positionals.slice(2), 'tag'),
+      );
+    }
+    if (subcommand === 'remove') {
+      return removeTaskTag(
+        store,
+        await resolveTaskId(store, required(parsed.positionals.slice(1), 'task id')),
+        required(parsed.positionals.slice(2), 'tag'),
+      );
+    }
+    return taskTags(store, await resolveTaskId(store, required(parsed.positionals, 'task id')));
+  },
+  blockers: async (store, parsed) => {
+    const subcommand = blockersSubcommandFrom(parsed);
+    if (subcommand === 'add') {
+      return addTaskBlocker(
+        store,
+        await resolveTaskId(store, required(parsed.positionals.slice(1), 'task id')),
+        await resolveTaskId(store, required(parsed.positionals.slice(2), 'blocked-by task id')),
+      );
+    }
+    if (subcommand === 'remove') {
+      return removeTaskBlocker(
+        store,
+        await resolveTaskId(store, required(parsed.positionals.slice(1), 'task id')),
+        await resolveTaskId(store, required(parsed.positionals.slice(2), 'blocked-by task id')),
+      );
+    }
+    return tasksBlockedBy(
+      store,
+      await resolveTaskId(store, required(parsed.positionals, 'task id')),
+      taskListingResultOptionsFrom(parsed),
+    );
+  },
   progress: async (store, parsed, options) => {
-    const subcommand = parsed.positionals[0];
+    const subcommand = parsed.positionals[0] ?? 'list';
     if (subcommand === 'list') {
       const taskId = parsed.positionals[1]
         ? await resolveTaskId(store, parsed.positionals[1])
@@ -451,30 +521,6 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
     deleteTask(store, await resolveTaskId(store, required(parsed.positionals, 'task id')), {
       hard: parsed.flags.has('hard'),
     }),
-  'add-tag': async (store, parsed) =>
-    addTaskTag(
-      store,
-      await resolveTaskId(store, required(parsed.positionals, 'task id')),
-      required(parsed.positionals.slice(1), 'tag'),
-    ),
-  'remove-tag': async (store, parsed) =>
-    removeTaskTag(
-      store,
-      await resolveTaskId(store, required(parsed.positionals, 'task id')),
-      required(parsed.positionals.slice(1), 'tag'),
-    ),
-  'add-blocker': async (store, parsed) =>
-    addTaskBlocker(
-      store,
-      await resolveTaskId(store, required(parsed.positionals, 'task id')),
-      await resolveTaskId(store, required(parsed.positionals.slice(1), 'blocked-by task id')),
-    ),
-  'remove-blocker': async (store, parsed) =>
-    removeTaskBlocker(
-      store,
-      await resolveTaskId(store, required(parsed.positionals, 'task id')),
-      await resolveTaskId(store, required(parsed.positionals.slice(1), 'blocked-by task id')),
-    ),
   cleanup: async (store, parsed, options) => {
     const cleanupMode = cleanupModeFrom(parsed);
     const { runCommand } = await import('./command-runner.js');
@@ -521,6 +567,9 @@ const validateProgressListFlags = (flags: Map<string, string[]>): void => {
 };
 
 const validateProgressAddFlags = (flags: Map<string, string[]>): void => {
+  if (flags.has('full')) {
+    throw new ScrumlordError('invalid_progress_flag', '--full is not valid for progress add.');
+  }
   const explicitProvider = flags.get('provider')?.at(-1);
   if (explicitProvider !== undefined && explicitProvider.trim()) {
     parseAgentProvider(explicitProvider);
@@ -538,13 +587,7 @@ const storeCommandInputValidators: Partial<Record<string, StoreCommandInputValid
     updateInputFromFlags(parsed.flags);
   },
   progress: (parsed) => {
-    const subcommand = parsed.positionals[0];
-    if (!subcommand) {
-      throw new ScrumlordError(
-        'missing_subcommand',
-        'tasks progress requires a subcommand: list or add.',
-      );
-    }
+    const subcommand = parsed.positionals[0] ?? 'list';
     if (subcommand !== 'list' && subcommand !== 'add') {
       throw new ScrumlordError(
         'invalid_progress_subcommand',
@@ -553,6 +596,36 @@ const storeCommandInputValidators: Partial<Record<string, StoreCommandInputValid
     }
     if (subcommand === 'list') validateProgressListFlags(parsed.flags);
     if (subcommand === 'add') validateProgressAddFlags(parsed.flags);
+  },
+  tags: (parsed) => {
+    const subcommand = tagsSubcommandFrom(parsed);
+    if (subcommand === 'list' && parsed.positionals.length !== 1) {
+      throw new ScrumlordError(
+        'invalid_tags_subcommand',
+        'tasks tags expects <task-id>, add <task-id> <tag>, or remove <task-id> <tag>.',
+      );
+    }
+    if ((subcommand === 'add' || subcommand === 'remove') && parsed.positionals.length !== 3) {
+      throw new ScrumlordError(
+        'invalid_tags_subcommand',
+        'tasks tags expects <task-id>, add <task-id> <tag>, or remove <task-id> <tag>.',
+      );
+    }
+  },
+  blockers: (parsed) => {
+    const subcommand = blockersSubcommandFrom(parsed);
+    if (subcommand === 'list' && parsed.positionals.length !== 1) {
+      throw new ScrumlordError(
+        'invalid_blockers_subcommand',
+        'tasks blockers expects <task-id>, add <task-id> <blocked-by-task-id>, or remove <task-id> <blocked-by-task-id>.',
+      );
+    }
+    if ((subcommand === 'add' || subcommand === 'remove') && parsed.positionals.length !== 3) {
+      throw new ScrumlordError(
+        'invalid_blockers_subcommand',
+        'tasks blockers expects <task-id>, add <task-id> <blocked-by-task-id>, or remove <task-id> <blocked-by-task-id>.',
+      );
+    }
   },
   clear: (parsed) => {
     const property = parsed.positionals[0];
@@ -577,8 +650,8 @@ const storeCommandInputValidators: Partial<Record<string, StoreCommandInputValid
   priority: (parsed) => {
     parsePriority(Number(required(parsed.positionals, 'priority')));
   },
-  'with-priority': (parsed) => {
-    parsePriority(Number(required(parsed.positionals, 'priority')));
+  status: (parsed) => {
+    parseStatus(required(parsed.positionals, 'status'));
   },
   search: (parsed) => {
     searchInputFrom(parsed);

@@ -65,7 +65,7 @@ const createTask = async (root: string, title: string, flags: string[] = []): Pr
 };
 
 const addBlocker = async (root: string, taskId: string, blockerId: string): Promise<void> => {
-  await expectSuccessfulCommand(root, ['add-blocker', taskId, blockerId]);
+  await expectSuccessfulCommand(root, ['blockers', 'add', taskId, blockerId]);
 };
 
 const readTaskList = async (root: string, command: string[]): Promise<Task[]> => {
@@ -313,9 +313,69 @@ describe('task listing plan filters', () => {
       ['blocked-by', targetWithMixedBlockers.id],
       ['blocking', commonBlocker.id],
       ['priority', '3'],
-      ['with-priority', '3'],
+      ['status', 'ready'],
     ];
 
     for (const command of listingCommands) await expectPlanFilter(root, command);
+  });
+});
+
+describe('tasks list completion filters', () => {
+  it('filters output by exact task status', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+
+    const ready = await createTask(root, 'Ready task');
+    const inProgress = await createTask(root, 'In progress task', ['--status', 'in-progress']);
+    await createTask(root, 'Completed task', ['--status', 'completed']);
+
+    const inProgressTasks = await readTaskList(root, ['status', 'in-progress']);
+    const readyCount = await readTaskCount(root, ['status', 'ready']);
+
+    expect(inProgressTasks.map((task) => task.id)).toEqual([inProgress.id]);
+    expect(readyCount).toBe(1);
+    expect(ready.id).not.toBe(inProgress.id);
+  });
+
+  it('rejects invalid task status queries', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+
+    await expectError(root, ['status', 'later'], 'invalid_status');
+  });
+
+  it('filters list output by completed and incomplete tasks', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+
+    const ready = await createTask(root, 'Ready task');
+    const inProgress = await createTask(root, 'In progress task', ['--status', 'in-progress']);
+    const completed = await createTask(root, 'Completed task', ['--status', 'completed']);
+
+    const completedTasks = await readTaskList(root, ['list', '--completed']);
+    const incompleteTasks = await readTaskList(root, ['list', '--incomplete']);
+
+    expect(completedTasks.map((task) => task.id)).toEqual([completed.id]);
+    expect(incompleteTasks.map((task) => task.id).toSorted()).toEqual(
+      [inProgress.id, ready.id].toSorted(),
+    );
+  });
+
+  it('combines completion filters with --all and --count', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+
+    const completed = await createTask(root, 'Completed task', ['--status', 'completed']);
+    await runTasksCli(['delete', completed.id], { cwd: root });
+
+    expect(await readTaskCount(root, ['list', '--completed'])).toBe(0);
+    expect(await readTaskCount(root, ['list', '--all', '--completed'])).toBe(1);
+  });
+
+  it('returns exit 1 when --completed and --incomplete are combined', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+
+    await expectError(root, ['list', '--completed', '--incomplete'], 'completion_filter_conflict');
   });
 });

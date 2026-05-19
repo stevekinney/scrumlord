@@ -20,6 +20,7 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   provider: null,
   session: null,
   tags: [],
+  blocked: false,
   blockedBy: [],
   blocking: [],
   lastModifiedAt: '2026-05-11T00:00:00.000Z',
@@ -106,6 +107,12 @@ describe('runTasksCli boundary commands', () => {
       headRefName: 'feature/task-graph',
       headSha: 'abc123',
       title: 'Task graph',
+      state: 'OPEN' as const,
+      baseRefName: 'main',
+      mergedAt: null,
+      body: null,
+      mergeable: 'MERGEABLE' as const,
+      mergeStateStatus: 'CLEAN' as const,
     };
     const check = {
       name: 'build',
@@ -194,6 +201,42 @@ describe('runTasksCli boundary commands', () => {
     const pullRequestOverviewResult = await runTasksCli(['pr'], { cwd: root, github });
     expect(JSON.parse(pullRequestOverviewResult.stdout).readyToMerge).toBe(true);
     expect(githubCalls).toContain(`status:${root}`);
+    const pullRequestPrettyResult = await runTasksCli(['pr'], {
+      cwd: root,
+      github,
+      isStdoutTty: true,
+      colorMode: 'never',
+      terminalWidth: 80,
+    });
+    expect(pullRequestPrettyResult.stdout).toContain('#1');
+    expect(pullRequestPrettyResult.stdout).toContain('Task graph');
+    expect(pullRequestPrettyResult.stdout).toContain('feature/task-graph');
+    expect(pullRequestPrettyResult.stdout).toContain('ready to merge');
+    const pullRequestWatchWrites: string[] = [];
+    const pullRequestWatchSleeps: number[] = [];
+    const pullRequestWatchResult = await runTasksCli(['pr', '--watch'], {
+      cwd: root,
+      github,
+      sleep: async (milliseconds) => {
+        pullRequestWatchSleeps.push(milliseconds);
+      },
+      writeStdout: (text) => pullRequestWatchWrites.push(text),
+      watchIterations: 2,
+    });
+    expect(pullRequestWatchResult).toEqual({ exitCode: 0, stdout: '', stderr: '' });
+    expect(pullRequestWatchSleeps).toEqual([30_000]);
+    expect(pullRequestWatchWrites).toHaveLength(2);
+    expect(pullRequestWatchWrites[0]).toStartWith('\u001B[2J\u001B[H');
+    expect(pullRequestWatchWrites[0]).toContain('#1');
+    expect(pullRequestWatchWrites[0]).toContain('ready to merge');
+    const pullRequestWatchJsonResult = await runTasksCli(['pr', '--watch', '--json'], {
+      cwd: root,
+      github,
+    });
+    expect(pullRequestWatchJsonResult.exitCode).toBe(1);
+    expect(JSON.parse(pullRequestWatchJsonResult.stderr).error.code).toBe(
+      'pr_watch_json_unsupported',
+    );
     const pullRequestUrlResult = await runTasksCli(['pr', '--url'], { cwd: root, github });
     expect(pullRequestUrlResult.stdout).toBe('https://github.test/pull/1\n');
     expect(githubCalls).toContain(`url:${root}:false`);

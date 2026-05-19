@@ -37,6 +37,7 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   provider: null,
   session: null,
   tags: [],
+  blocked: false,
   blockedBy: [],
   blocking: [],
   lastModifiedAt: '2026-05-11T00:00:00.000Z',
@@ -147,7 +148,8 @@ const failingAvailableStore = (calls: string[]): TaskStore => ({
     return task(id);
   },
   addBlocker(id, blockedBy) {
-    return task(id, { blockedBy: [typeof blockedBy === 'string' ? blockedBy : blockedBy.id] });
+    const blockerId = typeof blockedBy === 'string' ? blockedBy : blockedBy.id;
+    return task(id, { blockedBy: [{ id: blockerId, status: 'ready' }] });
   },
   removeBlocker(id) {
     return task(id);
@@ -230,7 +232,11 @@ describe('createScrumlordMcpServer', () => {
         blockedBy: ['blocker'],
       });
 
-      expect(created.task).toMatchObject({ id: 'feature', blockedBy: ['blocker'] });
+      expect(created.task).toMatchObject({
+        id: 'feature',
+        blocked: true,
+        blockedBy: [{ id: 'blocker', status: 'ready' }],
+      });
       expect(hasTask(await callTool(client, 'scrumlord_list_tasks'), 'feature')).toBe(true);
       expect(await callTool(client, 'scrumlord_get_task', { id: 'feature' })).toMatchObject({
         task: expect.objectContaining({ id: 'feature' }),
@@ -337,6 +343,12 @@ describe('createScrumlordMcpServer', () => {
       expect(
         hasTask(
           await callTool(client, 'scrumlord_tasks_with_priority', { priority: 3 }),
+          'feature',
+        ),
+      ).toBe(true);
+      expect(
+        hasTask(
+          await callTool(client, 'scrumlord_tasks_with_status', { status: 'in-progress' }),
           'feature',
         ),
       ).toBe(true);

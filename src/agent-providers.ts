@@ -126,7 +126,7 @@ const buildSetupPrompt = (context: AgentSetupInvocationContext): string => {
     '',
     'Inspect the setup state with `tasks setup status` before making changes.',
     'Use the `tasks` CLI for all task graph changes. Never edit `tmp/tasks.db` directly.',
-    'If you break down documents or checklists into work, first run `tasks list` to avoid duplicates, then use `tasks create` and `tasks add-blocker` to build the graph.',
+    'If you break down documents or checklists into work, first run `tasks list` to avoid duplicates, then use `tasks create` and `tasks blockers add` to build the graph.',
     '',
     'Setup context:',
     '```json',
@@ -147,7 +147,6 @@ const claudeProvider: AgentCliProvider = {
   createSession: () => crypto.randomUUID(),
   buildStartInvocation(context) {
     const command = ['claude'];
-    if (context.task.branch) command.push('--worktree', context.task.branch);
     if (phaseForcesPlanMode(context.phase)) command.push('--permission-mode', 'plan');
     command.push('--append-system-prompt', providerSystemPrompt);
     if (context.session) command.push('--session-id', context.session);

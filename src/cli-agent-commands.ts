@@ -14,18 +14,18 @@ import { flag, required, type ParsedArguments } from './cli-arguments.js';
 import { resolveTaskId } from './cli-task-id.js';
 import { runCommand, type CommandRunner } from './command-runner.js';
 import { ScrumlordError } from './errors.js';
-import { currentGitBranch, worktreeForBranch } from './git-status.js';
+import { currentGitBranch } from './git-status.js';
 import type { CliOptions, CliResult } from './cli-types.js';
 import type { AgentProvider, Task, TaskStore } from './types.js';
 import { parseAgentProvider } from './validation.js';
 import {
   checkProviderCapabilities,
-  codexWorktreePath,
   deriveBranchAndShortId,
-  ensureCodexWorktree,
+  ensureTaskWorktree,
   repoCommonDir,
   repoSlug,
   resolveBaseBranch,
+  scrumlordWorktreePath,
 } from './worktree.js';
 
 export type TaskAgentCommandOptions = {
@@ -64,6 +64,13 @@ const providerFromStartOptions = (options: StartProviderOptions): AgentProvider 
     );
   }
   return parseAgentProvider(provider);
+};
+
+const optionalProviderFromStartOptions = (
+  options: StartProviderOptions,
+): AgentProvider | undefined => {
+  const provider = options.provider ?? environmentValue(options, 'SCRUMLORD_CLI');
+  return provider ? parseAgentProvider(provider) : undefined;
 };
 
 export const providerFromStartCommand = (
@@ -172,6 +179,16 @@ export const runStartCommand = async (
   return { exitCode: result.exitCode, stdout: '', stderr: '' };
 };
 
+export const runResumeCommand = async (
+  store: TaskStore,
+  parsed: ParsedArguments,
+  options: CliOptions,
+): Promise<CliResult> => {
+  const taskId = await resolveTaskId(store, required(parsed.positionals, 'task id'));
+  const result = await resumeTask(store, taskId, options);
+  return { exitCode: result.exitCode, stdout: '', stderr: '' };
+};
+
 const writeStderrLine = (options: TaskAgentCommandOptions, line: string): void => {
   if (options.stderr) options.stderr(line);
   else process.stderr.write(`${line}\n`);
@@ -193,57 +210,7 @@ const resolvePhase = async (task: Task, planPath: string | null): Promise<TaskPh
 type WorktreeSetup = {
   worktree: string;
   branch: string;
-  created: 'created' | 'reused' | 'claude-managed' | 'skipped';
-};
-
-const setupClaudeWorktree = async (
-  store: TaskStore,
-  task: Task,
-  options: TaskAgentCommandOptions,
-  runner: CommandRunner,
-): Promise<WorktreeSetup> => {
-  if (options.noWorktree) return noWorktreeSetup(store, task, options, runner);
-  const common = await repoCommonDir(store.projectRoot, runner).catch(() => store.projectRoot);
-  const { branch } = task.branch
-    ? { branch: task.branch }
-    : deriveBranchAndShortId(common, task.id);
-  const existing = task.branch
-    ? await worktreeForBranch(store.projectRoot, task.branch, runner)
-    : store.projectRoot;
-  const worktree = existing === store.projectRoot ? store.projectRoot : existing;
-  return { worktree, branch, created: 'claude-managed' };
-};
-
-const setupCodexWorktree = async (
-  store: TaskStore,
-  task: Task,
-  options: TaskAgentCommandOptions,
-  runner: CommandRunner,
-): Promise<WorktreeSetup> => {
-  if (options.noWorktree) return noWorktreeSetup(store, task, options, runner);
-  const common = await repoCommonDir(store.projectRoot, runner);
-  const derived = task.branch
-    ? { branch: task.branch, shortId: shortIdFromBranch(task.branch, common, task.id) }
-    : deriveBranchAndShortId(common, task.id);
-  const slug = repoSlug(store.projectRoot);
-  const directory = await codexWorktreePath(store.projectRoot, slug, derived.shortId);
-  const base = await resolveBaseBranch(store.projectRoot, runner);
-  const worktreeLog = options.stderr
-    ? (line: string): void => writeStderrLine(options, line)
-    : undefined;
-  const result = await ensureCodexWorktree(
-    store.projectRoot,
-    derived.branch,
-    base,
-    directory,
-    runner,
-    worktreeLog,
-  );
-  return {
-    worktree: result.worktree,
-    branch: derived.branch,
-    created: result.created ? 'created' : 'reused',
-  };
+  created: 'created' | 'reused' | 'skipped';
 };
 
 const shortIdFromBranch = (branch: string, commonDir: string, taskId: string): string => {
@@ -273,15 +240,41 @@ const noWorktreeSetup = async (
   return { worktree: store.projectRoot, branch: task.branch ?? current, created: 'skipped' };
 };
 
-const setupWorktree = (
-  provider: AgentProvider,
+/**
+ * Materializes (or reuses) a Scrumlord-managed worktree for the task, regardless
+ * of provider. The agent is always launched in a dedicated worktree so the
+ * shell wrapper can teleport into it after the session.
+ */
+const setupTaskWorktree = async (
   store: TaskStore,
   task: Task,
   options: TaskAgentCommandOptions,
   runner: CommandRunner,
 ): Promise<WorktreeSetup> => {
-  if (provider === 'claude') return setupClaudeWorktree(store, task, options, runner);
-  return setupCodexWorktree(store, task, options, runner);
+  if (options.noWorktree) return noWorktreeSetup(store, task, options, runner);
+  const common = await repoCommonDir(store.projectRoot, runner);
+  const derived = task.branch
+    ? { branch: task.branch, shortId: shortIdFromBranch(task.branch, common, task.id) }
+    : deriveBranchAndShortId(common, task.id);
+  const slug = repoSlug(store.projectRoot);
+  const directory = await scrumlordWorktreePath(store.projectRoot, slug, derived.shortId);
+  const base = await resolveBaseBranch(store.projectRoot, runner);
+  const worktreeLog = options.stderr
+    ? (line: string): void => writeStderrLine(options, line)
+    : undefined;
+  const result = await ensureTaskWorktree(
+    store.projectRoot,
+    derived.branch,
+    base,
+    directory,
+    runner,
+    worktreeLog,
+  );
+  return {
+    worktree: result.worktree,
+    branch: derived.branch,
+    created: result.created ? 'created' : 'reused',
+  };
 };
 
 const emitStatusLine = (
@@ -294,31 +287,6 @@ const emitStatusLine = (
   writeStderrLine(
     options,
     `▶ task ${task.id}: branch ${setup.branch}, worktree ${setup.worktree} [${setup.created}], provider ${provider}`,
-  );
-};
-
-const verifyClaudeWorktreeAfterSession = async (
-  store: TaskStore,
-  branch: string,
-  exitCode: number,
-  previous: { status: Task['status']; branch: string | null },
-  taskId: string,
-  options: TaskAgentCommandOptions,
-  runner: CommandRunner,
-): Promise<void> => {
-  const worktree = await worktreeForBranch(store.projectRoot, branch, runner);
-  if (worktree !== store.projectRoot) return;
-  if (exitCode === 0) {
-    writeStderrLine(
-      options,
-      `⚠ Claude session ended but no worktree exists for branch ${branch}; task left in-progress.`,
-    );
-    return;
-  }
-  store.update(taskId, { status: previous.status, branch: previous.branch });
-  writeStderrLine(
-    options,
-    `↩ Claude session failed and no worktree was created; reverted task ${taskId} to ${previous.status}.`,
   );
 };
 
@@ -355,7 +323,7 @@ export const prepareTaskWorktree = async (
 
   const previousStatus = task.status;
   const previousBranch = task.branch;
-  const setup = await setupWorktree(provider, store, task, options, runner);
+  const setup = await setupTaskWorktree(store, task, options, runner);
 
   if (options.persistClaim === false) {
     return {
@@ -369,7 +337,7 @@ export const prepareTaskWorktree = async (
   }
 
   const adapter = getAgentProvider(provider);
-  const session = adapter.createSession();
+  const session = task.session ?? adapter.createSession();
   const updated = store.update(task.id, {
     status: 'in-progress',
     provider,
@@ -389,25 +357,74 @@ export const prepareTaskWorktree = async (
   };
 };
 
-/** Starts a task in an agent CLI and updates task status, session, and branch metadata. */
+/**
+ * Reattaches the recorded provider session for an in-progress task. Bypasses
+ * startability checks and worktree (re)creation because the task is already
+ * claimed; mutates no task state.
+ */
+const reattachTask = async (
+  store: TaskStore,
+  task: Task,
+  options: TaskAgentCommandOptions,
+): Promise<TaskAgentCommandResult> => {
+  const session = await resolveTaskSession(
+    store,
+    task.id,
+    options.environment ? { environment: options.environment } : {},
+  );
+  if (!session.provider || !session.session) {
+    throw new ScrumlordError(
+      'task_session_missing',
+      `Task does not have a resumable provider session: ${task.id}`,
+    );
+  }
+  const requested = optionalProviderFromStartOptions(options);
+  if (requested && requested !== session.provider) {
+    throw new ScrumlordError(
+      'provider_mismatch',
+      `Task ${task.id} was started with ${session.provider}; refusing to resume with ${requested}.`,
+    );
+  }
+  const executablePath = providerExecutablePath(session.provider, options);
+  const cwd = session.worktree ?? store.projectRoot;
+  const invocation = withExecutablePath(
+    buildTaskResumeInvocation(session.provider, { cwd, session: session.session }),
+    executablePath,
+  );
+  return { exitCode: await runAgentInvocation(invocation, options) };
+};
+
+export const resumeTask = async (
+  store: TaskStore,
+  taskId: string,
+  options: TaskAgentCommandOptions = {},
+): Promise<TaskAgentCommandResult> => {
+  const task = store.getTask(taskId);
+  if (!task) throw new ScrumlordError('task_not_found', `Task ${taskId} not found.`);
+  return await reattachTask(store, task, options);
+};
+
+/**
+ * Starts (or resumes) work on a task in an agent CLI. If the task is already
+ * in-progress with a recorded provider+session, reattaches that session via the
+ * provider's native resume command. Otherwise validates startability,
+ * materializes the worktree, claims the task, and launches the provider with
+ * task context.
+ */
 export const startTask = async (
   store: TaskStore,
   taskId: string,
   options: TaskAgentCommandOptions = {},
 ): Promise<TaskAgentCommandResult> => {
+  const existing = store.getTask(taskId);
+  if (existing && existing.status === 'in-progress' && existing.provider && existing.session) {
+    return await reattachTask(store, existing, options);
+  }
+
   const provider = providerFromStartOptions(options);
   const executablePath = providerExecutablePath(provider, options);
-  const runner = options.runner ?? runCommand;
   const prepared = await prepareTaskWorktree(store, taskId, options);
-  const {
-    task: updated,
-    worktree,
-    branch,
-    worktreeCreated,
-    previousStatus,
-    previousBranch,
-  } = prepared;
-  const previous = { status: previousStatus, branch: previousBranch };
+  const { task: updated, worktree } = prepared;
 
   const storedPlan = updated.plan ?? defaultTaskPlanPath(updated.id);
   const planPath = absoluteTaskPlanPath(store.projectRoot, storedPlan);
@@ -427,54 +444,6 @@ export const startTask = async (
     executablePath,
   );
 
-  const exitCode = await runAgentInvocation(invocation, options);
-  if (provider === 'claude' && worktreeCreated === 'claude-managed') {
-    await verifyClaudeWorktreeAfterSession(
-      store,
-      branch,
-      exitCode,
-      previous,
-      updated.id,
-      options,
-      runner,
-    );
-  }
-  return { exitCode };
-};
-
-export const runResumeCommand = async (
-  store: TaskStore,
-  parsed: ParsedArguments,
-  options: CliOptions,
-): Promise<CliResult> => {
-  const taskId = await resolveTaskId(store, required(parsed.positionals, 'task id'));
-  const result = await resumeTask(store, taskId, options);
-  return { exitCode: result.exitCode, stdout: '', stderr: '' };
-};
-
-/** Resumes the recorded provider session for a task. */
-export const resumeTask = async (
-  store: TaskStore,
-  taskId: string,
-  options: TaskAgentCommandOptions = {},
-): Promise<TaskAgentCommandResult> => {
-  const session = await resolveTaskSession(
-    store,
-    taskId,
-    options.environment ? { environment: options.environment } : {},
-  );
-  if (!session.provider || !session.session) {
-    throw new ScrumlordError(
-      'task_session_missing',
-      `Task does not have a resumable provider session: ${taskId}`,
-    );
-  }
-  const executablePath = providerExecutablePath(session.provider, options);
-  const cwd = session.worktree ?? store.projectRoot;
-  const invocation = withExecutablePath(
-    buildTaskResumeInvocation(session.provider, { cwd, session: session.session }),
-    executablePath,
-  );
   return { exitCode: await runAgentInvocation(invocation, options) };
 };
 

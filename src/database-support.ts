@@ -59,16 +59,24 @@ export type TaskProgressRow = {
 
 export type QueryBindings = Record<string, string | number | null>;
 
-const availableTasksWhereSql = `WHERE status = 'ready'
-  AND deleted = 0
-  AND (start_date IS NULL OR start_date <= $now)
-  AND NOT EXISTS (
+/**
+ * SQL fragment that is true when `tasks` (the outer query's row) has at least
+ * one un-completed blocker. Single source of truth for "is this task blocked?"
+ * — reused by available/blocked/next queries so they stay in lockstep with the
+ * `Task.blocked` computed property.
+ */
+export const taskIsBlockedExistsSql = `EXISTS (
     SELECT 1 FROM task_dependencies
     JOIN tasks AS blocker ON blocker.id = task_dependencies.blocked_by_task_id
     WHERE task_dependencies.task_id = tasks.id
       AND blocker.status != 'completed'
       AND blocker.deleted = 0
   )`;
+
+const availableTasksWhereSql = `WHERE status = 'ready'
+  AND deleted = 0
+  AND (start_date IS NULL OR start_date <= $now)
+  AND NOT ${taskIsBlockedExistsSql}`;
 
 export const availableTasksSql = `SELECT * FROM tasks
  ${availableTasksWhereSql}
@@ -96,13 +104,9 @@ export const listCandidatesSql = `SELECT * FROM tasks
  ${nextTaskOrderSql}
  LIMIT $limit`;
 
-export const blockedTasksSql = `SELECT DISTINCT tasks.* FROM tasks
- JOIN task_dependencies ON task_dependencies.task_id = tasks.id
- JOIN tasks AS blocker ON blocker.id = task_dependencies.blocked_by_task_id
- WHERE tasks.deleted = 0
-   AND blocker.status != 'completed'
-   AND blocker.deleted = 0
- ORDER BY tasks.priority DESC, tasks.created_at ASC, tasks.id ASC`;
+export const blockedTasksSql = `SELECT * FROM tasks
+ WHERE deleted = 0 AND ${taskIsBlockedExistsSql}
+ ORDER BY priority DESC, created_at ASC, id ASC`;
 
 export const remainingTasksSql = `SELECT count(*) AS count FROM tasks
  WHERE deleted = 0
@@ -339,6 +343,14 @@ export const indexedBindings = (values: string[], extra: QueryBindings = {}): Qu
 
 export type TaskRelationships = Pick<Task, 'tags' | 'blockedBy' | 'blocking'>;
 
+/**
+ * A task is `blocked` when at least one of its blockers has not yet reached
+ * the `completed` status. Tasks with no blockers, or whose blockers are all
+ * completed, are not blocked.
+ */
+export const computeBlocked = (blockedBy: Task['blockedBy']): boolean =>
+  blockedBy.some((blocker) => blocker.status !== 'completed');
+
 export const hydrateTask = (row: TaskRow, relationships: TaskRelationships): Task => ({
   id: row.id,
   title: row.title,
@@ -355,6 +367,7 @@ export const hydrateTask = (row: TaskRow, relationships: TaskRelationships): Tas
   lastModifiedAt: row.last_modified_at,
   deleted: row.deleted === 1,
   ...relationships,
+  blocked: computeBlocked(relationships.blockedBy),
 });
 
 export const hydrateTaskProgress = (row: TaskProgressRow): TaskProgress => ({

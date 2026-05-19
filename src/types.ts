@@ -20,6 +20,16 @@ export type ProgressEvent = (typeof progressEvents)[number];
 
 export type TaskIdentifier = string;
 
+/**
+ * A task referenced as a blocker or dependent. Includes the referenced task's
+ * current status so callers can tell whether the dependency is still
+ * outstanding without doing a follow-up lookup.
+ */
+export type TaskBlocker = {
+  id: TaskIdentifier;
+  status: TaskStatus;
+};
+
 export type PersistedTaskSession = {
   taskId: TaskIdentifier;
   provider: AgentProvider | null;
@@ -74,8 +84,14 @@ export type Task = {
   provider: AgentProvider | null;
   session: string | null;
   tags: string[];
-  blockedBy: TaskIdentifier[];
-  blocking: TaskIdentifier[];
+  blockedBy: TaskBlocker[];
+  blocking: TaskBlocker[];
+  /**
+   * True when this task has at least one blocker that is not yet completed.
+   * False when there are no blockers, or every blocker has been completed.
+   * Computed at hydration time from `blockedBy`.
+   */
+  blocked: boolean;
   lastModifiedAt: string;
   deleted: boolean;
 };
@@ -156,6 +172,7 @@ export type TaskStore = {
   blockedBy(taskOrId: TaskReference): Task[];
   blocking(taskOrId: TaskReference): Task[];
   withPriority(priority: TaskPriority): Task[];
+  withStatus(status: TaskStatus): Task[];
   next(): Task | null;
   claimNext(options: ClaimNextOptions): Task | null;
   listClaimCandidates(limit: number, excludeIds?: Set<TaskIdentifier>): Task[];

@@ -125,8 +125,8 @@ There are no available, unplanned tasks. No action required.`;
 
   const sorted = sortTasksForBatch(tasks);
   const table = renderTable(
-    ['ID', 'Title', 'Priority', 'Tags'],
-    sorted.map((t) => [t.id, t.title, String(t.priority), tagsDisplay(t.tags)]),
+    ['ID', 'Title'],
+    sorted.map((t) => [t.id, t.title]),
   );
 
   return `# Task Plan Authoring — Batch

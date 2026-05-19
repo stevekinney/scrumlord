@@ -31,9 +31,9 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 ## Decomposing Documents Into Tasks
 
 - Before creating tasks from a roadmap, specification, or checklist, first build a candidate graph: task title, description source, normalized priority, tags, parent task, and blockers.
-- Do not create a flat list unless the items are genuinely independent. If one task unlocks or must precede another, create both tasks and then run `tasks add-blocker <blocked-task-id> <blocker-task-id>`.
+- Do not create a flat list unless the items are genuinely independent. If one task unlocks or must precede another, create both tasks and then run `tasks blockers add <blocked-task-id> <blocker-task-id>`.
 - Treat dependency language as graph data. Phrases such as "gated on", "blocked by", "depends on", "prerequisite", or "once ... exists" require an explicit blocker edge before the task can be marked `ready`.
-- Create parent or prerequisite tasks before dependent tasks so you have stable task IDs for `tasks add-blocker` and `tasks set-parent`.
+- Create parent or prerequisite tasks before dependent tasks so you have stable task IDs for `tasks blockers add` and `tasks set-parent`.
 - For large imports, do not fire many `tasks create` commands in parallel. Validate the priority scale and required flags first, then create tasks serially or in small batches so one malformed command cannot cancel the whole batch.
 - After creating tasks, verify the graph with `tasks list`, `tasks blocked`, `tasks available`, `tasks blocked-by [task-id]`, and `tasks blocking [task-id]` as appropriate.
 - If no dependency edges exist, say that explicitly in the summary so the user knows the graph was considered, not skipped.
@@ -59,7 +59,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 
 - Use `tasks pr --url` to find the current branch pull request.
 - Use `tasks pr status` for the complete readiness report: unresolved review comment IDs and URLs, pending checks, failed checks, and `readyToMerge`.
-- Use `tasks overview` to inspect every open pull request for the project with CI status, unresolved review comment counts, and branch-associated tasks.
+- Use `tasks overview` to inspect every open pull request for the project with CI status, unresolved review comment counts, merge-conflict state, and branch-associated tasks. Use `tasks overview --watch` for a terminal dashboard that refreshes every 30 seconds.
 - Use `tasks comments` to inspect unresolved review comments before deciding what to fix.
 - Use `tasks ci` to inspect pull request check status.
 - If `tasks pr`, `tasks pr status`, `tasks overview`, `tasks comments`, or `tasks ci` fails with `gh_not_found`, install the GitHub CLI or continue with non-GitHub task commands.
@@ -85,8 +85,8 @@ tasks blocked
 tasks create --title "Write tests" --description "Add regression coverage" --priority 3
 tasks set-branch "$(git branch --show-current)"
 tasks add-progress --message "Wrote the failing regression test"
-tasks add-blocker $BLOCKER_TASK_ID
-tasks add-tag testing
+tasks blockers add current $BLOCKER_TASK_ID
+tasks tags add current testing
 tasks sync-git-status --quiet
 tasks pr --url
 tasks pr status

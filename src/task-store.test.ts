@@ -145,10 +145,11 @@ describe('createTaskStore', () => {
       provider: 'codex',
       session: 'codex-session',
       tags: ['backend', 'frontend'],
-      blockedBy: ['blocker'],
+      blocked: true,
+      blockedBy: [{ id: 'blocker', status: 'ready' }],
     });
     expect(parent.id).toBe('parent');
-    expect(store.getTask(blocker.id)?.blocking).toEqual(['blocked']);
+    expect(store.getTask(blocker.id)?.blocking).toEqual([{ id: 'blocked', status: 'ready' }]);
     expect(taskIds(store.list())).toEqual(['blocked', 'future', 'blocker', 'parent']);
     expect(taskIds(store.available())).toEqual(['blocker', 'parent']);
     expect(taskIds(store.blocked())).toEqual(['blocked']);
@@ -158,6 +159,7 @@ describe('createTaskStore', () => {
     expect(taskIds(store.withAllTags('frontend', 'backend'))).toEqual(['blocked']);
     expect(taskIds(store.withAnyTag('backend', 'planning'))).toEqual(['blocked', 'parent']);
     expect(taskIds(store.withPriority(3))).toEqual(['blocked', 'future']);
+    expect(taskIds(store.withStatus('ready'))).toEqual(['blocked', 'future', 'blocker', 'parent']);
     expect(taskIds(store.withBranch('feature/task-graph'))).toEqual(['blocked']);
     expect(store.next()?.id).toBe('blocker');
     expect(nextTask(store)?.id).toBe('blocker');
@@ -354,13 +356,18 @@ describe('createTaskStore', () => {
     store.addBlocker(catalog.id, server.id);
     expect(store.update(catalog.id, { status: 'ready' })).toMatchObject({
       id: 'catalog',
-      blockedBy: ['server'],
+      blocked: true,
+      blockedBy: [{ id: 'server', status: 'in-progress' }],
       status: 'ready',
     });
     expect(taskIds(store.available())).toEqual([]);
 
     store.update(server.id, { status: 'completed' });
     expect(store.next()?.id).toBe('catalog');
+    expect(store.getTask(catalog.id)).toMatchObject({
+      blocked: false,
+      blockedBy: [{ id: 'server', status: 'completed' }],
+    });
 
     store.close();
   });

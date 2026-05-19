@@ -17,6 +17,7 @@ import {
   removeTaskTag,
   setTaskPlan,
   setTaskSession,
+  taskTags,
   tasksBlockedBy,
   tasksBlocking,
   tasksWithAllTags,
@@ -24,6 +25,7 @@ import {
   tasksWithBranch,
   tasksWithPriority,
   tasksWithSession,
+  tasksWithStatus,
   tasksWithTag,
   updateTask,
 } from './index';
@@ -44,6 +46,7 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   provider: null,
   session: null,
   tags: [],
+  blocked: false,
   blockedBy: [],
   blocking: [],
   lastModifiedAt: '2026-05-11T00:00:00.000Z',
@@ -78,7 +81,7 @@ const fakeStore = (calls: string[]): TaskStore => ({
   },
   getTask(id) {
     calls.push(`getTask:${id}`);
-    return task(id);
+    return task(id, { tags: ['frontend'] });
   },
   list(options) {
     calls.push(`list:${options?.includeInactive ? 'all' : 'active'}`);
@@ -123,6 +126,10 @@ const fakeStore = (calls: string[]): TaskStore => ({
   withPriority(priority) {
     calls.push(`withPriority:${priority}`);
     return [task('priority')];
+  },
+  withStatus(status) {
+    calls.push(`withStatus:${status}`);
+    return [task('status')];
   },
   next() {
     calls.push('next');
@@ -215,18 +222,22 @@ describe('library task command methods', () => {
     expect(firstTask(listTasks(store)).id).toBe('list');
     expect(firstTask(listTasks(store, { includeInactive: true })).id).toBe('list');
     expect(firstTask(tasksWithTag(store, 'frontend')).id).toBe('with-tag');
+    expect(taskTags(store, 'task-id')).toEqual(['frontend']);
     expect(firstTask(tasksWithAllTags(store, 'frontend', 'backend')).id).toBe('with-all-tags');
     expect(firstTask(tasksWithAnyTags(store, 'frontend', 'backend')).id).toBe('with-any-tags');
     expect(firstTask(tasksWithBranch(store, 'feature/task-graph')).id).toBe('with-branch');
     expect(firstTask(tasksBlockedBy(store, 'task-id')).id).toBe('blocked-by');
     expect(firstTask(tasksBlocking(store, 'task-id')).id).toBe('blocking');
     expect(firstTask(tasksWithPriority(store, 3)).id).toBe('priority');
+    expect(firstTask(tasksWithStatus(store, 'in-progress')).id).toBe('status');
     expect(availableTasks(store, { count: true })).toBe(1);
     expect(blockedTasks(store, { count: true })).toBe(1);
     expect(completedTasks(store, { count: true })).toBe(1);
     expect(availableTasks(store, { plan: 'planned', count: true })).toBe(0);
     expect(availableTasks(store, { plan: 'unplanned', count: true })).toBe(1);
     expect(listTasks(store, { count: true })).toBe(1);
+    expect(listTasks(store, { completion: 'completed', count: true })).toBe(0);
+    expect(listTasks(store, { completion: 'incomplete', count: true })).toBe(1);
     expect(listTasks(store, { includeInactive: true, count: true })).toBe(1);
     expect(tasksWithTag(store, 'frontend', { count: true })).toBe(1);
     expect(tasksWithAllTags(store, { count: true }, 'frontend', 'backend')).toBe(1);

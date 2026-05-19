@@ -58,9 +58,9 @@ const expectedContracts: ReadonlyArray<{
     expected: { kind: 'jsonData', shape: 'task-list', countLabel: 'tasks at priority' },
   },
   {
-    command: 'with-priority',
+    command: 'status',
     flags: new Set(),
-    expected: { kind: 'jsonData', shape: 'task-list', countLabel: 'tasks at priority' },
+    expected: { kind: 'jsonData', shape: 'task-list', countLabel: 'tasks at status' },
   },
   {
     command: 'search',
@@ -73,16 +73,30 @@ const expectedContracts: ReadonlyArray<{
   { command: 'create', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
   { command: 'update', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
   { command: 'delete', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
-  { command: 'add-tag', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
-  { command: 'remove-tag', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
+  { command: 'tags', flags: new Set(), expected: { kind: 'jsonData', shape: 'tag-list' } },
   {
-    command: 'add-blocker',
-    flags: new Set(),
+    command: 'tags',
+    flags: new Set(['subcommand:add']),
     expected: { kind: 'jsonData', shape: 'single-task' },
   },
   {
-    command: 'remove-blocker',
+    command: 'tags',
+    flags: new Set(['subcommand:remove']),
+    expected: { kind: 'jsonData', shape: 'single-task' },
+  },
+  {
+    command: 'blockers',
     flags: new Set(),
+    expected: { kind: 'jsonData', shape: 'task-list', countLabel: 'blocking tasks' },
+  },
+  {
+    command: 'blockers',
+    flags: new Set(['subcommand:add']),
+    expected: { kind: 'jsonData', shape: 'single-task' },
+  },
+  {
+    command: 'blockers',
+    flags: new Set(['subcommand:remove']),
     expected: { kind: 'jsonData', shape: 'single-task' },
   },
   { command: 'clear', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
@@ -128,6 +142,7 @@ const expectedContracts: ReadonlyArray<{
   },
   { command: 'pr', flags: new Set(['sync', 'quiet']), expected: { kind: 'silent' } },
   { command: 'pr', flags: new Set(['poll']), expected: { kind: 'jsonData', shape: 'pr-status' } },
+  { command: 'pr', flags: new Set(['watch']), expected: { kind: 'jsonData', shape: 'pr-status' } },
   { command: 'repository', flags: new Set(), expected: { kind: 'rawText' } },
   { command: 'repository', flags: new Set(['url']), expected: { kind: 'rawText' } },
   {

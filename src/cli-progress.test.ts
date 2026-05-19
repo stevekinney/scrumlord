@@ -235,13 +235,13 @@ describe('tasks progress CLI commands', () => {
     expect(JSON.parse(noMessageResult.stderr).error.code).toBe('missing_progress_message');
     expect(createStoreCalls).toBe(0);
 
-    const missingSubcommandResult = await runTasksCli(['progress'], {
+    const invalidBareListFlagResult = await runTasksCli(['progress', '--message', 'x'], {
       createStore: async () => {
         createStoreCalls += 1;
         throw new Error('nope');
       },
     });
-    expect(JSON.parse(missingSubcommandResult.stderr).error.code).toBe('missing_subcommand');
+    expect(JSON.parse(invalidBareListFlagResult.stderr).error.code).toBe('invalid_progress_flag');
     expect(createStoreCalls).toBe(0);
 
     const invalidSubcommandResult = await runTasksCli(['progress', 'nope'], {
@@ -262,6 +262,18 @@ describe('tasks progress CLI commands', () => {
       },
     });
     expect(JSON.parse(invalidFlagResult.stderr).error.code).toBe('invalid_progress_flag');
+    expect(createStoreCalls).toBe(0);
+
+    const invalidFullFlagResult = await runTasksCli(
+      ['progress', 'add', 'task-id', '--message', 'x', '--full'],
+      {
+        createStore: async () => {
+          createStoreCalls += 1;
+          throw new Error('nope');
+        },
+      },
+    );
+    expect(JSON.parse(invalidFullFlagResult.stderr).error.code).toBe('invalid_progress_flag');
     expect(createStoreCalls).toBe(0);
   });
 

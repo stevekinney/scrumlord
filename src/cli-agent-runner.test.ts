@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
+import { existsSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -23,6 +24,13 @@ const temporaryDirectory = async (): Promise<string> => {
   return directory;
 };
 
+const trueExecutablePath = (): string => {
+  const candidate = Bun.which('true');
+  if (candidate && existsSync(candidate)) return candidate;
+  if (existsSync('/bin/true')) return '/bin/true';
+  throw new Error('Expected a true executable for the agent invocation test.');
+};
+
 const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   id,
   title: id,
@@ -37,6 +45,7 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
   provider: null,
   session: null,
   tags: [],
+  blocked: false,
   blockedBy: [],
   blocking: [],
   lastModifiedAt: '2026-05-11T00:00:00.000Z',
@@ -152,7 +161,6 @@ describe('runTasksCli agent session commands', () => {
     expect(invocations[0]?.[0]).toBe('/bin/provider');
     expect(invocations[0]).toContain('--permission-mode');
     expect(invocations[0]).toContain('--session-id');
-    expect(invocations[0]).toContain('--worktree');
 
     const resumeResult = await runTasksCli(['resume', 'task-id'], {
       createStore: async () => store,
@@ -177,13 +185,20 @@ describe('runTasksCli agent session commands', () => {
 
   it('can run the default agent invocation process', async () => {
     const root = await temporaryDirectory();
-    const truePath = Bun.which('true') ?? '/usr/bin/true';
+    const truePath = trueExecutablePath();
     const calls: string[] = [];
+    const runner = async (command: string[], cwd: string) => {
+      if (command[0] === 'git' && command[1] === 'worktree' && command[2] === 'add') {
+        const directory = command.includes('-b') ? command[5] : command[3];
+        if (directory) await mkdir(directory, { recursive: true });
+      }
+      return await startRunner(command, cwd);
+    };
 
     const result = await runTasksCli(['start', 'task-id', '--cli', 'claude', '--quiet'], {
       createStore: async () => ({ ...fakeStore(calls), projectRoot: root }),
       which: () => truePath,
-      runner: startRunner,
+      runner,
     });
 
     expect(result).toEqual({ exitCode: 0, stdout: '', stderr: '' });

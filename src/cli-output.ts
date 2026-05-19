@@ -8,21 +8,35 @@ import {
 import { formatJson } from './output-json.js';
 import { resolveOutputMode, type OutputMode } from './output-mode.js';
 import { createRenderContext, renderPretty } from './output-renderer.js';
-import { ScrumlordError } from './errors.js';
+import { errorMessage, ScrumlordError } from './errors.js';
+import { createTheme } from './color.js';
+
+const addSyntheticSubcommandFlag = (
+  flags: Set<string>,
+  subcommand: string | undefined,
+  allowed: ReadonlySet<string>,
+): void => {
+  if (subcommand !== undefined && allowed.has(subcommand)) flags.add(`subcommand:${subcommand}`);
+};
 
 /**
- * Resolves the {@link OutputContract} for a parsed command + flags. The
- * `progress` command's add/list split lives in its positionals, so a
- * synthetic flag (`subcommand:add` / `subcommand:list`) is injected before
- * dispatch.
+ * Resolves the {@link OutputContract} for a parsed command + flags. Some
+ * commands encode their subcommand in positionals. Synthetic flags make those
+ * variants explicit for the output contract lookup.
  */
-export const contractForParsed = (parsed: ParsedArguments): OutputContract => {
+const contractFlagsForParsed = (parsed: ParsedArguments): Set<string> => {
   const flags = new Set(parsed.flags.keys());
   if (parsed.command === 'progress') {
-    const subcommand = parsed.positionals[0];
-    if (subcommand === 'add') flags.add('subcommand:add');
-    if (subcommand === 'list') flags.add('subcommand:list');
+    addSyntheticSubcommandFlag(flags, parsed.positionals[0] ?? 'list', new Set(['add', 'list']));
   }
+  if (parsed.command === 'tags' || parsed.command === 'blockers') {
+    addSyntheticSubcommandFlag(flags, parsed.positionals[0], new Set(['add', 'remove']));
+  }
+  return flags;
+};
+
+export const contractForParsed = (parsed: ParsedArguments): OutputContract => {
+  const flags = contractFlagsForParsed(parsed);
   return contractForInvocation(parsed.command ?? '', flags);
 };
 
@@ -45,12 +59,7 @@ export const resolveModeForOptions = (parsed: ParsedArguments, options: CliOptio
 export const rejectJsonOnRawForm = (parsed: ParsedArguments): void => {
   if (!parsed.command) return;
   try {
-    const flags = new Set(parsed.flags.keys());
-    if (parsed.command === 'progress') {
-      const subcommand = parsed.positionals[0];
-      if (subcommand === 'add') flags.add('subcommand:add');
-      if (subcommand === 'list') flags.add('subcommand:list');
-    }
+    const flags = contractFlagsForParsed(parsed);
     rejectJsonOnNonDataContract(parsed.command, flags);
   } catch (error) {
     if (error instanceof ScrumlordError && error.code === 'json_not_supported') throw error;
@@ -67,6 +76,7 @@ const renderContextFor = (
     colorMode: options.colorMode ?? 'auto',
     ...(options.terminalWidth !== undefined ? { terminalWidth: options.terminalWidth } : {}),
     flags: new Set(parsed.flags.keys()),
+    ...(parsed.command !== undefined ? { command: parsed.command } : {}),
     ...(countLabel !== undefined ? { countLabel } : {}),
   });
 };
@@ -76,6 +86,26 @@ const jsonResult = (value: unknown): CliResult => ({
   stdout: formatJson(value),
   stderr: '',
 });
+
+const errorCodeFor = (error: unknown): string =>
+  error instanceof ScrumlordError ? error.code : 'unexpected_error';
+
+export const errorEnvelopeFor = (error: unknown): { error: { code: string; message: string } } => ({
+  error: { code: errorCodeFor(error), message: errorMessage(error) },
+});
+
+export const formatCliError = (error: unknown, options: CliOptions): CliResult => {
+  const envelope = errorEnvelopeFor(error);
+  if (options.outputMode !== 'pretty') {
+    return { exitCode: 1, stdout: '', stderr: formatJson(envelope) };
+  }
+
+  const theme = createTheme(options.colorMode ?? 'auto');
+  const message = envelope.error.message;
+  const code = envelope.error.code;
+  const stderr = `${theme.error('error')}: ${message}\n${theme.muted(`code: ${code}`)}\n`;
+  return { exitCode: 1, stdout: '', stderr };
+};
 
 /**
  * Formats a store command's return value as a {@link CliResult}. Routes

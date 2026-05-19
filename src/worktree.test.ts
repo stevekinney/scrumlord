@@ -6,13 +6,13 @@ import type { CommandResult, CommandRunner } from './command-runner';
 import { ScrumlordError } from './errors';
 import {
   checkProviderCapabilities,
-  codexWorktreePath,
-  codexWorktreeRoot,
   deriveBranchAndShortId,
-  ensureCodexWorktree,
+  ensureTaskWorktree,
   repoCommonDir,
   repoSlug,
   resolveBaseBranch,
+  scrumlordWorktreePath,
+  scrumlordWorktreeRoot,
 } from './worktree';
 
 const temporaryDirectories: string[] = [];
@@ -160,33 +160,35 @@ describe('repoCommonDir', () => {
   });
 });
 
-describe('codexWorktreeRoot', () => {
-  it('prefers ~/.codex/worktrees when writable', async () => {
+describe('scrumlordWorktreeRoot', () => {
+  it('prefers ~/.scrumlord/worktrees when writable', async () => {
     const home = await temporaryDirectory();
     const projectRoot = await temporaryDirectory();
-    expect(await codexWorktreeRoot(projectRoot, { home })).toBe(join(home, '.codex', 'worktrees'));
+    expect(await scrumlordWorktreeRoot(projectRoot, { home })).toBe(
+      join(home, '.scrumlord', 'worktrees'),
+    );
   });
 
   it('falls back to projectRoot/tmp/worktrees when home unwritable', async () => {
     const projectRoot = await temporaryDirectory();
     // Use a guaranteed-unwritable path as the home directory.
-    expect(await codexWorktreeRoot(projectRoot, { home: '/proc/0' })).toBe(
+    expect(await scrumlordWorktreeRoot(projectRoot, { home: '/proc/0' })).toBe(
       join(projectRoot, 'tmp', 'worktrees'),
     );
   });
 });
 
-describe('codexWorktreePath', () => {
+describe('scrumlordWorktreePath', () => {
   it('joins slug and shortId under the resolved root', async () => {
     const home = await temporaryDirectory();
     const projectRoot = await temporaryDirectory();
-    expect(await codexWorktreePath(projectRoot, 'scrumlord', 'd41d8cd9', { home })).toBe(
-      join(home, '.codex', 'worktrees', 'scrumlord-d41d8cd9'),
+    expect(await scrumlordWorktreePath(projectRoot, 'scrumlord', 'd41d8cd9', { home })).toBe(
+      join(home, '.scrumlord', 'worktrees', 'scrumlord-d41d8cd9'),
     );
   });
 });
 
-describe('ensureCodexWorktree', () => {
+describe('ensureTaskWorktree', () => {
   const base = { name: 'main', ref: 'refs/remotes/origin/main' as const };
 
   it('reuses an existing worktree on the same branch', async () => {
@@ -199,7 +201,7 @@ describe('ensureCodexWorktree', () => {
       () => ok(`${projectGitDir}\n`),
       () => ok(`${projectGitDir}\n`),
     ]);
-    const result = await ensureCodexWorktree(
+    const result = await ensureTaskWorktree(
       projectRoot,
       'task/abcd1234',
       base,
@@ -220,7 +222,7 @@ describe('ensureCodexWorktree', () => {
         return ok();
       },
     ]);
-    const result = await ensureCodexWorktree(projectRoot, 'task/abcd1234', base, directory, runner);
+    const result = await ensureTaskWorktree(projectRoot, 'task/abcd1234', base, directory, runner);
     expect(result).toEqual({ worktree: directory, created: true });
   });
 
@@ -244,7 +246,7 @@ describe('ensureCodexWorktree', () => {
         return ok();
       },
     ]);
-    const result = await ensureCodexWorktree(projectRoot, 'task/abcd1234', base, directory, runner);
+    const result = await ensureTaskWorktree(projectRoot, 'task/abcd1234', base, directory, runner);
     expect(result).toEqual({ worktree: directory, created: true });
   });
 
@@ -266,7 +268,7 @@ describe('ensureCodexWorktree', () => {
         return ok();
       return fail(`unexpected ${joined}`);
     };
-    const result = await ensureCodexWorktree(projectRoot, 'task/abcd1234', base, directory, runner);
+    const result = await ensureTaskWorktree(projectRoot, 'task/abcd1234', base, directory, runner);
     expect(result).toEqual({ worktree: directory, created: true });
     expect(fetched).toBe(true);
   });
@@ -283,7 +285,7 @@ describe('ensureCodexWorktree', () => {
         return ok();
       return fail(`unexpected ${joined}`);
     };
-    const result = await ensureCodexWorktree(projectRoot, 'task/abcd1234', base, directory, runner);
+    const result = await ensureTaskWorktree(projectRoot, 'task/abcd1234', base, directory, runner);
     expect(result.created).toBe(true);
   });
 
@@ -303,9 +305,7 @@ describe('ensureCodexWorktree', () => {
       return fail(`unexpected ${joined}`);
     };
     expect(
-      await caught(() =>
-        ensureCodexWorktree(projectRoot, 'task/abcd1234', base, directory, runner),
-      ),
+      await caught(() => ensureTaskWorktree(projectRoot, 'task/abcd1234', base, directory, runner)),
     ).toMatchObject({ code: 'worktree_collision' });
   });
 
@@ -318,9 +318,7 @@ describe('ensureCodexWorktree', () => {
       return fail();
     };
     expect(
-      await caught(() =>
-        ensureCodexWorktree(projectRoot, 'task/abcd1234', base, directory, runner),
-      ),
+      await caught(() => ensureTaskWorktree(projectRoot, 'task/abcd1234', base, directory, runner)),
     ).toMatchObject({ code: 'tmp_not_ignored' });
   });
 
@@ -338,7 +336,7 @@ describe('ensureCodexWorktree', () => {
     };
     expect(
       await caught(() =>
-        ensureCodexWorktree(projectRoot, 'task/abcd1234', base, existingDir, runner),
+        ensureTaskWorktree(projectRoot, 'task/abcd1234', base, existingDir, runner),
       ),
     ).toMatchObject({ code: 'worktree_collision' });
   });
@@ -354,9 +352,7 @@ describe('ensureCodexWorktree', () => {
       return fail(`unexpected ${joined}`);
     };
     expect(
-      await caught(() =>
-        ensureCodexWorktree(projectRoot, 'task/abcd1234', base, directory, runner),
-      ),
+      await caught(() => ensureTaskWorktree(projectRoot, 'task/abcd1234', base, directory, runner)),
     ).toMatchObject({ code: 'git_worktree_failed' });
   });
 
@@ -370,9 +366,7 @@ describe('ensureCodexWorktree', () => {
       return fail(`unexpected ${joined}`);
     };
     expect(
-      await caught(() =>
-        ensureCodexWorktree(projectRoot, 'task/abcd1234', base, directory, runner),
-      ),
+      await caught(() => ensureTaskWorktree(projectRoot, 'task/abcd1234', base, directory, runner)),
     ).toMatchObject({ code: 'tmp_not_ignored' });
   });
 
@@ -391,7 +385,7 @@ describe('ensureCodexWorktree', () => {
         return ok();
       return fail(`unexpected ${joined}`);
     };
-    const result = await ensureCodexWorktree(projectRoot, 'task/abcd1234', base, directory, runner);
+    const result = await ensureTaskWorktree(projectRoot, 'task/abcd1234', base, directory, runner);
     expect(result.created).toBe(true);
   });
 });

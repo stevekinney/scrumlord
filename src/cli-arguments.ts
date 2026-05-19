@@ -9,6 +9,8 @@ export type ParsedArguments = {
 export type PositionalKind =
   | 'task-id'
   | 'tag'
+  | 'tag-action'
+  | 'blocker-action'
   | 'status'
   | 'priority'
   | 'shell'
@@ -45,7 +47,6 @@ const withJsonFlag = <T extends CommandSpecification>(spec: T): T => ({
 const noPositionals = { minPositionals: 0, maxPositionals: 0 };
 const onePositional = { minPositionals: 1, maxPositionals: 1 };
 const requiredTaskId = { minPositionals: 1, maxPositionals: 1 };
-const requiredTaskIdWithOneArgument = { minPositionals: 2, maxPositionals: 2 };
 const listingBooleanFlags = ['planned', 'unplanned', 'count'];
 const taskListingCommandSpecification = {
   ...noPositionals,
@@ -63,11 +64,14 @@ const requiredTaskIdTaskListingCommandSpecification = {
 /** All command specifications — exported for use by the completions generator. */
 export const commandSpecifications: Record<string, CommandSpecification> = {
   available: withJsonFlag(taskListingCommandSpecification),
-  list: withJsonFlag({ ...noPositionals, booleanFlags: ['all', ...listingBooleanFlags] }),
+  list: withJsonFlag({
+    ...noPositionals,
+    booleanFlags: ['all', 'completed', 'incomplete', ...listingBooleanFlags],
+  }),
   blocked: withJsonFlag(taskListingCommandSpecification),
   completed: withJsonFlag(taskListingCommandSpecification),
   init: withJsonFlag(noPositionals),
-  overview: withJsonFlag({ ...noPositionals, booleanFlags: ['sync'] }),
+  overview: withJsonFlag({ ...noPositionals, booleanFlags: ['sync', 'watch'] }),
   help: { minPositionals: 0, maxPositionals: 2 },
   current: withJsonFlag(noPositionals),
   next: withJsonFlag(noPositionals),
@@ -76,7 +80,18 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
   pr: {
     minPositionals: 0,
     maxPositionals: 0,
-    booleanFlags: ['open', 'url', 'comments', 'resolved', 'all', 'sync', 'quiet', 'poll', 'json'],
+    booleanFlags: [
+      'open',
+      'url',
+      'comments',
+      'resolved',
+      'all',
+      'sync',
+      'quiet',
+      'poll',
+      'watch',
+      'json',
+    ],
     valueFlags: ['max-polls', 'poll-interval', 'bot-patterns'],
   },
   get: withJsonFlag({ ...requiredTaskId, positionalVariants: [['task-id']] }),
@@ -84,6 +99,17 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
     minPositionals: 1,
     booleanFlags: ['all', ...listingBooleanFlags],
     positionalVariants: [['tag']],
+  }),
+  tags: withJsonFlag({
+    minPositionals: 1,
+    maxPositionals: 3,
+    positionalVariants: [['task-id'], ['tag-action', 'task-id', 'tag']],
+  }),
+  blockers: withJsonFlag({
+    minPositionals: 1,
+    maxPositionals: 3,
+    booleanFlags: listingBooleanFlags,
+    positionalVariants: [['task-id'], ['blocker-action', 'task-id', 'task-id']],
   }),
   'with-branch': withJsonFlag({
     ...onePositionalTaskListingCommandSpecification,
@@ -101,15 +127,16 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
     ...onePositionalTaskListingCommandSpecification,
     positionalVariants: [['priority']],
   }),
-  'with-priority': withJsonFlag({
+  status: withJsonFlag({
     ...onePositionalTaskListingCommandSpecification,
-    positionalVariants: [['priority']],
+    positionalVariants: [['status']],
   }),
   session: withJsonFlag({ ...requiredTaskId, positionalVariants: [['task-id']] }),
   progress: withJsonFlag({
     minPositionals: 0,
     maxPositionals: 2,
     valueFlags: ['message', 'provider', 'session'],
+    booleanFlags: ['full'],
   }),
   clear: withJsonFlag({ minPositionals: 1, maxPositionals: 2 }),
   start: withJsonFlag({
@@ -179,22 +206,6 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
       'deleted',
     ],
     positionalVariants: [['task-id']],
-  }),
-  'add-tag': withJsonFlag({
-    ...requiredTaskIdWithOneArgument,
-    positionalVariants: [['tag'], ['task-id', 'tag']],
-  }),
-  'remove-tag': withJsonFlag({
-    ...requiredTaskIdWithOneArgument,
-    positionalVariants: [['tag'], ['task-id', 'tag']],
-  }),
-  'add-blocker': withJsonFlag({
-    ...requiredTaskIdWithOneArgument,
-    positionalVariants: [['task-id'], ['task-id', 'task-id']],
-  }),
-  'remove-blocker': withJsonFlag({
-    ...requiredTaskIdWithOneArgument,
-    positionalVariants: [['task-id'], ['task-id', 'task-id']],
   }),
   teleport: { ...onePositional, booleanFlags: ['json'] },
   setup: withJsonFlag({
@@ -271,6 +282,7 @@ const parseFlag = (
 };
 
 export const parseArguments = (argv: string[]): ParsedArguments => {
+  if (argv.length === 0) return { command: 'help', positionals: [], flags: new Map() };
   if (argv[0] === '--help')
     return { command: 'help', positionals: argv.slice(1), flags: new Map() };
   const [command, ...rest] = argv;
@@ -295,14 +307,30 @@ export const isHelpRequest = (parsed: ParsedArguments): boolean => {
   return parsed.command === 'help' || parsed.flags.has('help');
 };
 
+const progressHelpPath = (positionals: string[]): string[] => {
+  const subcommand = positionals[0];
+  if (subcommand === 'list' || subcommand === 'add') return ['progress', subcommand];
+  return ['progress'];
+};
+
+const tagsHelpPath = (positionals: string[]): string[] => {
+  const subcommand = positionals[0];
+  if (subcommand === 'add' || subcommand === 'remove') return ['tags', subcommand];
+  return ['tags'];
+};
+
+const blockersHelpPath = (positionals: string[]): string[] => {
+  const subcommand = positionals[0];
+  if (subcommand === 'add' || subcommand === 'remove') return ['blockers', subcommand];
+  return ['blockers'];
+};
+
 export const helpPath = (parsed: ParsedArguments): string[] => {
   if (parsed.command === 'help') return parsed.positionals;
   if (parsed.command === 'setup' && parsed.positionals[0] === 'status') return ['setup', 'status'];
-  if (parsed.command === 'progress') {
-    const sub = parsed.positionals[0];
-    if (sub === 'list' || sub === 'add') return ['progress', sub];
-    return ['progress'];
-  }
+  if (parsed.command === 'progress') return progressHelpPath(parsed.positionals);
+  if (parsed.command === 'tags') return tagsHelpPath(parsed.positionals);
+  if (parsed.command === 'blockers') return blockersHelpPath(parsed.positionals);
   return [parsed.command ?? ''];
 };
 

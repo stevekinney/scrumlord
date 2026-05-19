@@ -329,7 +329,7 @@ describe('startTask phase resolution and worktree setup', () => {
     }
   });
 
-  it('reverts the task on Claude failure when no worktree was created', async () => {
+  it('leaves the task claimed when Claude fails after creating a managed worktree', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
     const store = await createTaskStore({ cwd: root });
@@ -345,8 +345,9 @@ describe('startTask phase resolution and worktree setup', () => {
         stderr: (line) => stderrLines.push(line),
       });
       const after = store.getTask(task.id);
-      expect(after?.status).toBe('ready');
-      expect(stderrLines.some((line) => line.includes('reverted task'))).toBe(true);
+      expect(after?.status).toBe('in-progress');
+      expect(after?.branch).toStartWith('task/');
+      expect(stderrLines.some((line) => line.includes('provider claude'))).toBe(true);
     } finally {
       store.close();
     }

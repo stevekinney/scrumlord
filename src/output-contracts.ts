@@ -11,6 +11,7 @@ export type OutputContract =
 export type DataShape =
   | 'task-list'
   | 'single-task'
+  | 'tag-list'
   | 'task-progress'
   | 'single-task-progress'
   | 'task-session'
@@ -39,6 +40,7 @@ export type RenderReadiness = 'implemented' | 'jsonFallback';
 export const renderReadiness: Record<DataShape, RenderReadiness> = {
   'task-list': 'implemented',
   'single-task': 'implemented',
+  'tag-list': 'implemented',
   'task-progress': 'implemented',
   'single-task-progress': 'implemented',
   'task-session': 'implemented',
@@ -64,7 +66,7 @@ const pureCommandContracts: Record<string, OutputContract> = {
   'blocked-by': { kind: 'jsonData', shape: 'task-list', countLabel: 'blocking tasks' },
   blocking: { kind: 'jsonData', shape: 'task-list', countLabel: 'dependent tasks' },
   priority: { kind: 'jsonData', shape: 'task-list', countLabel: 'tasks at priority' },
-  'with-priority': { kind: 'jsonData', shape: 'task-list', countLabel: 'tasks at priority' },
+  status: { kind: 'jsonData', shape: 'task-list', countLabel: 'tasks at status' },
   search: { kind: 'jsonData', shape: 'task-list', countLabel: 'matching tasks' },
   get: { kind: 'jsonData', shape: 'single-task' },
   current: { kind: 'jsonData', shape: 'single-task' },
@@ -72,10 +74,6 @@ const pureCommandContracts: Record<string, OutputContract> = {
   create: { kind: 'jsonData', shape: 'single-task' },
   update: { kind: 'jsonData', shape: 'single-task' },
   delete: { kind: 'jsonData', shape: 'single-task' },
-  'add-tag': { kind: 'jsonData', shape: 'single-task' },
-  'remove-tag': { kind: 'jsonData', shape: 'single-task' },
-  'add-blocker': { kind: 'jsonData', shape: 'single-task' },
-  'remove-blocker': { kind: 'jsonData', shape: 'single-task' },
   clear: { kind: 'jsonData', shape: 'single-task' },
   session: { kind: 'jsonData', shape: 'task-session' },
   remaining: { kind: 'jsonData', shape: 'remaining' },
@@ -102,7 +100,23 @@ export const knownContractCommands = new Set<string>([
   'repository',
   'setup',
   'progress',
+  'tags',
+  'blockers',
 ]);
+
+const tagsContract = (flags: ReadonlySet<string>): OutputContract => {
+  if (flags.has('subcommand:add') || flags.has('subcommand:remove')) {
+    return { kind: 'jsonData', shape: 'single-task' };
+  }
+  return { kind: 'jsonData', shape: 'tag-list' };
+};
+
+const blockersContract = (flags: ReadonlySet<string>): OutputContract => {
+  if (flags.has('subcommand:add') || flags.has('subcommand:remove')) {
+    return { kind: 'jsonData', shape: 'single-task' };
+  }
+  return { kind: 'jsonData', shape: 'task-list', countLabel: 'blocking tasks' };
+};
 
 const progressContract = (flags: ReadonlySet<string>): OutputContract => {
   // `progress add` returns a single TaskProgress; `progress list` returns an
@@ -155,6 +169,8 @@ export const contractForInvocation = (
   if (command === 'repository') return repositoryContract(flags);
   if (command === 'setup') return setupContract(flags);
   if (command === 'progress') return progressContract(flags);
+  if (command === 'tags') return tagsContract(flags);
+  if (command === 'blockers') return blockersContract(flags);
   const contract = pureCommandContracts[command];
   if (!contract) throw new ScrumlordError('unknown_command', `Unknown command: ${command}`);
   return contract;

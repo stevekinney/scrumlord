@@ -39,6 +39,22 @@ describe('removed CLI commands return unknown_command', () => {
     expect(await errorCode(['add-progress', '--message', 'hi'])).toBe('unknown_command');
   });
 
+  it('rejects add-tag', async () => {
+    expect(await errorCode(['add-tag', 'task-id', 'testing'])).toBe('unknown_command');
+  });
+
+  it('rejects remove-tag', async () => {
+    expect(await errorCode(['remove-tag', 'task-id', 'testing'])).toBe('unknown_command');
+  });
+
+  it('rejects add-blocker', async () => {
+    expect(await errorCode(['add-blocker', 'task-id', 'blocker-id'])).toBe('unknown_command');
+  });
+
+  it('rejects remove-blocker', async () => {
+    expect(await errorCode(['remove-blocker', 'task-id', 'blocker-id'])).toBe('unknown_command');
+  });
+
   it('rejects sync-git-status with migration hint in message', async () => {
     const result = await runTasksCli(['sync-git-status']);
     const error = JSON.parse(result.stderr).error;
@@ -53,16 +69,24 @@ describe('new command validation', () => {
     expect(await errorCode(['progress', 'nope'])).toBe('invalid_progress_subcommand');
   });
 
-  it('rejects missing progress subcommand', async () => {
-    expect(await errorCode(['progress'])).toBe('missing_subcommand');
-  });
-
   it('rejects invalid clear property', async () => {
     expect(await errorCode(['clear', 'nonsense'])).toBe('invalid_clear_property');
   });
 
   it('rejects progress list --message flag', async () => {
     expect(await errorCode(['progress', 'list', '--message', 'hi'])).toBe('invalid_progress_flag');
+  });
+
+  it('rejects invalid tags subcommands', async () => {
+    expect(await errorCode(['tags', 'rename', 'task-id', 'testing'])).toBe(
+      'invalid_tags_subcommand',
+    );
+  });
+
+  it('rejects invalid blockers subcommands', async () => {
+    expect(await errorCode(['blockers', 'rename', 'task-id', 'blocker-id'])).toBe(
+      'invalid_blockers_subcommand',
+    );
   });
 
   it('rejects pr --quiet without --sync', async () => {

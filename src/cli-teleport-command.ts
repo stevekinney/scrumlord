@@ -8,34 +8,11 @@ import { ScrumlordError } from './errors.js';
 import { findWorktreeForBranch } from './git-status.js';
 import type { TaskStore } from './types.js';
 
-const AGENT_ENV_VARS = ['CLAUDECODE', 'CODEX_MANAGED_BY_BUN'] as const;
-
-const environmentValue = (
-  options: Pick<CliOptions, 'environment'>,
-  name: string,
-): string | undefined => options.environment?.[name] ?? Bun.env[name];
-
-const wantsJson = (parsed: ParsedArguments, options: CliOptions): boolean => {
-  if (parsed.flags.has('json')) return true;
-  return AGENT_ENV_VARS.some((name) => environmentValue(options, name) === '1');
-};
-
 const successPath = (path: string): CliResult => ({
   exitCode: 0,
   stdout: `${path}\n`,
   stderr: '',
 });
-
-const humanError = (message: string): CliResult => ({
-  exitCode: 1,
-  stdout: '',
-  stderr: `${message}\n`,
-});
-
-const errorResult = (json: boolean, code: string, message: string): CliResult => {
-  if (json) throw new ScrumlordError(code, message);
-  return humanError(message);
-};
 
 /** Collapses whitespace, trims, and strips trailing punctuation from git stderr. */
 const normalizeStderr = (raw: string): string =>
@@ -49,22 +26,19 @@ const resolveWorktreePath = async (
   taskId: string,
   branch: string,
   runner: CommandRunner,
-  json: boolean,
 ): Promise<CliResult> => {
   const lookup = await findWorktreeForBranch(projectRoot, branch, runner);
 
   if (lookup.kind === 'failed') {
     const detail = normalizeStderr(lookup.stderr) || 'unknown error';
-    return errorResult(
-      json,
+    throw new ScrumlordError(
       'teleport_worktree_lookup_failed',
       `Could not list git worktrees: ${detail}`,
     );
   }
 
   if (lookup.kind === 'not_found') {
-    return errorResult(
-      json,
+    throw new ScrumlordError(
       'teleport_no_worktree',
       `No worktree found for task ${taskId} on branch ${branch}.`,
     );
@@ -74,8 +48,7 @@ const resolveWorktreePath = async (
   // it. A relative path would silently work for `cd` but breaks the documented
   // contract and any consumer that records the path.
   if (!isAbsolute(lookup.path)) {
-    return errorResult(
-      json,
+    throw new ScrumlordError(
       'teleport_worktree_lookup_failed',
       `Could not list git worktrees: git returned a non-absolute path (${lookup.path}).`,
     );
@@ -87,37 +60,28 @@ const resolveWorktreePath = async (
 /**
  * Locates the existing git worktree for a task and prints its absolute path.
  * On success, stdout is path-only (newline-terminated) so shells can
- * `cd "$(tasks teleport <id>)"`. On error, format follows the json flag or
- * agent env vars: --json or CLAUDECODE=1 / CODEX_MANAGED_BY_BUN=1 → JSON
- * envelope; otherwise human text on stderr.
+ * `cd "$(tasks teleport <id>)"`. On error, formatting is handled by the
+ * shared CLI output boundary.
  */
 export const runTeleportCommand = async (
   store: TaskStore,
   parsed: ParsedArguments,
   options: CliOptions,
 ): Promise<CliResult> => {
-  const json = wantsJson(parsed, options);
   const input = required(parsed.positionals, 'task id');
-
-  let taskId: string;
-  try {
-    taskId = await resolveTaskId(store, input);
-  } catch (error) {
-    if (!(error instanceof ScrumlordError) || json) throw error;
-    return humanError(error.message);
-  }
+  const taskId = await resolveTaskId(store, input);
 
   const task = store.getTask(taskId);
   if (!task) {
-    return errorResult(json, 'task_not_found', `Task ${taskId} was not found.`);
+    throw new ScrumlordError('task_not_found', `Task ${taskId} was not found.`);
   }
 
   if (!task.branch) {
-    return errorResult(json, 'teleport_no_branch', `Task ${task.id} has no branch set.`);
+    throw new ScrumlordError('teleport_no_branch', `Task ${task.id} has no branch set.`);
   }
 
   const runner: CommandRunner = options.runner ?? runCommand;
-  return resolveWorktreePath(store.projectRoot, task.id, task.branch, runner, json);
+  return resolveWorktreePath(store.projectRoot, task.id, task.branch, runner);
 };
 
 export const TELEPORT_SHELL_SNIPPET = [
@@ -130,5 +94,28 @@ export const TELEPORT_SHELL_SNIPPET = [
   '}',
   '# Optional convenience alias — uncomment if you want it:',
   "# alias tt='tasks-teleport'",
+  '',
+  '# Wraps `tasks start` so the shell follows the agent into the task worktree.',
+  '# After the agent exits, cds into the worktree (when one exists).',
+  'tasks-start() {',
+  '  command tasks start "$@"',
+  '  local status=$?',
+  '  local task_id="${@: -1}"',
+  '  local destination',
+  '  destination="$(command tasks teleport "$task_id" 2>/dev/null)" || return $status',
+  '  [ -n "$destination" ] && cd "$destination"',
+  '  return $status',
+  '}',
+  '',
+  '# Wraps `tasks resume` so the shell follows the agent into the task worktree.',
+  'tasks-resume() {',
+  '  command tasks resume "$@"',
+  '  local status=$?',
+  '  local task_id="${@: -1}"',
+  '  local destination',
+  '  destination="$(command tasks teleport "$task_id" 2>/dev/null)" || return $status',
+  '  [ -n "$destination" ] && cd "$destination"',
+  '  return $status',
+  '}',
   '',
 ].join('\n');
