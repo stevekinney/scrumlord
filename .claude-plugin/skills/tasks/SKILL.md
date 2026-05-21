@@ -9,18 +9,21 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 ## Rules
 
 - Run commands from anywhere inside the project; the CLI resolves the Git root first and only then opens `tmp/tasks.db`.
-- Data commands return JSON when they have output. Parse the JSON instead of scraping human-readable text.
+- Data commands run in three output modes: pretty when stdout is a TTY (for humans), JSON when stdout is not a TTY (the agent case), and JSON whenever `--json` is passed. Pass `--json` explicitly when you need machine-parseable output regardless of context, and parse the JSON instead of scraping human-readable text.
 - If `tasks next` prints nothing and exits 0, there is no available task; stop instead of treating that as an error.
 - Use `tasks remaining` when you need a count of unfinished tasks, including tasks with future start dates.
 - Run `tasks init` when the project has not been set up yet. It creates and migrates `tmp/tasks.db`, writes local task skills, and installs managed Scrumlord Lefthook jobs when a Lefthook configuration exists.
 - Run `tasks setup status` before changing setup. It reports whether `tasks`, provider CLIs, skills, subagents, hooks, and `tmp/tasks.db` are present without creating the database.
 - Use `tasks setup --yes` for the default full setup when the user wants Scrumlord initialized for installed providers. Use `tasks setup --codex` or `tasks setup --claude` only when the user wants that CLI launched after setup.
 - Use `tasks setup --subagents` to install the `scrumlord-task-manager` subagent for installed providers. Use `tasks setup --subagents --agent codex`, `tasks setup --subagents --agent claude`, or `tasks setup --subagents --agent all` when a provider is explicit.
+- Use `tasks setup --shell` to emit shell helpers (e.g. `tasks-teleport`, `tasks-start`) for the user's `.zshrc` or `.bashrc`. Pair with `tasks completions <bash|zsh>` when the user also wants shell completions.
+- Use `tasks teleport <task-id>` to print the worktree path for a task. The canonical pattern is `cd "$(tasks teleport current)"` — never construct worktree paths yourself.
 - Use `tasks --help` or `tasks <command> --help` when you need the current command syntax. Help output is colorized for humans; data output stays parseable JSON.
 - If you need the task for the current branch and do not already have a task ID, run `tasks current` before falling back to `tasks next`.
 - Commands that accept a `<task-id>` require one. Pass a UUID, a unique UUID prefix, the literal `current` (the active task on the current Git branch), or the literal `next` (the next claimable task). Tokens are case-sensitive. Prefer `current` for branch-local work; pass an explicit UUID or unique prefix when operating on a specific other task.
 - Prefer `tasks available` or `tasks next` before choosing new work.
-- Use `tasks list` before decomposing a long document or checklist so you can avoid duplicating existing tasks. Use `tasks list --all` only when archived or deleted tasks matter.
+- Use `tasks list` before decomposing a long document or checklist so you can avoid duplicating existing tasks. Use `tasks list --all` only when archived or deleted tasks matter. Use `tasks search "<query>"` to fuzzy-search by title and description before creating a task that might already exist under a different phrasing.
+- `tasks get` and `tasks list` return a computed `blocked` boolean and per-blocker status on each task. Read that field instead of cross-referencing `tasks blocked-by` manually when you just need to know whether a task is currently blocked.
 - Scrumlord priorities are only `1`, `2`, and `3`, with `3` highest. Never pass `0`, `4`, `5`, `P0`, `P4`, or any source-specific rank through unchanged; normalize source priorities onto the 1-3 scale before running `tasks create`.
 - Store the Git branch on tasks with `tasks update current --branch <branch>` when work is branch-bound. Setting a branch moves a `draft` or `ready` task to `in-progress`.
 - Do not store worktree paths. Scrumlord derives the worktree from Git when it needs one.
@@ -28,6 +31,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 - Use `tasks progress` before resuming or handing off work so you can see recent progress for the current task. Use `tasks progress list current --full` when you need every entry.
 - If a task has a `plan`, read that plan file before taking on the task.
 - If you generate a plan, write it to the task plan file and update the task with `tasks update current --plan <path>`.
+- Use `tasks plan <task-id>` to emit a ready-to-use planning prompt for a single task, or `tasks plan` with no argument to emit prompts for every unplanned task. This is the entry point the `plan-tasks` workflow drives — prefer it over hand-rolling a prompt.
 - If you re-enter plan mode for a task, update the existing plan file or replace it with the new plan you generate.
 - Record meaningful progress with `tasks progress add current --message "<note>"` after planning, major implementation steps, blockers, and handoffs. Recording progress moves `draft` or `ready` tasks to `in-progress`.
 - Do not edit `tmp/tasks.db` directly. Use the CLI so migrations, timestamps, and graph checks stay consistent.
@@ -58,6 +62,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 - If `tasks setup --git-hooks` has been run in a repository with Lefthook, `tasks pr --sync --quiet` handles lifecycle transitions from Git and GitHub state.
 - If `tasks setup --agent-hooks` has been run, global Claude and Codex hooks try to keep plan, session, branch, and pull request lifecycle state synchronized, and they inject the inferred current branch task into agent context on user prompts. Hooks exit quietly when the project is not initialized for Scrumlord or `tasks` is unavailable unless `SCRUMLORD_DEBUG` is truthy.
 - Before merging, run `tasks pr`. Only treat the pull request as merge-ready when `readyToMerge` is `true`.
+- Use `tasks cleanup` to prune the graph: `--aged` removes long-idle completed tasks, `--orphans-only` removes tasks whose worktree or branch is gone, `--aged-and-orphans` does both, and `--prompt` walks the user through interactive recovery. Combine with `--hard` for permanent deletion, `--recover-orphans` to revive orphans instead of deleting, and `--dry-run` to preview without writing.
 - When waiting on CI or bot reviews between push cycles, use `tasks pr --poll` instead of calling `tasks pr` in a manual loop. It re-fetches up to `--max-polls` times (default 5) with `--poll-interval` seconds between each (default 20). It always exits 0; check `poll.pollsExhausted` and `readyToMerge` in the JSON output. `poll.botsPending`, `poll.mergeabilityPending`, and `poll.hasMergeConflict` mirror the `pr-status.ts` parity fields.
 
 ## GitHub Review Workflow
@@ -103,4 +108,12 @@ tasks setup status
 tasks setup --yes
 tasks setup --subagents
 tasks setup --agent-hooks
+tasks setup --shell
+tasks search "<query>"
+tasks teleport current
+tasks plan
+tasks plan current
+tasks cleanup --prompt
+tasks completions zsh
+tasks list --json
 ```
