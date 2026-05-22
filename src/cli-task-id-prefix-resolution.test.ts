@@ -95,4 +95,38 @@ describe('resolveTaskId — UUID prefixes', () => {
 
     expect(await errorCode(['get', 'aaaaaaaa'], root)).toBe('task_id_ambiguous');
   });
+
+  it('create resolves --blocked-by from a unique UUID prefix', async () => {
+    const root = await workspaceRoot();
+    const blockerId = '12345678-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const store = await createTaskStore({ cwd: root });
+    try {
+      store.create({ id: blockerId, title: 'Blocker' });
+      store.create({ id: '87654321-bbbb-4bbb-8bbb-bbbbbbbbbbbb', title: 'Unrelated' });
+    } finally {
+      store.close();
+    }
+
+    const result = await runTasksCli(
+      ['create', '--title', 'Needs blocker', '--blocked-by', '12345678'],
+      { cwd: root },
+    );
+    const created = JSON.parse(result.stdout) as { blockedBy: { id: string }[] };
+    expect(created.blockedBy.map((blocker) => blocker.id)).toEqual([blockerId]);
+  });
+
+  it('create --blocked-by surfaces task_id_ambiguous when the prefix matches multiple tasks', async () => {
+    const root = await workspaceRoot();
+    const store = await createTaskStore({ cwd: root });
+    try {
+      store.create({ id: 'aaaaaaaa-1111-4111-8111-111111111111', title: 'First match' });
+      store.create({ id: 'aaaaaaaa-2222-4222-8222-222222222222', title: 'Second match' });
+    } finally {
+      store.close();
+    }
+
+    expect(
+      await errorCode(['create', '--title', 'Needs blocker', '--blocked-by', 'aaaaaaaa'], root),
+    ).toBe('task_id_ambiguous');
+  });
 });

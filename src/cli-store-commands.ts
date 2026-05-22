@@ -107,6 +107,19 @@ const createInputFromFlags = (flags: Map<string, string[]>): CreateTaskInput => 
   return input;
 };
 
+const resolveBlockedByPrefixes = async (
+  store: Pick<TaskStore, 'projectRoot' | 'withBranch' | 'next' | 'list'>,
+  input: CreateTaskInput,
+): Promise<CreateTaskInput> => {
+  if (!input.blockedBy?.length) return input;
+  const resolved = await Promise.all(
+    input.blockedBy.map((blocker) =>
+      typeof blocker === 'string' ? resolveTaskId(store, blocker) : blocker,
+    ),
+  );
+  return { ...input, blockedBy: resolved };
+};
+
 const applyStringUpdateFlags = (input: UpdateTaskInput, flags: Map<string, string[]>): void => {
   const stringSetters = {
     title: (value: string) => {
@@ -510,7 +523,8 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
   current: async (store) => await currentBranchTask(store),
   next: (store) => next(store),
   remaining: (store) => remaining(store),
-  create: (store, parsed) => createTask(store, createInputFromFlags(parsed.flags)),
+  create: async (store, parsed) =>
+    createTask(store, await resolveBlockedByPrefixes(store, createInputFromFlags(parsed.flags))),
   update: async (store, parsed) =>
     updateTask(
       store,
