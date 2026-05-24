@@ -135,22 +135,74 @@ const buildSetupPrompt = (context: AgentSetupInvocationContext): string => {
   ].join('\n');
 };
 
+const workflowSystemPrompt = [
+  'You are running a Scrumlord workflow skill in the project worktree.',
+  'Use the `tasks` CLI for any task state changes.',
+  'Do not create new worktrees or branches unless the skill explicitly instructs you to.',
+  'When the skill is complete, exit cleanly.',
+].join(' ');
+
 const withEnvironment = (command: string[], cwd: string): AgentInvocation => ({
   command,
   cwd,
   environment: {},
 });
 
+/** Options for building a provider-agnostic skill (workflow) invocation. */
+export type SkillInvocationContext = {
+  cwd: string;
+  prompt: string;
+  session?: string | null;
+  planMode?: boolean;
+};
+
+/**
+ * Builds a Claude argv array for a skill invocation.
+ * Extracted so both `buildTaskStartInvocation` and `buildSkillInvocation` share
+ * the same flag-emitting logic without duplication.
+ */
+const buildClaudeSkillArgv = (
+  systemPrompt: string,
+  prompt: string,
+  session: string | null | undefined,
+  planMode: boolean,
+): string[] => {
+  const command = ['claude'];
+  if (planMode) command.push('--permission-mode', 'plan');
+  command.push('--append-system-prompt', systemPrompt);
+  if (session) command.push('--session-id', session);
+  command.push(prompt);
+  return command;
+};
+
+/**
+ * Builds a Codex argv array for a skill invocation.
+ * Extracted so both `buildTaskStartInvocation` and `buildSkillInvocation` share
+ * the same flag-emitting logic without duplication.
+ */
+const buildCodexSkillArgv = (
+  cwd: string,
+  systemPrompt: string,
+  prompt: string,
+  planMode: boolean,
+): string[] => {
+  const fullPrompt = planMode
+    ? `/plan ${systemPrompt}\n\n${prompt}`
+    : `${systemPrompt}\n\n${prompt}`;
+  return ['codex', '--cd', cwd, fullPrompt];
+};
+
 const claudeProvider: AgentCliProvider = {
   id: 'claude',
   executable: 'claude',
   createSession: () => crypto.randomUUID(),
   buildStartInvocation(context) {
-    const command = ['claude'];
-    if (phaseForcesPlanMode(context.phase)) command.push('--permission-mode', 'plan');
-    command.push('--append-system-prompt', providerSystemPrompt);
-    if (context.session) command.push('--session-id', context.session);
-    command.push(buildTaskPrompt(context));
+    const command = buildClaudeSkillArgv(
+      providerSystemPrompt,
+      buildTaskPrompt(context),
+      context.session,
+      phaseForcesPlanMode(context.phase),
+    );
     return withEnvironment(command, context.cwd);
   },
   buildResumeInvocation(context) {
@@ -171,11 +223,13 @@ const codexProvider: AgentCliProvider = {
   executable: 'codex',
   createSession: () => null,
   buildStartInvocation(context) {
-    const taskPrompt = buildTaskPrompt(context);
-    const prompt = phaseForcesPlanMode(context.phase)
-      ? `/plan ${providerSystemPrompt}\n\n${taskPrompt}`
-      : `${providerSystemPrompt}\n\n${taskPrompt}`;
-    return withEnvironment(['codex', '--cd', context.cwd, prompt], context.cwd);
+    const command = buildCodexSkillArgv(
+      context.cwd,
+      providerSystemPrompt,
+      buildTaskPrompt(context),
+      phaseForcesPlanMode(context.phase),
+    );
+    return withEnvironment(command, context.cwd);
   },
   buildResumeInvocation(context) {
     return withEnvironment(['codex', 'resume', '--cd', context.cwd, context.session], context.cwd);
@@ -275,6 +329,31 @@ export const buildSetupInvocation = (
   context: AgentSetupInvocationContext,
 ): AgentInvocation => {
   return getAgentProvider(provider).buildSetupInvocation(context);
+};
+
+/**
+ * Builds a provider-specific invocation for a workflow skill (plan-review,
+ * committee-review, address-pr, etc.). Unlike `buildTaskStartInvocation`, this
+ * builder is prompt-agnostic: the caller supplies the fully-rendered prompt and
+ * the builder only wraps it with provider-specific flags and the workflow system
+ * prompt.
+ *
+ * - Claude: `claude [--permission-mode plan] --append-system-prompt <workflowSystemPrompt>
+ *            [--session-id <session>] <prompt>`
+ * - Codex:  `codex --cd <cwd> [/plan ]<workflowSystemPrompt>\n\n<prompt>`
+ */
+export const buildSkillInvocation = (
+  provider: AgentProvider,
+  context: SkillInvocationContext,
+): AgentInvocation => {
+  const { cwd, prompt, session, planMode = false } = context;
+  const adapter = getAgentProvider(provider);
+  if (adapter.id === 'claude') {
+    const command = buildClaudeSkillArgv(workflowSystemPrompt, prompt, session, planMode);
+    return withEnvironment(command, cwd);
+  }
+  const command = buildCodexSkillArgv(cwd, workflowSystemPrompt, prompt, planMode);
+  return withEnvironment(command, cwd);
 };
 
 /** Resolves persisted session metadata with derived worktree and local session file paths. */

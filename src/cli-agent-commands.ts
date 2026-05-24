@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import {
   absoluteTaskPlanPath,
+  buildSkillInvocation,
   buildTaskResumeInvocation,
   buildTaskStartInvocation,
   defaultTaskPlanPath,
@@ -238,7 +239,7 @@ const noWorktreeSetup = async (
 const setupTaskWorktree = async (
   store: TaskStore,
   task: Task,
-  options: TaskAgentCommandOptions,
+  options: PrepareTaskWorktreeOptions,
   runner: CommandRunner,
 ): Promise<WorktreeSetup> => {
   if (options.noWorktree) return noWorktreeSetup(store, task, options, runner);
@@ -247,7 +248,9 @@ const setupTaskWorktree = async (
     ? { branch: task.branch, shortId: shortIdFromBranch(task.branch, common, task.id) }
     : deriveBranchAndShortId(common, task.id);
   const slug = repoSlug(store.projectRoot);
-  const directory = await scrumlordWorktreePath(store.projectRoot, slug, derived.shortId);
+  const directory =
+    options.worktreeDirectory ??
+    (await scrumlordWorktreePath(store.projectRoot, slug, derived.shortId));
   const base = await resolveBaseBranch(store.projectRoot, runner);
   const worktreeLog = options.stderr
     ? (line: string): void => writeStderrLine(options, line)
@@ -292,6 +295,13 @@ export type PrepareTaskWorktreeResult = {
 export type PrepareTaskWorktreeOptions = TaskAgentCommandOptions & {
   /** When false, skips status/branch/provider/session persistence and only resolves the worktree. */
   persistClaim?: boolean;
+  /**
+   * When set, the worktree is placed at this exact path instead of computing
+   * one via `scrumlordWorktreePath`. The `assertTmpFallbackIgnored` safety check
+   * still applies (enforced inside `ensureTaskWorktree`), so a path under
+   * `tmp/worktrees/` is only accepted when `.gitignore` covers `tmp/`.
+   */
+  worktreeDirectory?: string;
 };
 
 /**
@@ -425,6 +435,72 @@ export const startTask = async (
   );
 
   return { exitCode: await runAgentInvocation(invocation, options) };
+};
+
+/** Context passed to a workflow skill's `renderPrompt` function. */
+export type WorkflowPromptContext = {
+  store: TaskStore;
+  parsed: ParsedArguments;
+  options: CliOptions;
+};
+
+/** Configuration for a workflow skill dispatched via `runWorkflowCommand`. */
+export type WorkflowCommandConfig = {
+  skillName: string;
+  /**
+   * Pure function that renders the skill prompt from the resolved context.
+   * Exported and tested in isolation so callers can verify prompt output
+   * without spawning an agent process.
+   */
+  renderPrompt: (context: WorkflowPromptContext) => string;
+};
+
+/**
+ * Dispatch helper for workflow skill commands (plan-review, committee-review,
+ * address-pr, etc.). Behaviour depends on whether `--start` is present:
+ *
+ * - **Print mode** (no `--start`): calls `renderPrompt` and returns the
+ *   rendered prompt as a raw string result. No provider resolution, no
+ *   worktree materialisation, no agent spawn.
+ *
+ * - **Start mode** (`--start` present): resolves the provider via the same
+ *   seam used by `startTask` (`--cli` flag / `SCRUMLORD_CLI` env), builds a
+ *   `buildSkillInvocation`, runs it via the injected (or real) agent spawner,
+ *   and returns the exit code.
+ */
+export const runWorkflowCommand = async (
+  store: TaskStore,
+  parsed: ParsedArguments,
+  options: CliOptions,
+  config: WorkflowCommandConfig,
+): Promise<CliResult> => {
+  const context: WorkflowPromptContext = { store, parsed, options };
+  const prompt = config.renderPrompt(context);
+
+  if (!parsed.flags.has('start')) {
+    return { exitCode: 0, stdout: `${prompt}\n`, stderr: '' };
+  }
+
+  const provider = providerFromStartCommand(parsed, options);
+  const adapter = getAgentProvider(provider);
+  const executablePath = (options.which ?? Bun.which)(adapter.executable);
+  if (!executablePath) {
+    throw new ScrumlordError(
+      'provider_cli_not_found',
+      `Could not find ${adapter.executable} in PATH.`,
+    );
+  }
+
+  const invocation = withExecutablePath(
+    buildSkillInvocation(provider, {
+      cwd: store.projectRoot,
+      prompt,
+    }),
+    executablePath,
+  );
+
+  const exitCode = await runAgentInvocation(invocation, options);
+  return { exitCode, stdout: '', stderr: '' };
 };
 
 export const runAgentHookCommand = async (
