@@ -104,6 +104,39 @@ describe('visibleLength escape handling', () => {
     expect(visibleLength(value)).toBe(value.length);
   });
 
+  it('counts emoji as two display columns', () => {
+    expect(visibleLength('✅')).toBe(2);
+    expect(visibleLength('💬')).toBe(2);
+    expect(visibleLength('🔄')).toBe(2);
+  });
+
+  it('counts an emoji with a variation selector as two columns', () => {
+    // ⚔️ is U+2694 (wide) + U+FE0F (variation selector, zero-width) = 2 columns.
+    expect(visibleLength('⚔️')).toBe(2);
+  });
+
+  it('counts CJK glyphs as two display columns each', () => {
+    expect(visibleLength('日本')).toBe(4);
+  });
+
+  it('ignores zero-width combining marks and joiners', () => {
+    expect(visibleLength('é')).toBe(1); // e + combining acute accent
+    expect(visibleLength('a​b')).toBe(2); // a + zero-width space + b
+  });
+
+  it('pads a column to display width when the cell contains emoji', () => {
+    // padEndVisible is exercised through table rendering; here we assert the
+    // width primitive the padder relies on stays display-accurate.
+    expect(visibleLength('ok 🔄')).toBe(visibleLength('ok ') + 2);
+  });
+
+  it('truncates by display width, not code-point count', () => {
+    // Two wide emoji = 4 columns; truncating to 3 keeps one emoji + ellipsis.
+    const truncated = truncateVisible('🔄🔄', 3);
+    expect(visibleLength(truncated)).toBeLessThanOrEqual(3);
+    expect(truncated).toContain('…');
+  });
+
   it('preserves an OSC hyperlink prefix when truncating its visible label', () => {
     // Hyperlinked label is longer than the target width; truncation should copy
     // the OSC open sequence through and clip only the visible characters.

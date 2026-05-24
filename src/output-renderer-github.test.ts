@@ -164,10 +164,10 @@ describe('pr-overview renderer', () => {
     expect(output).toContain('PR');
     expect(output).toContain('Branch');
     expect(output).toContain('Task');
-    expect(output).toContain('Rd');
-    expect(output).toContain('Cmt');
-    expect(output).toContain('CI');
-    expect(output).toContain('Conf');
+    expect(output).toContain('✅');
+    expect(output).toContain('💬');
+    expect(output).toContain('🔄');
+    expect(output).toContain('⚔️');
     expect(output).toContain('…');
     expect(
       output

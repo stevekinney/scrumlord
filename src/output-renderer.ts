@@ -99,9 +99,51 @@ const ansiEscapeSequenceEnd = (value: string, index: number): number | null => {
   return null;
 };
 
+type CodePointRange = readonly [number, number];
+
+// Combining marks, ZWJ, variation selectors, ZWSP — render in zero columns.
+const ZERO_WIDTH_RANGES: readonly CodePointRange[] = [
+  [0x0300, 0x036f], // combining diacritics
+  [0x200b, 0x200b], // zero-width space
+  [0x200d, 0x200d], // zero-width joiner
+  [0xfe00, 0xfe0f], // variation selectors
+];
+
+// CJK, Hangul, and the common emoji blocks — render two columns wide.
+const WIDE_RANGES: readonly CodePointRange[] = [
+  [0x1100, 0x115f], // Hangul Jamo
+  [0x2600, 0x27bf], // misc symbols + dingbats (✅ ⚔ etc.)
+  [0x2e80, 0xa4cf], // CJK radicals … Yi
+  [0xac00, 0xd7a3], // Hangul syllables
+  [0xf900, 0xfaff], // CJK compatibility ideographs
+  [0xfe30, 0xfe4f], // CJK compatibility forms
+  [0xff00, 0xff60], // fullwidth forms
+  [0xffe0, 0xffe6], // fullwidth signs
+  [0x1f000, 0x1faff], // emoji + symbols + pictographs
+  [0x20000, 0x3fffd], // CJK extension B+
+];
+
+const inRanges = (codePoint: number, ranges: readonly CodePointRange[]): boolean =>
+  ranges.some(([low, high]) => codePoint >= low && codePoint <= high);
+
 /**
- * Counts visible characters, skipping CSI and OSC escape sequences (including
- * OSC 8 hyperlinks). Exported for tests that pin escape-aware width behavior.
+ * Display columns occupied by a single grapheme. Combining marks, variation
+ * selectors, and zero-width joiners take no space; emoji and CJK glyphs take
+ * two; everything else takes one. Intentionally a pragmatic subset of Unicode
+ * width rules — enough to keep tables with emoji and CJK aligned without
+ * pulling in a full east-asian-width table.
+ */
+const characterDisplayWidth = (character: string): number => {
+  const codePoint = character.codePointAt(0) ?? 0;
+  if (inRanges(codePoint, ZERO_WIDTH_RANGES)) return 0;
+  if (inRanges(codePoint, WIDE_RANGES)) return 2;
+  return 1;
+};
+
+/**
+ * Display width of a string, skipping CSI and OSC escape sequences (including
+ * OSC 8 hyperlinks) and accounting for wide (emoji/CJK) and zero-width
+ * characters. Exported for tests that pin escape-aware width behavior.
  */
 export const visibleLength = (value: string): number => {
   let width = 0;
@@ -113,7 +155,7 @@ export const visibleLength = (value: string): number => {
     }
     const [character] = Array.from(value.slice(index));
     if (!character) break;
-    width += 1;
+    width += characterDisplayWidth(character);
     index += character.length;
   }
   return width;
@@ -140,8 +182,10 @@ export const truncateVisible = (value: string, width: number): string => {
     }
     const [character] = Array.from(value.slice(index));
     if (!character) break;
+    const charWidth = characterDisplayWidth(character);
+    if (visible + charWidth > target) break;
     output += character;
-    visible += 1;
+    visible += charWidth;
     index += character.length;
   }
 
@@ -511,20 +555,22 @@ const overviewColumns = (
     header: 'Task',
     cells: value.map((item) => overviewTaskCell(item, theme)),
   },
+  // Emoji headers: ready-to-merge, unresolved comments, CI, merge conflict.
+  // Column-width math uses displayWidth(), so wide emoji align correctly.
   {
-    header: 'Rd',
+    header: '✅',
     cells: value.map((item) => (item.readyToMerge ? theme.success('✔') : theme.warning('X'))),
   },
   {
-    header: 'Cmt',
+    header: '💬',
     cells: value.map((item) => String(item.reviewComments.unresolvedCount)),
   },
   {
-    header: 'CI',
+    header: '🔄',
     cells: value.map((item) => overviewCiCell(item, theme)),
   },
   {
-    header: 'Conf',
+    header: '⚔️',
     cells: value.map((item) => overviewMergeConflictsCell(item, theme)),
   },
 ];
@@ -580,6 +626,9 @@ const renderPullRequestOverview = (value: unknown, context: RenderContext): stri
     ),
   );
   rows.push('');
+  rows.push(
+    truncateVisible(theme.muted('✅ ready  💬 comments  🔄 CI  ⚔️ conflict'), terminalWidth),
+  );
   rows.push(truncateVisible(theme.muted(`${value.length} PR(s)`), terminalWidth));
   return `${[header, '-'.repeat(dividerWidth), ...rows].join('\n')}\n`;
 };
