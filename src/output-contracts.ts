@@ -21,6 +21,7 @@ export type DataShape =
   | 'remaining'
   | 'cleanup'
   | 'sync-summary'
+  | 'complete-sync'
   | 'init-result'
   | 'setup-result'
   | 'start-result'
@@ -50,6 +51,7 @@ export const renderReadiness: Record<DataShape, RenderReadiness> = {
   remaining: 'implemented',
   cleanup: 'implemented',
   'sync-summary': 'jsonFallback',
+  'complete-sync': 'jsonFallback',
   'init-result': 'jsonFallback',
   'setup-result': 'jsonFallback',
   'start-result': 'jsonFallback',
@@ -101,6 +103,7 @@ export const knownContractCommands = new Set<string>([
   'progress',
   'tags',
   'blockers',
+  'complete',
 ]);
 
 const tagsContract = (flags: ReadonlySet<string>): OutputContract => {
@@ -149,6 +152,13 @@ const pullRequestContract = (flags: ReadonlySet<string>): OutputContract => {
   return { kind: 'jsonData', shape: 'pr-status' };
 };
 
+const completeContract = (flags: ReadonlySet<string>): OutputContract => {
+  // `--sync` produces the sync summary (rendered bespoke, JSON in JSON mode);
+  // the batch `complete <id...>` form returns the completed tasks.
+  if (flags.has('sync')) return { kind: 'jsonData', shape: 'complete-sync' };
+  return { kind: 'jsonData', shape: 'task-list', countLabel: 'completed tasks' };
+};
+
 const setupContract = (flags: ReadonlySet<string>): OutputContract => {
   if (flags.has('prompt')) return { kind: 'rawText' };
   if (flags.has('shell')) return { kind: 'rawText' };
@@ -170,6 +180,7 @@ export const contractForInvocation = (
   if (command === 'progress') return progressContract(flags);
   if (command === 'tags') return tagsContract(flags);
   if (command === 'blockers') return blockersContract(flags);
+  if (command === 'complete') return completeContract(flags);
   const contract = pureCommandContracts[command];
   if (!contract) throw new ScrumlordError('unknown_command', `Unknown command: ${command}`);
   return contract;

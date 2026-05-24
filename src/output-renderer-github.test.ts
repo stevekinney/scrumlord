@@ -182,6 +182,39 @@ describe('pr-overview renderer', () => {
       formatJson({ not: 'an array' }),
     );
   });
+
+  const ttyContext = () =>
+    createRenderContext({
+      colorMode: 'always',
+      terminalWidth: 100,
+      flags: new Set(),
+      isTty: true,
+    });
+
+  it('wraps the PR number in an OSC 8 hyperlink on an interactive color terminal', () => {
+    const output = renderPretty('pr-overview', [overviewItem()], ttyContext());
+    // OSC 8 open + url + ST, label, then the OSC 8 close.
+    expect(output).toContain(']8;;https://example/pr/5\\#5]8;;\\');
+  });
+
+  it('emits no OSC bytes when not a TTY or when color is disabled', () => {
+    const plain = renderPretty('pr-overview', [overviewItem()], plainContext());
+    const colorNoTty = renderPretty('pr-overview', [overviewItem()], coloredContext());
+    expect(plain).not.toContain(']8;;');
+    expect(colorNoTty).not.toContain(']8;;');
+    expect(plain).toContain('#5');
+  });
+
+  it('keeps column alignment despite the hyperlink escape', () => {
+    // Two PRs with different-width numbers; the hyperlinked PR cell must align
+    // to the same visible width as a plain one.
+    const wide = overviewItem({ pullRequest: { ...overviewItem().pullRequest, number: 12345 } });
+    const output = renderPretty('pr-overview', [overviewItem(), wide], ttyContext());
+    const lines = output.split('\n').filter((line) => line.includes(']8;;'));
+    // The branch column should start at the same offset on both data rows.
+    const branchOffsets = lines.map((line) => line.indexOf('feature/y'));
+    expect(branchOffsets[0]).toBe(branchOffsets[1]);
+  });
 });
 
 describe('cleanup renderer', () => {

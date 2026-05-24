@@ -25,6 +25,7 @@ export const commandSummaries: Record<string, string> = {
   list: 'List tasks for graph reconciliation.',
   blocked: 'List currently blocked tasks.',
   completed: 'List completed tasks.',
+  complete: 'Mark tasks completed, or sync-merge ready PRs.',
   init: 'Initialize Scrumlord for the current project.',
   overview: 'Show a task status overview with PR state.',
   help: 'Show help for the CLI or a specific command.',

@@ -41,19 +41,30 @@ const shouldMoveTaskToReview = (task: Task): boolean => {
   return !task.deleted && task.status !== 'completed' && task.status !== 'in-review';
 };
 
-const synchronizePullRequestTasks = (store: TaskStore, pullRequest: PullRequest): Task[] => {
-  return store
-    .withBranch(pullRequest.headRefName)
-    .filter((task) => !task.deleted)
-    .map((task) =>
-      shouldMoveTaskToReview(task) ? store.update(task.id, { status: 'in-review' }) : task,
-    );
+/**
+ * Returns the tasks associated with a pull request's head branch. When
+ * `mutateTaskReviewState` is true (the default for `tasks overview`), tasks are
+ * moved to `in-review` as a side effect. When false, the lookup is read-only —
+ * `tasks complete --sync` relies on this so its readiness inventory never
+ * writes task state.
+ */
+const synchronizePullRequestTasks = (
+  store: TaskStore,
+  pullRequest: PullRequest,
+  mutateTaskReviewState: boolean,
+): Task[] => {
+  const tasks = store.withBranch(pullRequest.headRefName).filter((task) => !task.deleted);
+  if (!mutateTaskReviewState) return tasks;
+  return tasks.map((task) =>
+    shouldMoveTaskToReview(task) ? store.update(task.id, { status: 'in-review' }) : task,
+  );
 };
 
 const overviewForPullRequest = async (
   store: TaskStore,
   repository: string,
   pullRequest: PullRequest,
+  mutateTaskReviewState: boolean,
   options?: GitHubOptions,
 ): Promise<PullRequestOverviewItem> => {
   const [reviewComments, checks] = await Promise.all([
@@ -63,7 +74,7 @@ const overviewForPullRequest = async (
   const checkReports = checks.map(reportForCheck);
   const pending = checkReports.filter((check) => check.conclusion === 'pending');
   const failed = checkReports.filter((check) => check.conclusion === 'failed');
-  const associatedTasks = synchronizePullRequestTasks(store, pullRequest);
+  const associatedTasks = synchronizePullRequestTasks(store, pullRequest, mutateTaskReviewState);
   const readyToMerge = reviewComments.length === 0 && pending.length === 0 && failed.length === 0;
 
   return {
@@ -106,16 +117,25 @@ const mapPullRequestsWithConcurrency = async <Result>(
   return results;
 };
 
+export type TasksOverviewOptions = GitHubOptions & {
+  /**
+   * When true (default), tasks associated with an open pull request are moved
+   * to `in-review` as a side effect. Pass false for a read-only inventory.
+   */
+  mutateTaskReviewState?: boolean;
+};
+
 /** Lists open pull requests with task associations and merge-readiness signals. */
 export const tasksOverview = async (
   store: TaskStore,
-  options?: GitHubOptions,
+  options?: TasksOverviewOptions,
 ): Promise<PullRequestOverviewItem[]> => {
   await requireGh(store.projectRoot, options);
   const repository = await repositoryName(store.projectRoot, options);
   const pullRequests = await openPullRequests(store.projectRoot, repository, options);
+  const mutateTaskReviewState = options?.mutateTaskReviewState ?? true;
 
   return await mapPullRequestsWithConcurrency(pullRequests, (pullRequest) =>
-    overviewForPullRequest(store, repository, pullRequest, options),
+    overviewForPullRequest(store, repository, pullRequest, mutateTaskReviewState, options),
   );
 };

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { createTheme, type ColorMode, type Theme } from './color.js';
 import { formatJson } from './output-json.js';
 import { renderReadiness, type DataShape } from './output-contracts.js';
@@ -17,6 +18,8 @@ export type RenderContext = {
   colorMode: ColorMode;
   terminalWidth: number;
   flags: ReadonlySet<string>;
+  /** Whether stdout is an interactive terminal. Gates OSC 8 hyperlinks. */
+  isTty: boolean;
   command?: string;
   countLabel?: string;
 };
@@ -26,6 +29,7 @@ export const createRenderContext = (input: {
   colorMode: ColorMode;
   terminalWidth?: number;
   flags: ReadonlySet<string>;
+  isTty?: boolean;
   command?: string;
   countLabel?: string;
 }): RenderContext => ({
@@ -33,6 +37,7 @@ export const createRenderContext = (input: {
   colorMode: input.colorMode,
   terminalWidth: input.terminalWidth ?? 100,
   flags: input.flags,
+  isTty: input.isTty ?? false,
   ...(input.command !== undefined ? { command: input.command } : {}),
   ...(input.countLabel !== undefined ? { countLabel: input.countLabel } : {}),
 });
@@ -72,8 +77,21 @@ const truncate = (value: string, width: number): string => {
   return `${value.slice(0, Math.max(0, width - 1))}…`;
 };
 
+// OSC sequences (`ESC ]`) terminate with BEL (0x07) or ST (`ESC \`). Used by OSC 8
+// hyperlinks. An unterminated OSC returns null so width math treats the lone ESC
+// as a visible byte rather than swallowing the rest of the string.
+const oscSequenceEnd = (value: string, index: number): number | null => {
+  for (let cursor = index + 2; cursor < value.length; cursor += 1) {
+    if (value.charCodeAt(cursor) === 0x07) return cursor + 1;
+    if (value.charCodeAt(cursor) === 27 && value[cursor + 1] === '\\') return cursor + 2;
+  }
+  return null;
+};
+
 const ansiEscapeSequenceEnd = (value: string, index: number): number | null => {
-  if (value.charCodeAt(index) !== 27 || value[index + 1] !== '[') return null;
+  if (value.charCodeAt(index) !== 27) return null;
+  if (value[index + 1] === ']') return oscSequenceEnd(value, index);
+  if (value[index + 1] !== '[') return null;
   for (let cursor = index + 2; cursor < value.length; cursor += 1) {
     const code = value.charCodeAt(cursor);
     if (code >= 0x40 && code <= 0x7e) return cursor + 1;
@@ -81,7 +99,11 @@ const ansiEscapeSequenceEnd = (value: string, index: number): number | null => {
   return null;
 };
 
-const visibleLength = (value: string): number => {
+/**
+ * Counts visible characters, skipping CSI and OSC escape sequences (including
+ * OSC 8 hyperlinks). Exported for tests that pin escape-aware width behavior.
+ */
+export const visibleLength = (value: string): number => {
   let width = 0;
   for (let index = 0; index < value.length; ) {
     const escapeEnd = ansiEscapeSequenceEnd(value, index);
@@ -97,7 +119,12 @@ const visibleLength = (value: string): number => {
   return width;
 };
 
-const truncateVisible = (value: string, width: number): string => {
+/**
+ * Truncates to `width` visible characters with a trailing ellipsis, preserving
+ * any CSI/OSC escape sequences encountered before the cut. Exported for tests
+ * that pin escape-aware truncation.
+ */
+export const truncateVisible = (value: string, width: number): string => {
   if (visibleLength(value) <= width) return value;
   if (width <= 0) return '';
 
@@ -454,10 +481,27 @@ const overviewMergeConflictsCell = (item: PullRequestOverviewItem, theme: Theme)
   return conflicts ? theme.error('yes') : theme.success('no');
 };
 
-const overviewColumns = (value: PullRequestOverviewItem[], theme: Theme): OverviewColumn[] => [
+/**
+ * Wraps `label` in an OSC 8 hyperlink to `url` when output is an interactive,
+ * color-enabled terminal. Otherwise returns the bare label so pipes, logs, and
+ * `NO_COLOR` consumers never receive escape bytes. The visible width is
+ * unchanged because OSC sequences are skipped by {@link visibleLength}.
+ */
+const hyperlink = (label: string, url: string, context: RenderContext): string => {
+  if (context.colorMode === 'never' || !context.isTty) return label;
+  return `]8;;${url}\\${label}]8;;\\`;
+};
+
+const overviewColumns = (
+  value: PullRequestOverviewItem[],
+  theme: Theme,
+  context: RenderContext,
+): OverviewColumn[] => [
   {
     header: 'PR',
-    cells: value.map((item) => `#${item.pullRequest.number}`),
+    cells: value.map((item) =>
+      hyperlink(`#${item.pullRequest.number}`, item.pullRequest.url, context),
+    ),
   },
   {
     header: 'Branch',
@@ -519,7 +563,7 @@ const renderPullRequestOverview = (value: unknown, context: RenderContext): stri
   const { theme, terminalWidth } = context;
   if (!isPullRequestOverviewArray(value)) return formatJson(value);
   if (value.length === 0) return `${theme.muted('(No open pull requests.)')}\n`;
-  const columns = overviewColumns(value, theme);
+  const columns = overviewColumns(value, theme, context);
   const widths = overviewColumnWidths(columns, terminalWidth);
   const header = renderOverviewTableRow(
     columns.map((column) => theme.bold(column.header)),

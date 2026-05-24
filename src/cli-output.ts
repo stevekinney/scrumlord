@@ -76,6 +76,7 @@ const renderContextFor = (
     colorMode: options.colorMode ?? 'auto',
     ...(options.terminalWidth !== undefined ? { terminalWidth: options.terminalWidth } : {}),
     flags: new Set(parsed.flags.keys()),
+    isTty: options.isStdoutTty ?? false,
     ...(parsed.command !== undefined ? { command: parsed.command } : {}),
     ...(countLabel !== undefined ? { countLabel } : {}),
   });

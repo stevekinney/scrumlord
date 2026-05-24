@@ -195,6 +195,39 @@ describe('GitHub pull request overview', () => {
     }
   });
 
+  it('does not mutate task review state when mutateTaskReviewState is false', async () => {
+    const root = await workspaceRoot();
+    const store = await createTaskStore({
+      cwd: root,
+      now: () => new Date('2026-05-11T00:00:00.000Z'),
+    });
+    createOverviewTasks(store);
+
+    try {
+      const overview = await tasksOverview(store, {
+        runner: overviewRunner,
+        mutateTaskReviewState: false,
+      });
+
+      const firstOverviewItem = overview[0];
+      // Tasks are still associated and returned with their unchanged status.
+      expect(firstOverviewItem.associatedTasks.map((item) => item.id)).toEqual([
+        'task-documentation',
+        'task-overview',
+      ]);
+      expect(firstOverviewItem.associatedTasks.map((item) => item.status)).toEqual([
+        'in-progress',
+        'ready',
+      ]);
+      // No persisted writes: statuses match the originals.
+      expect(store.getTask('task-overview')?.status).toBe('ready');
+      expect(store.getTask('task-documentation')?.status).toBe('in-progress');
+      expect(store.getTask('task-unrelated')?.status).toBe('ready');
+    } finally {
+      store.close();
+    }
+  });
+
   it('surfaces overview pull request lookup errors with stable codes', async () => {
     const root = await workspaceRoot();
     const store = await createTaskStore({ cwd: root });

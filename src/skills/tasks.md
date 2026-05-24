@@ -50,7 +50,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 - After planning, substantial implementation steps, blocker discovery, and handoffs, append a progress note:
   `tasks progress add current --message "Wrote the failing regression test"`.
 - When GitHub has an open pull request whose head branch matches the task branch, `tasks pr --sync` and `tasks overview` move the task to `in-review`.
-- When the pull request is merged into `origin/main`, move the task to `completed` with `tasks update current --status completed`.
+- When the pull request is merged into `origin/main`, move the task to `completed` with `tasks update current --status completed`, or mark one or more tasks done in a batch with `tasks complete <task-id>...`. Already-completed tasks are left untouched and soft-deleted tasks are rejected.
 - Prefer `tasks start current --cli codex` or `tasks start current --cli claude` when beginning branch-local agent-owned work. It materializes a per-task worktree under `~/.scrumlord/worktrees/` (with a `tmp/worktrees/` fallback) and launches the provider in that worktree, launches the provider with task context, starts in plan mode, and records provider/session metadata when the provider supports it. The payload includes a `phase` field (`start | resume-planning | resume-implementation`) derived from observable task state, and the system prompt names the workflow: plan → implement → `committee-review` (which opens the PR) → `address-pr` (which drives it to merge). Do not run `gh pr create` yourself.
 - Use `tasks pipeline --cli <claude|codex>` to drain the ready queue end-to-end: it claims tasks atomically, materializes worktrees, delegates each per-task run to the agent CLI (Claude side uses the `next-task` skill; Codex side gets a self-contained four-phase prompt), polls each pull request to merge, then continues. The pipeline is the merge authority — agents must drive PRs to merge or exit with `STUCK: <reason>` on stderr. A single lockfile (`tmp/pipeline.lock`) protects against concurrent pipelines. `--recover` runs an annotate-only recovery sweep (pair with `--apply` to mutate). `--dry-run` previews without claiming. `--json` emits a structured summary on stdout.
 - Re-run `tasks start current --cli <claude|codex>` on an in-progress task to reattach the recorded provider session — `start` detects the existing session and runs the provider's native resume instead of re-claiming.
@@ -65,7 +65,8 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 
 - Use `tasks pr --url` to find the current branch pull request.
 - Use `tasks pr` for the complete readiness report: unresolved review comment IDs and URLs, pending checks, failed checks, and `readyToMerge`.
-- Use `tasks overview` to inspect every open pull request for the project with CI status, unresolved review comment counts, merge-conflict state, and branch-associated tasks. Use `tasks overview --watch` for a terminal dashboard that refreshes every 30 seconds.
+- Use `tasks overview` to inspect every open pull request for the project with CI status, unresolved review comment counts, merge-conflict state, and branch-associated tasks. Use `tasks overview --watch` for a terminal dashboard that refreshes every 30 seconds. In an interactive terminal the PR number is a clickable link to GitHub.
+- Use `tasks complete --sync` to clear the merge queue in one pass: it reports which open pull requests are ready to merge (CI green, no unresolved comments, no conflicts) and the tasks they would complete. It is read-only and dry-run by default; add `--apply` to squash-merge each ready pull request and complete its tasks, and `--all` to also merge ready pull requests that have no associated task. The command exits non-zero if any merge or completion fails.
 - Use `tasks pr --comments` to inspect unresolved review comments before deciding what to fix; add `--resolved` for resolved threads or `--all` for both.
 - If `tasks pr` or `tasks overview` fails with `gh_not_found`, install the GitHub CLI or continue with non-GitHub task commands.
 - If a command fails with `pull_request_not_found`, open a pull request or keep the task in `in-progress`.
@@ -99,6 +100,11 @@ tasks pr
 tasks pr --poll
 tasks pr --poll --max-polls 10 --poll-interval 15
 tasks overview
+tasks complete $TASK_ID
+tasks complete $TASK_ID_A $TASK_ID_B
+tasks complete --sync
+tasks complete --sync --apply
+tasks complete --sync --apply --all
 tasks pr --comments
 tasks setup status
 tasks setup --yes

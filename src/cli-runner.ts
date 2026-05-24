@@ -37,6 +37,7 @@ import { formatJson } from './output-json.js';
 import type { OutputMode } from './output-mode.js';
 import { resolveProjectRoot } from './root-resolution.js';
 import type { CleanupTasksMode, CleanupTasksResult } from './task-commands.js';
+import type { CompleteSyncResult } from './tasks-complete-sync.js';
 import type { TaskStore } from './types.js';
 
 type BoundaryCommandHandler = (parsed: ParsedArguments, options: CliOptions) => Promise<CliResult>;
@@ -97,6 +98,28 @@ const githubModule = async (options: CliOptions): Promise<NonNullable<CliOptions
     import('./tasks-overview.js'),
   ]);
   return { ...github, ...githubPoll, tasksOverview: overview.tasksOverview };
+};
+
+const runCompleteSyncCommand = async (
+  store: TaskStore,
+  parsed: ParsedArguments,
+  options: CliOptions,
+): Promise<CliResult> => {
+  const { tasksCompleteSync } = await import('./tasks-complete-sync.js');
+  const github = await githubModule(options);
+  const result = await tasksCompleteSync(
+    store,
+    { tasksOverview: (target, overviewOptions) => github.tasksOverview(target, overviewOptions) },
+    {
+      apply: parsed.flags.has('apply'),
+      all: parsed.flags.has('all'),
+      ...(options.runner ? { runner: options.runner } : {}),
+    },
+  );
+  const exitCode = result.failed.length > 0 ? 1 : 0;
+  const stdout =
+    options.outputMode === 'json' ? formatJson(result) : renderCompleteSyncResult(result);
+  return { exitCode, stdout, stderr: '' };
 };
 
 const runPullRequestPollCommand: BoundaryCommandHandler = async (parsed, options) => {
@@ -334,6 +357,32 @@ const renderCleanupResult = (result: CleanupTasksResult): CliResult => {
   return { exitCode: 0, stdout: lines.join('\n') + '\n', stderr: '' };
 };
 
+const mergeVerb = (outcome: 'merged' | 'already_merged'): string =>
+  outcome === 'already_merged' ? 'Already merged' : 'Merged';
+
+const completeSyncLines = (result: CompleteSyncResult, prefix: string): string[] => [
+  ...result.planned.map((item) => {
+    const detail = item.outcome === 'merge_no_tasks' ? 'no tasks' : item.taskIds.join(', ') || '—';
+    return `${prefix}Would merge PR #${item.number} and complete: ${detail}`;
+  }),
+  ...result.merged.map(
+    (item) =>
+      `${mergeVerb(item.outcome)} PR #${item.number}; completed: ${item.completedTaskIds.join(', ') || '—'}`,
+  ),
+  ...result.mergedWithoutTasks.map(
+    (item) => `${mergeVerb(item.outcome)} PR #${item.number} (no associated tasks)`,
+  ),
+  ...result.skipped.map((item) => `${prefix}Skipped PR #${item.number} (${item.reason})`),
+  ...result.failed.map((item) => `Failed PR #${item.number}: ${item.reason}`),
+];
+
+const renderCompleteSyncResult = (result: CompleteSyncResult): string => {
+  const prefix = result.applied ? '' : '[dry-run] ';
+  const lines = completeSyncLines(result, prefix);
+  if (lines.length === 0) lines.push(`${prefix}No open pull requests to sync.`);
+  return lines.join('\n') + '\n';
+};
+
 const cleanupModes = new Set<string>([
   'aged',
   'orphans-only',
@@ -359,21 +408,42 @@ const storeCommandResult = (
   return formatStoreResult(parsed, value, options);
 };
 
+type OpenedStoreHandler = (
+  store: TaskStore,
+  parsed: ParsedArguments,
+  options: CliOptions,
+) => Promise<CliResult> | CliResult;
+
+/**
+ * Commands that bypass the generic store dispatch. Resolved before falling
+ * through to {@link runStoreCommand}. Keyed by command name; entries gated on a
+ * flag check their own flag and return undefined when it is absent.
+ */
+const specialStoreHandler = (parsed: ParsedArguments): OpenedStoreHandler | undefined => {
+  const direct: Record<string, OpenedStoreHandler> = {
+    start: runStartCommand,
+    pipeline: runPipelineCommand,
+    teleport: runTeleportCommand,
+    'completions-data': (store, parsedArgs) => runCompletionsDataCommand(store, parsedArgs),
+  };
+  const directHandler = parsed.command ? direct[parsed.command] : undefined;
+  if (directHandler) return directHandler;
+  if (parsed.command === 'pr' && parsed.flags.has('sync')) return runPullRequestSyncCommand;
+  if (parsed.command === 'overview' && parsed.flags.has('watch')) {
+    return (store, parsedArgs, options) =>
+      runOverviewWatchCommand(store, parsedArgs, options, runStoreCommand);
+  }
+  if (parsed.command === 'complete' && parsed.flags.has('sync')) return runCompleteSyncCommand;
+  return undefined;
+};
+
 const runOpenedStoreCommand = async (
   store: TaskStore,
   parsed: ParsedArguments,
   options: CliOptions,
 ): Promise<CliResult> => {
-  if (parsed.command === 'start') return await runStartCommand(store, parsed, options);
-  if (parsed.command === 'pipeline') return await runPipelineCommand(store, parsed, options);
-  if (parsed.command === 'teleport') return await runTeleportCommand(store, parsed, options);
-  if (parsed.command === 'completions-data') return runCompletionsDataCommand(store, parsed);
-  if (parsed.command === 'pr' && parsed.flags.has('sync')) {
-    return await runPullRequestSyncCommand(store, parsed, options);
-  }
-  if (parsed.command === 'overview' && parsed.flags.has('watch')) {
-    return await runOverviewWatchCommand(store, parsed, options, runStoreCommand);
-  }
+  const special = specialStoreHandler(parsed);
+  if (special) return await special(store, parsed, options);
   return storeCommandResult(parsed, await runStoreCommand(store, parsed, options), options);
 };
 

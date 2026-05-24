@@ -340,6 +340,36 @@ export const updateTask = (
   return store.update(id, input);
 };
 
+/**
+ * Marks one or more tasks as `completed`. Resolved identifiers are deduplicated
+ * (preserving first-seen order) and read before any write: if any identifier is
+ * missing, the whole batch throws and nothing is mutated. Soft-deleted tasks are
+ * rejected; tasks already `completed` are returned unchanged without a write.
+ */
+export const completeTasks = (
+  store: Pick<TaskStore, 'getTask' | 'update'>,
+  ids: TaskIdentifier[],
+): Task[] => {
+  const uniqueIds = [...new Set(ids)];
+
+  // Read-all-then-write: resolve every task first so a missing or deleted id
+  // fails the whole batch before any status is changed.
+  const tasks = uniqueIds.map((id) => {
+    const task = store.getTask(id);
+    if (!task) throw new ScrumlordError('task_not_found', `Task ${String(id)} not found.`);
+    if (task.deleted)
+      throw new ScrumlordError(
+        'cannot_complete_deleted',
+        `Task ${task.id} is deleted and cannot be completed.`,
+      );
+    return task;
+  });
+
+  return tasks.map((task) =>
+    task.status === 'completed' ? task : store.update(task.id, { status: 'completed' }),
+  );
+};
+
 /** Soft-deletes a task, or hard-deletes when options.hard is true. */
 export const deleteTask = (
   store: Pick<TaskStore, 'delete'>,

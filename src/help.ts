@@ -107,6 +107,40 @@ const topics: HelpTopic[] = [
     examples: ['tasks completed'],
   },
   {
+    path: ['complete'],
+    summary: 'Mark tasks completed, or sync-merge ready pull requests.',
+    usage: 'tasks complete <task-id>...\n       tasks complete --sync [--apply] [--all]',
+    description:
+      'Two forms. With one or more task ids, marks each task completed (already-completed tasks are left unchanged; soft-deleted tasks are rejected). With --sync, walks every open pull request and reports the ones ready to merge (CI green, no unresolved review comments, no conflicts) along with the tasks they would complete; --sync is dry-run unless --apply is passed. Task ids cannot be combined with --sync, and --apply/--all only apply with --sync.',
+    arguments: [
+      '<task-id>: One or more task ids (or prefixes) to complete. Omit when using --sync.',
+    ],
+    options: [
+      {
+        name: '--sync',
+        description:
+          'Inventory open pull requests and report which are ready to merge. Read-only and dry-run by default.',
+      },
+      {
+        name: '--apply',
+        description:
+          'With --sync, actually squash-merge each ready pull request (deleting its branch) and complete its tasks.',
+      },
+      {
+        name: '--all',
+        description:
+          'With --sync, also merge ready pull requests that have no associated task. Does not change which tasks are completed.',
+      },
+    ],
+    examples: [
+      'tasks complete 1a2b3c4d',
+      'tasks complete 1a2b3c4d 5e6f7a8b',
+      'tasks complete --sync',
+      'tasks complete --sync --apply',
+      'tasks complete --sync --apply --all',
+    ],
+  },
+  {
     path: ['current'],
     summary: 'Return the task assigned to the current branch.',
     usage: 'tasks current',

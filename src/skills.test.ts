@@ -34,7 +34,13 @@ describe('setupSkills', () => {
     ]);
     expect(existsSync(join(root, '.agents/skills/tasks/SKILL.md'))).toBe(true);
     expect(existsSync(join(root, '.cursor/rules/tasks.md'))).toBe(false);
+    const codexSkill = await Bun.file(join(root, '.agents/skills/tasks/SKILL.md')).text();
     const claudeSkill = await Bun.file(join(root, '.claude/skills/tasks/SKILL.md')).text();
+    expect(codexSkill).toStartWith('---\nname: tasks\n');
+    expect(codexSkill).toContain('description: Use this skill when inspecting');
+    expect(codexSkill).toContain('---\n\n# Tasks CLI');
+    expect(claudeSkill).toStartWith('---\nname: tasks\n');
+    expect(claudeSkill).toContain('---\n\n# Tasks CLI');
     expect(claudeSkill).toContain('tasks init');
     expect(claudeSkill).toContain('tasks next');
     expect(claudeSkill).toContain('tasks current');

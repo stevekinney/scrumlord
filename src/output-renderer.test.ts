@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 import { renderReadiness, type DataShape } from './output-contracts.js';
 import { formatJson } from './output-json.js';
-import { createRenderContext, renderers, renderPretty } from './output-renderer.js';
+import {
+  createRenderContext,
+  renderers,
+  renderPretty,
+  truncateVisible,
+  visibleLength,
+} from './output-renderer.js';
 import type { Task } from './types.js';
 
 const shapes = Object.keys(renderReadiness) as DataShape[];
@@ -57,6 +63,55 @@ describe('renderer readiness exhaustiveness', () => {
         expect(renderers[shape]).toBeUndefined();
       }
     }
+  });
+});
+
+describe('visibleLength escape handling', () => {
+  const ESC = '';
+  const BEL = '';
+  const ST = `${ESC}\\`;
+
+  it('counts plain text', () => {
+    expect(visibleLength('#123')).toBe(4);
+  });
+
+  it('skips CSI color sequences', () => {
+    expect(visibleLength(`${ESC}[31m#123${ESC}[0m`)).toBe(4);
+  });
+
+  it('skips an ST-terminated OSC 8 hyperlink, counting only the label', () => {
+    expect(visibleLength(`${ESC}]8;;https://example/pr/5${ST}#5${ESC}]8;;${ST}`)).toBe(2);
+  });
+
+  it('skips a BEL-terminated OSC sequence', () => {
+    expect(visibleLength(`${ESC}]8;;https://example${BEL}#5${ESC}]8;;${BEL}`)).toBe(2);
+  });
+
+  it('handles an empty-url OSC close sequence', () => {
+    expect(visibleLength(`${ESC}]8;;${ST}#5${ESC}]8;;${ST}`)).toBe(2);
+  });
+
+  it('treats an unterminated OSC sequence as visible bytes rather than swallowing the rest', () => {
+    // No terminator after ESC ] — the lone ESC counts as one visible unit and
+    // the remaining characters are still counted (degrades safely, no loop).
+    const value = `${ESC}]8;;no-terminator-here`;
+    expect(visibleLength(value)).toBe(value.length);
+  });
+
+  it('treats an unterminated CSI sequence as visible bytes', () => {
+    // ESC [ with no final byte in range 0x40-0x7e never terminates.
+    const value = `${ESC}[123`;
+    expect(visibleLength(value)).toBe(value.length);
+  });
+
+  it('preserves an OSC hyperlink prefix when truncating its visible label', () => {
+    // Hyperlinked label is longer than the target width; truncation should copy
+    // the OSC open sequence through and clip only the visible characters.
+    const linked = `${ESC}]8;;https://example/pr/12345${ST}#12345${ESC}]8;;${ST}`;
+    const truncated = truncateVisible(linked, 3);
+    expect(truncated).toContain(`${ESC}]8;;https://example/pr/12345${ST}`);
+    expect(truncated).toContain('…');
+    expect(visibleLength(truncated)).toBeLessThanOrEqual(3);
   });
 });
 

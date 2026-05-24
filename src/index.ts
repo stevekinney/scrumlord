@@ -38,6 +38,7 @@ export const clearTaskBranch = taskCommandsModule.clearTaskBranch;
 export const clearTaskPlan = taskCommandsModule.clearTaskPlan;
 export const clearTaskSession = taskCommandsModule.clearTaskSession;
 export const completedTasks = taskCommandsModule.completedTasks;
+export const completeTasks = taskCommandsModule.completeTasks;
 export const continuousIntegrationStatus = githubModule.continuousIntegrationStatus;
 export const createTask = taskCommandsModule.createTask;
 export const createScrumlordMcpServer = mcpServerModule.createScrumlordMcpServer;

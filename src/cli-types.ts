@@ -9,7 +9,7 @@ import type { SetupAgentHooksOptions, SetupAgentHooksResult } from './agent-hook
 import type { SetupGitHooksResult } from './git-hooks.js';
 import type { SetupProjectOptions, SetupProjectResult } from './setup.js';
 import type { SetupSubagentsOptions, SetupSubagentsResult } from './subagents.js';
-import type { PullRequestOverviewItem } from './tasks-overview.js';
+import type { PullRequestOverviewItem, TasksOverviewOptions } from './tasks-overview.js';
 import type { TaskStore } from './types.js';
 
 export type CliResult = {
@@ -66,7 +66,10 @@ export type CliOptions = {
         sleep?: (ms: number) => Promise<void>;
       },
     ): Promise<PullRequestPollReport>;
-    tasksOverview(store: TaskStore): Promise<PullRequestOverviewItem[]>;
+    tasksOverview(
+      store: TaskStore,
+      options?: TasksOverviewOptions,
+    ): Promise<PullRequestOverviewItem[]>;
     unresolvedReviewComments(projectRoot: string): Promise<ReviewComment[]>;
     resolvedReviewComments(projectRoot: string): Promise<ReviewComment[]>;
     allReviewComments(projectRoot: string): Promise<ReviewComment[]>;

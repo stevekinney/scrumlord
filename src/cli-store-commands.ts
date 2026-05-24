@@ -19,6 +19,7 @@ import {
   clearTaskPlan,
   clearTaskSession,
   completedTasks,
+  completeTasks,
   createTask,
   deleteTask,
   getTask,
@@ -531,6 +532,13 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
       await resolveTaskId(store, required(parsed.positionals, 'task id')),
       updateInputFromFlags(parsed.flags),
     ),
+  // The `--sync` path is dispatched in cli-runner.ts; this handler only runs for
+  // the batch `tasks complete <id...>` form. Resolve every id before mutating so
+  // a bad prefix fails the whole batch.
+  complete: async (store, parsed) => {
+    const ids = await Promise.all(parsed.positionals.map((id) => resolveTaskId(store, id)));
+    return completeTasks(store, ids);
+  },
   delete: async (store, parsed) =>
     deleteTask(store, await resolveTaskId(store, required(parsed.positionals, 'task id')), {
       hard: parsed.flags.has('hard'),
@@ -599,6 +607,28 @@ const storeCommandInputValidators: Partial<Record<string, StoreCommandInputValid
   },
   update: (parsed) => {
     updateInputFromFlags(parsed.flags);
+  },
+  complete: (parsed) => {
+    const hasSync = parsed.flags.has('sync');
+    const hasIds = parsed.positionals.length > 0;
+    if (hasSync && hasIds) {
+      throw new ScrumlordError(
+        'invalid_complete_flags',
+        'tasks complete cannot combine task ids with --sync.',
+      );
+    }
+    if (!hasSync && (parsed.flags.has('all') || parsed.flags.has('apply'))) {
+      throw new ScrumlordError(
+        'invalid_complete_flags',
+        'tasks complete --all and --apply only apply with --sync.',
+      );
+    }
+    if (!hasSync && !hasIds) {
+      throw new ScrumlordError(
+        'missing_task_id',
+        'tasks complete requires at least one task id, or --sync.',
+      );
+    }
   },
   progress: (parsed) => {
     const subcommand = parsed.positionals[0] ?? 'list';

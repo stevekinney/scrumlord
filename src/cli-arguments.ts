@@ -70,6 +70,11 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
   }),
   blocked: withJsonFlag(taskListingCommandSpecification),
   completed: withJsonFlag(taskListingCommandSpecification),
+  complete: withJsonFlag({
+    minPositionals: 0,
+    booleanFlags: ['sync', 'all', 'apply'],
+    positionalVariants: [['task-id']],
+  }),
   init: withJsonFlag(noPositionals),
   overview: withJsonFlag({ ...noPositionals, booleanFlags: ['sync', 'watch'] }),
   help: { minPositionals: 0, maxPositionals: 2 },

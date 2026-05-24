@@ -7,6 +7,7 @@ const expectedTopics = [
   'list',
   'blocked',
   'completed',
+  'complete',
   'current',
   'next',
   'remaining',
