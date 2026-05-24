@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { access, constants, mkdir, realpath } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { realpath } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import type { CommandRunner } from './command-runner.js';
 import { runCommand as defaultRunner } from './command-runner.js';
 import { ScrumlordError } from './errors.js';
@@ -100,14 +99,6 @@ export const repoCommonDir = async (
   }
 };
 
-/** Returns the display-only repo slug (basename, lowercased, dashed). */
-export const repoSlug = (projectRoot: string): string => {
-  return basename(projectRoot)
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-};
-
 /**
  * Derives the deterministic per-task branch name and short identifier from the
  * repository's common-dir path and the task id. Two checkouts that share a name
@@ -119,42 +110,21 @@ export const deriveBranchAndShortId = (
 ): { branch: string; shortId: string } => {
   const hash = createHash('sha256').update(`${repoCommonDirectory}:${taskId}`).digest('hex');
   const shortId = hash.slice(0, 8);
-  return { branch: `task/${shortId}`, shortId };
+  return { branch: `tasks/${shortId}`, shortId };
 };
 
 /**
- * Picks the Scrumlord worktree root. Prefers `~/.scrumlord/worktrees/` when
- * writable, otherwise falls back to `<projectRoot>/tmp/worktrees/`.
+ * Returns the absolute Scrumlord-managed worktree path for a task short-id.
+ * Worktrees live under `<projectRoot>/tmp/worktrees/tasks/<shortId>` so a task's
+ * branch (`tasks/<shortId>`), worktree directory, and task id all line up. The
+ * `tmp/` location is gitignored; `ensureTaskWorktree` enforces that via
+ * `assertTmpFallbackIgnored`.
  */
-export const scrumlordWorktreeRoot = async (
-  projectRoot: string,
-  options: { home?: string } = {},
-): Promise<string> => {
-  const home = options.home ?? homedir();
-  const preferred = join(home, '.scrumlord', 'worktrees');
-  if (await canCreateInside(preferred)) return preferred;
-  return join(projectRoot, 'tmp', 'worktrees');
-};
-
-const canCreateInside = async (path: string): Promise<boolean> => {
-  try {
-    await mkdir(path, { recursive: true });
-    await access(path, constants.W_OK);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-/** Returns the absolute Scrumlord-managed worktree path for a task short-id. */
 export const scrumlordWorktreePath = async (
   projectRoot: string,
-  slug: string,
   shortId: string,
-  options: { home?: string } = {},
 ): Promise<string> => {
-  const root = await scrumlordWorktreeRoot(projectRoot, options);
-  return join(root, `${slug}-${shortId}`);
+  return join(projectRoot, 'tmp', 'worktrees', 'tasks', shortId);
 };
 
 /**

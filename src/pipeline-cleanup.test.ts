@@ -42,7 +42,7 @@ describe('cleanupWorktreeAfterMerge', () => {
     const { log } = recordingLog();
     await cleanupWorktreeAfterMerge({
       worktree: '/scratch/worktrees/task',
-      branch: 'task/abc12345',
+      branch: 'tasks/abc12345',
       projectRoot: '/scratch/project',
       runner,
       log,
@@ -56,14 +56,14 @@ describe('cleanupWorktreeAfterMerge', () => {
     const { log, lines } = recordingLog();
     await cleanupWorktreeAfterMerge({
       worktree: '/scratch/worktrees/task',
-      branch: 'task/abc12345',
+      branch: 'tasks/abc12345',
       projectRoot: '/scratch/project',
       runner,
       log,
     });
     expect(calls.length).toBe(2);
     expect(calls[0]!.command).toEqual(['git', 'worktree', 'remove', '/scratch/worktrees/task']);
-    expect(calls[1]!.command).toEqual(['git', 'branch', '-d', 'task/abc12345']);
+    expect(calls[1]!.command).toEqual(['git', 'branch', '-d', 'tasks/abc12345']);
     expect(lines.some((line) => line.startsWith('muted:removed worktree'))).toBe(true);
     expect(lines.some((line) => line.startsWith('muted:removed local branch'))).toBe(true);
   });
@@ -74,7 +74,7 @@ describe('cleanupWorktreeAfterMerge', () => {
     const { log } = recordingLog();
     await cleanupWorktreeAfterMerge({
       worktree: '/scratch/worktrees/task',
-      branch: 'task/abc12345',
+      branch: 'tasks/abc12345',
       projectRoot: '/scratch/project',
       runner,
       log,
@@ -93,7 +93,7 @@ describe('cleanupWorktreeAfterMerge', () => {
     const { log, lines } = recordingLog();
     await cleanupWorktreeAfterMerge({
       worktree: '/scratch/worktrees/task',
-      branch: 'task/abc12345',
+      branch: 'tasks/abc12345',
       projectRoot: '/scratch/project',
       runner,
       log,
@@ -107,7 +107,7 @@ describe('cleanupWorktreeAfterMerge', () => {
     const { log } = recordingLog();
     await cleanupWorktreeAfterMerge({
       worktree: '/scratch/project',
-      branch: 'task/abc12345',
+      branch: 'tasks/abc12345',
       projectRoot: '/scratch/project',
       runner,
       log,
@@ -121,7 +121,7 @@ describe('cleanupWorktreeAfterMerge', () => {
     const { log, lines } = recordingLog();
     await cleanupWorktreeAfterMerge({
       worktree: '/scratch/worktrees/task',
-      branch: 'task/abc12345',
+      branch: 'tasks/abc12345',
       projectRoot: '/scratch/project',
       runner,
       log,

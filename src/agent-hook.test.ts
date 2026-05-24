@@ -263,6 +263,23 @@ describe('runAgentHook', () => {
     expect(calls).toContain('update:task-id::in-progress');
   });
 
+  it('skips recording when the session is on an integration branch', async () => {
+    const root = await temporaryDirectory();
+    const calls: string[] = [];
+    const result = await runAgentHook(
+      store(root, [task('task-id', { branch: 'feature/old' })], calls),
+      'claude',
+      JSON.stringify({ event: 'PostToolUse', command: 'git checkout main' }),
+      {
+        environment: { SCRUMLORD_TASK_ID: 'task-id' },
+        runner: branchRunner('main'),
+      },
+    );
+
+    expect(result.actions).toContain('branch-skipped-reserved');
+    expect(calls.some((call) => call.startsWith('update:task-id:main'))).toBe(false);
+  });
+
   it('records branch lookup failures as non-blocking hook actions', async () => {
     const root = await temporaryDirectory();
     const result = await runAgentHook(

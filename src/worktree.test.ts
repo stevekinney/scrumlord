@@ -9,10 +9,8 @@ import {
   deriveBranchAndShortId,
   ensureTaskWorktree,
   repoCommonDir,
-  repoSlug,
   resolveBaseBranch,
   scrumlordWorktreePath,
-  scrumlordWorktreeRoot,
 } from './worktree';
 
 const temporaryDirectories: string[] = [];
@@ -67,20 +65,12 @@ const caught = async (action: () => Promise<unknown>): Promise<unknown> => {
   throw new Error('Expected the action to throw, but it resolved.');
 };
 
-describe('repoSlug', () => {
-  it('lowercases, dashes, and strips characters', () => {
-    expect(repoSlug('/Users/me/Developer/Scrumlord')).toBe('scrumlord');
-    expect(repoSlug('/tmp/My Project!')).toBe('my-project');
-    expect(repoSlug('/a/b/__weird__')).toBe('weird');
-  });
-});
-
 describe('deriveBranchAndShortId', () => {
   it('produces a stable 8-char hash keyed on common dir', () => {
     const a = deriveBranchAndShortId('/repo-a/.git', 'task-1');
     const b = deriveBranchAndShortId('/repo-b/.git', 'task-1');
     expect(a.shortId).toHaveLength(8);
-    expect(a.branch).toBe(`task/${a.shortId}`);
+    expect(a.branch).toBe(`tasks/${a.shortId}`);
     expect(a.shortId).not.toBe(b.shortId);
     expect(deriveBranchAndShortId('/repo-a/.git', 'task-1')).toEqual(a);
   });
@@ -160,30 +150,11 @@ describe('repoCommonDir', () => {
   });
 });
 
-describe('scrumlordWorktreeRoot', () => {
-  it('prefers ~/.scrumlord/worktrees when writable', async () => {
-    const home = await temporaryDirectory();
-    const projectRoot = await temporaryDirectory();
-    expect(await scrumlordWorktreeRoot(projectRoot, { home })).toBe(
-      join(home, '.scrumlord', 'worktrees'),
-    );
-  });
-
-  it('falls back to projectRoot/tmp/worktrees when home unwritable', async () => {
-    const projectRoot = await temporaryDirectory();
-    // Use a guaranteed-unwritable path as the home directory.
-    expect(await scrumlordWorktreeRoot(projectRoot, { home: '/proc/0' })).toBe(
-      join(projectRoot, 'tmp', 'worktrees'),
-    );
-  });
-});
-
 describe('scrumlordWorktreePath', () => {
-  it('joins slug and shortId under the resolved root', async () => {
-    const home = await temporaryDirectory();
+  it('places the worktree at tmp/worktrees/tasks/<shortId> under the project root', async () => {
     const projectRoot = await temporaryDirectory();
-    expect(await scrumlordWorktreePath(projectRoot, 'scrumlord', 'd41d8cd9', { home })).toBe(
-      join(home, '.scrumlord', 'worktrees', 'scrumlord-d41d8cd9'),
+    expect(await scrumlordWorktreePath(projectRoot, 'd41d8cd9')).toBe(
+      join(projectRoot, 'tmp', 'worktrees', 'tasks', 'd41d8cd9'),
     );
   });
 });

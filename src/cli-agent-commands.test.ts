@@ -13,6 +13,7 @@ const temporaryDirectories: string[] = [];
 const temporaryDirectory = async (): Promise<string> => {
   const directory = await mkdtemp(join(tmpdir(), 'scrumlord-cli-agent-command-'));
   temporaryDirectories.push(directory);
+  await writeFile(join(directory, '.gitignore'), 'tmp/\n');
   return directory;
 };
 
@@ -152,6 +153,8 @@ describe('startTask phase resolution and worktree setup', () => {
       expect(stderrLines.some((line) => line.includes('--no-worktree'))).toBe(true);
       expect(invocations[0]).toContain('--cd');
       expect(invocations[0]?.[invocations[0].indexOf('--cd') + 1]).toBe(store.projectRoot);
+      // Running on the integration branch must not pin the task to it.
+      expect(store.getTask(task.id)?.branch).toBeNull();
     } finally {
       store.close();
     }
@@ -236,14 +239,14 @@ describe('startTask phase resolution and worktree setup', () => {
     }
   });
 
-  it('reuses an existing task/<short> branch by parsing its short id', async () => {
+  it('reuses an existing tasks/<short> branch by parsing its short id', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
     const store = await createTaskStore({ cwd: root });
     const task = store.create({
       id: 'task-id',
       title: 'Existing branch',
-      branch: 'task/deadbeef',
+      branch: 'tasks/deadbeef',
     });
 
     const invocations: string[][] = [];
@@ -258,7 +261,7 @@ describe('startTask phase resolution and worktree setup', () => {
         },
         stderr: () => {},
       });
-      expect(invocations[0]?.join('\n')).toContain('task/deadbeef');
+      expect(invocations[0]?.join('\n')).toContain('tasks/deadbeef');
     } finally {
       store.close();
     }
@@ -346,7 +349,7 @@ describe('startTask phase resolution and worktree setup', () => {
       });
       const after = store.getTask(task.id);
       expect(after?.status).toBe('in-progress');
-      expect(after?.branch).toStartWith('task/');
+      expect(after?.branch).toStartWith('tasks/');
       expect(stderrLines.some((line) => line.includes('provider claude'))).toBe(true);
     } finally {
       store.close();

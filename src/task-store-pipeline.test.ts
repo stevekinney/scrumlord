@@ -207,14 +207,14 @@ describe('TaskStore.conditionalUpdate', () => {
     await initializeGit(root);
     const store = await createTaskStore({ cwd: root });
     try {
-      const task = store.create({ id: 't', title: 'T', branch: 'task/abc' });
+      const task = store.create({ id: 't', title: 'T', branch: 'tasks/abc' });
       const result = store.conditionalUpdate(
         task.id,
-        { branch: 'task/xyz' },
+        { branch: 'tasks/xyz' },
         { ifBranch: 'other-branch' },
       );
       expect(result).toBeNull();
-      expect(store.getTask(task.id)?.branch).toBe('task/abc');
+      expect(store.getTask(task.id)?.branch).toBe('tasks/abc');
     } finally {
       store.close();
     }

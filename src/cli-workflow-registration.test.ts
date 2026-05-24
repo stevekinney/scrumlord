@@ -262,8 +262,8 @@ describe('runNextCommand', () => {
   });
 
   it('uses tmp/worktrees/tasks/<task-id> as the worktree directory in start mode', async () => {
-    await withStore(async (store, root) => {
-      const task = store.create({ title: 'Worktree task' });
+    await withStore(async (store) => {
+      store.create({ title: 'Worktree task' });
       const invocations: AgentInvocation[] = [];
 
       const options: CliOptions = {
@@ -279,9 +279,9 @@ describe('runNextCommand', () => {
 
       await runNextCommand(store, parsedWith('next', { start: ['true'] }), options);
 
-      // Use endsWith to tolerate macOS /var → /private/var symlink resolution
-      const expectedSuffix = join('tmp', 'worktrees', 'tasks', task.id);
-      expect(invocations[0]?.cwd).toMatch(new RegExp(`${expectedSuffix.replace(/\//g, '\\/')}$`));
+      // Worktree path is tmp/worktrees/tasks/<shortId>, where shortId is an 8-char hash.
+      // Use a suffix match to tolerate macOS /var → /private/var symlink resolution.
+      expect(invocations[0]?.cwd).toMatch(/tmp\/worktrees\/tasks\/[0-9a-f]{8}$/);
     });
   });
 

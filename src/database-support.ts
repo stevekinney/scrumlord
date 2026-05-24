@@ -19,6 +19,7 @@ import {
   parseDateInput,
   parseOptionalAgentProvider,
   parseOptionalText,
+  parseTaskBranch,
   parsePriority,
   parseStatus,
   validateReadyTaskDependencyEdges,
@@ -138,9 +139,7 @@ export const updatedDueDate = (input: UpdateTaskInput, current: Task): string | 
 };
 
 export const updatedBranch = (input: UpdateTaskInput, current: Task): string | null => {
-  return hasInputField(input, 'branch')
-    ? (parseOptionalText(input.branch) ?? null)
-    : current.branch;
+  return hasInputField(input, 'branch') ? (parseTaskBranch(input.branch) ?? null) : current.branch;
 };
 
 const updatedPlan = (projectRoot: string, input: UpdateTaskInput, current: Task): string | null => {
@@ -257,7 +256,7 @@ export const createTaskBindings = (
     createdAt: now,
     startDate,
     dueDate,
-    branch: parseOptionalText(input.branch) ?? null,
+    branch: parseTaskBranch(input.branch) ?? null,
     plan: normalizeStoredPlanPath(projectRoot, input.plan) ?? null,
     provider,
     session,

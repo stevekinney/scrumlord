@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runTasksCli } from './cli-runner';
@@ -132,8 +132,11 @@ describe('runTasksCli agent session commands', () => {
     const calls: string[] = [];
     const invocations: string[][] = [];
     const codexHome = join(await temporaryDirectory(), '.codex');
+    const projectRoot = await temporaryDirectory();
+    await writeFile(join(projectRoot, '.gitignore'), 'tmp/\n');
     const store = {
       ...fakeStore(calls),
+      projectRoot,
       getTask: (id: string) => {
         calls.push(`get:${id}`);
         return task(id, { branch: 'feature/task-graph' });
@@ -164,6 +167,7 @@ describe('runTasksCli agent session commands', () => {
 
     const reattachStore = {
       ...fakeStore(calls),
+      projectRoot,
       getTask: (id: string) => {
         calls.push(`get:${id}`);
         return task(id, {
@@ -196,7 +200,7 @@ describe('runTasksCli agent session commands', () => {
       '/bin/provider',
       'resume',
       '--cd',
-      '/project',
+      projectRoot,
       'codex-session',
     ]);
     expect(calls).toContain('close');
@@ -204,6 +208,7 @@ describe('runTasksCli agent session commands', () => {
 
   it('can run the default agent invocation process', async () => {
     const root = await temporaryDirectory();
+    await writeFile(join(root, '.gitignore'), 'tmp/\n');
     const truePath = trueExecutablePath();
     const calls: string[] = [];
     const runner = async (command: string[], cwd: string) => {
@@ -263,6 +268,7 @@ describe('runTasksCli agent session commands', () => {
     }
 
     const unreadableRoot = await temporaryDirectory();
+    await writeFile(join(unreadableRoot, '.gitignore'), 'tmp/\n');
     const unreadablePath = join(unreadableRoot, 'PLAN.md');
     await Bun.write(unreadablePath, '# Plan');
     await chmod(unreadablePath, 0);

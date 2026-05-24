@@ -5,7 +5,7 @@ description: Remove git worktrees for completed tasks whose pull requests have m
 
 # Clean Up Worktrees For Completed Tasks
 
-Per-task worktrees pile up. Every task that runs through the agent lifecycle materializes a worktree under `tmp/worktrees/tasks/<task-id>`, and once its pull request merges and the task is `completed`, that worktree is dead weight — it holds a checkout of work that already landed on `main`. This skill removes the worktrees that are safe to remove and leaves everything else exactly where it is.
+Per-task worktrees pile up. Every task that runs through the agent lifecycle materializes a worktree under `tmp/worktrees/tasks/<short-id>` on a `tasks/<short-id>` branch, and once its pull request merges and the task is `completed`, that worktree is dead weight — it holds a checkout of work that already landed on `main`. This skill removes the worktrees that are safe to remove and leaves everything else exactly where it is.
 
 The governing rule: **never remove a worktree with uncommitted or unpushed changes, and never remove one before confirming the task is `completed` AND its PR is merged.** A worktree is the only copy of work that has not been pushed. Deleting it can destroy work that no task or PR remembers. When in doubt, skip and warn.
 
@@ -15,13 +15,14 @@ The governing rule: **never remove a worktree with uncommitted or unpushed chang
 git worktree list --porcelain
 ```
 
-This lists every worktree with its path, `HEAD`, and branch. Filter to task worktrees by the convention: their path is under `tmp/worktrees/tasks/<task-id>`. The trailing path segment is the task ID — that is how you connect a worktree back to its task.
+This lists every worktree with its path, `HEAD`, and branch. Filter to task worktrees by the convention: their path is under `tmp/worktrees/tasks/<short-id>` on a `tasks/<short-id>` branch. The short-id is a hash, not the task ID — connect a worktree back to its task through its **branch**, not by parsing the directory name.
 
 ## Step 2: Resolve each worktree's task and decide
 
-For each task worktree, look up the task and its PR state:
+For each task worktree, resolve the owning task from its branch, then read the task and its PR state:
 
 ```bash
+tasks with-branch <branch>   # the worktree's tasks/<short-id> branch → owning task
 tasks get <task-id>
 ```
 
