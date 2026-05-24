@@ -35,7 +35,7 @@ describe('tasks next and remaining', () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
 
-    const result = await runTasksCli(['next'], { cwd: root });
+    const result = await runTasksCli(['peek'], { cwd: root });
 
     expect(result).toEqual({ exitCode: 0, stdout: '', stderr: '' });
   });
@@ -63,7 +63,7 @@ describe('tasks next and remaining', () => {
       { cwd: root },
     );
 
-    const result = await runTasksCli(['next'], { cwd: root });
+    const result = await runTasksCli(['peek'], { cwd: root });
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe('');
@@ -73,24 +73,35 @@ describe('tasks next and remaining', () => {
     expect(nextTask.plan).toContain('tmp/tasks/planned/PLAN.md');
   });
 
-  it('rejects ready tasks with dependency language but no blocker edge', async () => {
+  it('creates ready tasks with dependency language and enforces the edge on transition', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
 
-    const result = await runTasksCli(
+    const description = 'Add /.well-known/mcp.json route once live MCP server exists.';
+
+    // Creating a default-status (`ready`) task with dependency prose succeeds:
+    // the dependency-edge rule is enforced on the transition into `ready`, not
+    // at create time (stable blocker IDs don't exist yet).
+    const created = await runTasksCli(
       [
         'create',
+        '--draft',
         '--title',
         'Add MCP catalog discovery metadata',
         '--description',
-        'Add /.well-known/mcp.json route once live MCP server exists.',
+        description,
       ],
       { cwd: root },
     );
+    expect(created.exitCode).toBe(0);
+    expect(created.stderr).toBe('');
+    const createdId = JSON.parse(created.stdout).id;
 
-    expect(result.exitCode).toBe(1);
-    expect(result.stdout).toBe('');
-    expect(JSON.parse(result.stderr).error.code).toBe('dependency_edge_required');
+    // Transitioning that task to `ready` without a blocker edge is rejected.
+    const transition = await runTasksCli(['update', createdId, '--status', 'ready'], { cwd: root });
+    expect(transition.exitCode).toBe(1);
+    expect(transition.stdout).toBe('');
+    expect(JSON.parse(transition.stderr).error.code).toBe('dependency_edge_required');
   });
 
   it('returns the remaining task count as a JSON integer', async () => {

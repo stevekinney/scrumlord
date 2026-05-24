@@ -69,7 +69,7 @@ const expectedContracts: ReadonlyArray<{
   },
   { command: 'get', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
   { command: 'current', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
-  { command: 'next', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
+  { command: 'peek', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
   { command: 'create', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
   { command: 'update', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
   { command: 'delete', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },

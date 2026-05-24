@@ -402,7 +402,7 @@ const storeCommandResult = (
   value: unknown,
   options: CliOptions,
 ): CliResult => {
-  if (parsed.command === 'next' && value === null) return emptySuccess();
+  if (parsed.command === 'peek' && value === null) return emptySuccess();
   if (parsed.command === 'plan' && typeof value === 'string') return rawString(value);
   if (parsed.command === 'cleanup' && isCleanupResult(value)) return renderCleanupResult(value);
   return formatStoreResult(parsed, value, options);

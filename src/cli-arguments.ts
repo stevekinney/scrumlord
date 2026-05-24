@@ -79,7 +79,7 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
   overview: withJsonFlag({ ...noPositionals, booleanFlags: ['sync', 'watch'] }),
   help: { minPositionals: 0, maxPositionals: 2 },
   current: withJsonFlag(noPositionals),
-  next: withJsonFlag(noPositionals),
+  peek: withJsonFlag(noPositionals),
   remaining: withJsonFlag(noPositionals),
   repository: { ...noPositionals, booleanFlags: ['url', 'json'] },
   pr: {
@@ -269,13 +269,26 @@ const parseFlag = (
   value: string,
   next: string | undefined,
 ): number => {
-  const name = value.slice(2);
+  const equalsIndex = value.indexOf('=');
+  const inlineValue = equalsIndex === -1 ? undefined : value.slice(equalsIndex + 1);
+  const name = value.slice(2, equalsIndex === -1 ? undefined : equalsIndex);
   const kind = flagKind(specification, name);
   if (kind === 'unknown') {
     throw new ScrumlordError('unknown_flag', `Unknown flag for ${command}: --${name}.`);
   }
   if (kind === 'boolean') {
+    // Boolean flags never take a value; `--draft=false` is not valid syntax.
+    if (inlineValue !== undefined) {
+      throw new ScrumlordError('unknown_flag', `Unknown flag for ${command}: --${name}=.`);
+    }
     appendFlag(flags, name, 'true');
+    return 0;
+  }
+  // `--flag=value` is the escape hatch for values that begin with `--` or are
+  // empty (e.g. a description from an empty command substitution). It consumes
+  // no look-ahead token.
+  if (inlineValue !== undefined) {
+    appendFlag(flags, name, inlineValue);
     return 0;
   }
   if (!next || next.startsWith('--')) {

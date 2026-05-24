@@ -10,7 +10,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 
 - Run commands from anywhere inside the project; the CLI resolves the Git root first and only then opens `tmp/tasks.db`.
 - Data commands run in three output modes: pretty when stdout is a TTY (for humans), JSON when stdout is not a TTY (the agent case), and JSON whenever `--json` is passed. Pass `--json` explicitly when you need machine-parseable output regardless of context, and parse the JSON instead of scraping human-readable text.
-- If `tasks next` prints nothing and exits 0, there is no available task; stop instead of treating that as an error.
+- If `tasks peek` prints nothing and exits 0, there is no available task; stop instead of treating that as an error.
 - Use `tasks remaining` when you need a count of unfinished tasks, including tasks with future start dates.
 - Run `tasks init` when the project has not been set up yet. It creates and migrates `tmp/tasks.db`, writes local task skills, and installs managed Scrumlord Lefthook jobs when a Lefthook configuration exists.
 - Run `tasks setup status` before changing setup. It reports whether `tasks`, provider CLIs, skills, subagents, hooks, and `tmp/tasks.db` are present without creating the database.
@@ -19,12 +19,13 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 - Use `tasks setup --shell` to emit shell helpers (e.g. `tasks-teleport`, `tasks-start`) for the user's `.zshrc` or `.bashrc`. Pair with `tasks completions <bash|zsh>` when the user also wants shell completions.
 - Use `tasks teleport <task-id>` to print the worktree path for a task. The canonical pattern is `cd "$(tasks teleport current)"` — never construct worktree paths yourself.
 - Use `tasks --help` or `tasks <command> --help` when you need the current command syntax. Help output is colorized for humans; data output stays parseable JSON.
-- If you need the task for the current branch and do not already have a task ID, run `tasks current` before falling back to `tasks next`.
+- If you need the task for the current branch and do not already have a task ID, run `tasks current` before falling back to `tasks peek`.
 - Commands that accept a `<task-id>` require one. Pass a UUID, a unique UUID prefix, the literal `current` (the active task on the current Git branch), or the literal `next` (the next claimable task). Tokens are case-sensitive. Prefer `current` for branch-local work; pass an explicit UUID or unique prefix when operating on a specific other task.
-- Prefer `tasks available` or `tasks next` before choosing new work.
+- Prefer `tasks available` or `tasks peek` before choosing new work.
 - Use `tasks list` before decomposing a long document or checklist so you can avoid duplicating existing tasks. Use `tasks list --all` only when archived or deleted tasks matter. Use `tasks search "<query>"` to fuzzy-search by title and description before creating a task that might already exist under a different phrasing.
 - `tasks get` and `tasks list` return a computed `blocked` boolean and per-blocker status on each task. Read that field instead of cross-referencing `tasks blocked-by` manually when you just need to know whether a task is currently blocked.
 - Scrumlord priorities are only `1`, `2`, and `3`, with `3` highest. Never pass `0`, `4`, `5`, `P0`, `P4`, or any source-specific rank through unchanged; normalize source priorities onto the 1-3 scale before running `tasks create`.
+- Value flags accept both `--flag value` and `--flag=value`. Use the `=value` form when a value would otherwise be ambiguous: a description whose text begins with `--` (e.g. `--description=--keep-this-literal`) or an intentionally empty value (e.g. `--description=`). The space-separated form rejects a value that starts with `--` or is missing.
 - Store the Git branch on tasks with `tasks update current --branch <branch>` when work is branch-bound. Setting a branch moves a `draft` or `ready` task to `in-progress`.
 - Do not store worktree paths. Scrumlord derives the worktree from Git when it needs one.
 - Use `tasks session current` before resuming or inspecting agent session state.
@@ -40,7 +41,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 
 - Before creating tasks from a roadmap, specification, or checklist, first build a candidate graph: task title, description source, normalized priority, tags, and blockers.
 - Do not create a flat list unless the items are genuinely independent. If one task unlocks or must precede another, create both tasks and then run `tasks blockers add <blocked-task-id> <blocker-task-id>`.
-- Treat dependency language as graph data. Phrases such as "gated on", "blocked by", "depends on", "prerequisite", or "once ... exists" require an explicit blocker edge before the task can be marked `ready`.
+- Treat dependency language as graph data. Phrases such as "gated on", "blocked by", "depends on", "prerequisite", or "once ... exists" require an explicit blocker edge before the task can be marked `ready`. This rule is enforced on the transition into `ready` (via `tasks update <id> --status ready`), not at `tasks create` — creating a task with such phrasing in its description always succeeds, so add the blocker edge before marking it ready.
 - Create prerequisite tasks before dependent tasks so you have stable task IDs for `tasks blockers add`.
 - For large imports, do not fire many `tasks create` commands in parallel. Validate the priority scale and required flags first, then create tasks serially or in small batches so one malformed command cannot cancel the whole batch.
 - After creating tasks, verify the graph with `tasks list`, `tasks blocked`, `tasks available`, `tasks blocked-by <task-id>`, and `tasks blocking <task-id>` as appropriate.
@@ -82,7 +83,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 tasks --help
 tasks create --help
 tasks init
-tasks next
+tasks peek
 tasks current
 tasks list
 tasks remaining

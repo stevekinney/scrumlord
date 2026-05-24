@@ -58,7 +58,7 @@ describe('resolveProjectRoot', () => {
     await runTasksCli(['create', '--title', 'Primary worktree task'], { cwd: root });
 
     const resolvedRoot = await resolveProjectRoot(linkedWorktree);
-    const nextResult = await runTasksCli(['next'], { cwd: linkedWorktree });
+    const nextResult = await runTasksCli(['peek'], { cwd: linkedWorktree });
 
     expect(resolvedRoot).toBe(await realpath(root));
     expect(nextResult.exitCode).toBe(0);

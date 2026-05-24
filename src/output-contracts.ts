@@ -72,7 +72,7 @@ const pureCommandContracts: Record<string, OutputContract> = {
   search: { kind: 'jsonData', shape: 'task-list', countLabel: 'matching tasks' },
   get: { kind: 'jsonData', shape: 'single-task' },
   current: { kind: 'jsonData', shape: 'single-task' },
-  next: { kind: 'jsonData', shape: 'single-task' },
+  peek: { kind: 'jsonData', shape: 'single-task' },
   create: { kind: 'jsonData', shape: 'single-task' },
   update: { kind: 'jsonData', shape: 'single-task' },
   delete: { kind: 'jsonData', shape: 'single-task' },

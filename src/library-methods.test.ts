@@ -288,7 +288,7 @@ describe('library command equivalents', () => {
     expect(methods.every((method) => typeof method === 'function')).toBe(true);
     expect(agentProviders).toEqual(['claude', 'codex']);
     expect(skillTargets).toEqual(['codex', 'claude']);
-    expect(helpTopics).toContain('next');
+    expect(helpTopics).toContain('peek');
     expect(ScrumlordError.name).toBe('ScrumlordError');
     expect(nextTask).toBe(next);
     expect(remainingTasks).toBe(remaining);

@@ -42,7 +42,7 @@ describe('setupSkills', () => {
     expect(claudeSkill).toStartWith('---\nname: tasks\n');
     expect(claudeSkill).toContain('---\n\n# Tasks CLI');
     expect(claudeSkill).toContain('tasks init');
-    expect(claudeSkill).toContain('tasks next');
+    expect(claudeSkill).toContain('tasks peek');
     expect(claudeSkill).toContain('tasks current');
     expect(claudeSkill).toContain('tasks remaining');
     expect(claudeSkill).toContain('Scrumlord priorities are only `1`, `2`, and `3`');

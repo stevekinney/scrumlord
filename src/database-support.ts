@@ -244,7 +244,10 @@ export const createTaskBindings = (
   const description = input.description ?? '';
   validateDateOrder(startDate, dueDate);
   validateSessionFields(provider, session);
-  validateReadyTaskDependencyEdges(status, description, input.blockedBy?.length ?? 0);
+  // The dependency-edge rule is enforced only on an explicit transition into
+  // `ready` (see updateTaskBindings). At create time there are no stable task
+  // IDs yet to point `--blocked-by` at, so prose mentioning dependencies must
+  // not block creation.
   return {
     id,
     title: requireTitle(input.title),
@@ -278,7 +281,12 @@ export const updateTaskBindings = (
   const description = input.description ?? current.description;
   validateDateOrder(startDate, dueDate);
   validateSessionFields(provider, session);
-  validateReadyTaskDependencyEdges(status, description, current.blockedBy.length);
+  // Enforce the dependency-edge rule only when the task is genuinely
+  // transitioning into `ready`. Editing an already-ready task (title, tag,
+  // description) must not re-run the check, or routine edits would fail.
+  if (current.status !== 'ready' && status === 'ready') {
+    validateReadyTaskDependencyEdges(status, description, current.blockedBy.length);
+  }
   return {
     id,
     title: updatedTitle(input, current),

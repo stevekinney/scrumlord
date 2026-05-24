@@ -331,13 +331,17 @@ describe('createTaskStore', () => {
 
     const dependencyDescription = 'Add /.well-known/mcp.json route once live MCP server exists.';
 
-    expect(() =>
-      store.create({
-        id: 'catalog',
-        title: 'Add MCP catalog discovery metadata',
-        description: dependencyDescription,
-      }),
-    ).toThrow(ScrumlordError);
+    // Creating a default-status (`ready`) task with dependency prose must NOT be
+    // rejected: stable IDs for `--blocked-by` don't exist yet at create time.
+    const created = store.create({
+      id: 'created-with-prose',
+      title: 'Add MCP catalog discovery metadata',
+      description: dependencyDescription,
+    });
+    expect(created.status).toBe('ready');
+    expect(created.description).toBe(dependencyDescription);
+    // Remove it so it doesn't pollute the available()/next() assertions below.
+    store.delete(created.id, { hard: true });
 
     const server = store.create({
       id: 'server',
@@ -368,6 +372,54 @@ describe('createTaskStore', () => {
       blocked: false,
       blockedBy: [{ id: 'server', status: 'completed' }],
     });
+
+    store.close();
+  });
+
+  it('does not re-enforce dependency edges when editing an already-ready task', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const store = await createTaskStore({
+      cwd: root,
+      now: () => new Date('2026-05-11T12:00:00.000Z'),
+    });
+
+    // A default-status task is `ready`. Editing its description to add dependency
+    // prose — without changing status — is not a transition into ready, so it
+    // must not throw.
+    const task = store.create({ id: 'ready-task', title: 'Already ready' });
+    expect(task.status).toBe('ready');
+
+    const updated = store.update(task.id, {
+      description: 'Now this depends on the upstream migration.',
+    });
+    expect(updated.status).toBe('ready');
+    expect(updated.description).toBe('Now this depends on the upstream migration.');
+
+    store.close();
+  });
+
+  it('round-trips a description with shell-significant characters byte-for-byte', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const store = await createTaskStore({
+      cwd: root,
+      now: () => new Date('2026-05-11T12:00:00.000Z'),
+    });
+
+    const block = [
+      'Line with `inline code`, $VAR, bang!, (parens), colons: semis;',
+      '```ts',
+      'const x = $foo!;',
+      'function bar(a: number): void { return; } // blocked by the old API',
+      '```',
+      'depends on a prerequisite that is gated on something else.',
+    ].join('\n');
+    const description = `${block}\n`.repeat(200);
+
+    const created = store.create({ id: 'roundtrip', title: 'Round trip', description });
+    expect(created.description).toBe(description);
+    expect(store.getTask('roundtrip')?.description).toBe(description);
 
     store.close();
   });

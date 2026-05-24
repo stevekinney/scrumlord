@@ -9,7 +9,7 @@ const expectedTopics = [
   'completed',
   'complete',
   'current',
-  'next',
+  'peek',
   'remaining',
   'plan',
   'repository',

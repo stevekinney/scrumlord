@@ -522,7 +522,7 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
     );
   },
   current: async (store) => await currentBranchTask(store),
-  next: (store) => next(store),
+  peek: (store) => next(store),
   remaining: (store) => remaining(store),
   create: async (store, parsed) =>
     createTask(store, await resolveBlockedByPrefixes(store, createInputFromFlags(parsed.flags))),

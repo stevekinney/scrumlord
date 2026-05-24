@@ -1,223 +1,16 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rm } from 'node:fs/promises';
 import { runTasksCli } from './cli-runner';
-import { emptyProgressStoreMethods } from './test-progress-store-methods';
-import type { Task, TaskReference, TaskStore } from './types';
+import {
+  createTemporaryDirectory,
+  createWorkspaceRoot,
+  fakeStore,
+} from './cli-runner-test-helpers';
 
 const temporaryDirectories: string[] = [];
 
-const temporaryDirectory = async (): Promise<string> => {
-  const directory = await mkdtemp(join(tmpdir(), 'scrumlord-cli-'));
-  temporaryDirectories.push(directory);
-  return directory;
-};
-
-const task = (id: string, overrides: Partial<Task> = {}): Task => ({
-  id,
-  title: id,
-  status: 'ready',
-  description: '',
-  priority: 1,
-  createdAt: '2026-05-11T00:00:00.000Z',
-  startDate: null,
-  dueDate: null,
-  branch: null,
-  plan: null,
-  provider: null,
-  session: null,
-  tags: [],
-  blocked: false,
-  blockedBy: [],
-  blocking: [],
-  lastModifiedAt: '2026-05-11T00:00:00.000Z',
-  deleted: false,
-  ...overrides,
-});
-
-const referenceId = (reference: TaskReference): string => {
-  return typeof reference === 'string' ? reference : reference.id;
-};
-
-const optionalCall = (condition: boolean, value: string): string[] => {
-  return condition ? [value] : [];
-};
-
-const updateCallDescriptions = (
-  id: string,
-  input: Parameters<TaskStore['update']>[1],
-): string[] => [
-  `update:${id}:${input.title ?? ''}:${input.priority ?? ''}:${input.branch ?? ''}`,
-  ...optionalCall(input.status !== undefined, `updateStatus:${id}:${input.status ?? ''}`),
-  ...optionalCall('branch' in input && input.branch === null, `clearBranch:${id}`),
-  ...optionalCall(
-    'provider' in input || 'session' in input,
-    `updateSession:${id}:${input.provider ?? ''}:${input.session ?? ''}`,
-  ),
-];
-
-const fakeStore = (calls: string[]): TaskStore => ({
-  projectRoot: '/project',
-  databasePath: '/project/tmp/tasks.db',
-  create(input) {
-    calls.push(`create:${input.title}:${input.status}:${input.priority}:${input.branch ?? ''}`);
-    return task('created');
-  },
-  update(id, input) {
-    calls.push(...updateCallDescriptions(id, input));
-    return task(id);
-  },
-  delete(id, options) {
-    calls.push(`delete:${id}${options?.hard ? ':hard' : ''}`);
-    return options?.hard ? null : task(id);
-  },
-  getTask(id) {
-    calls.push(`get:${id}`);
-    return task(id);
-  },
-  list(options) {
-    calls.push(`list:${options?.includeInactive ? 'all' : 'active'}`);
-    return [task('list')];
-  },
-  available() {
-    calls.push('available');
-    return [task('available')];
-  },
-  blocked() {
-    calls.push('blocked');
-    return [task('blocked')];
-  },
-  completed() {
-    calls.push('completed');
-    return [task('completed')];
-  },
-  withTag(tag) {
-    calls.push(`withTag:${tag}`);
-    return [task('with-tag')];
-  },
-  withAllTags(...tags) {
-    calls.push(`withAllTags:${tags.join(',')}`);
-    return [task('with-all-tags')];
-  },
-  withAnyTag(...tags) {
-    calls.push(`withAnyTag:${tags.join(',')}`);
-    return [task('with-any-tag')];
-  },
-  withBranch(branch) {
-    calls.push(`withBranch:${branch}`);
-    return [task('with-branch')];
-  },
-  withSession(provider, session) {
-    calls.push(`withSession:${provider}:${session}`);
-    return [task('with-session')];
-  },
-  blockedBy(id) {
-    calls.push(`blockedBy:${referenceId(id)}`);
-    return [task('blocked-by')];
-  },
-  blocking(id) {
-    calls.push(`blocking:${referenceId(id)}`);
-    return [task('blocking')];
-  },
-  withPriority(priority) {
-    calls.push(`withPriority:${priority}`);
-    return [task('priority')];
-  },
-  withStatus(status) {
-    calls.push(`withStatus:${status}`);
-    return [task('status')];
-  },
-  next() {
-    calls.push('next');
-    return task('next');
-  },
-  remaining() {
-    calls.push('remaining');
-    return 3;
-  },
-  cleanup(days, options) {
-    calls.push(`cleanup:${days}${options?.hard ? ':hard' : ''}`);
-    return { deleted: days ?? 0 };
-  },
-  previewCleanup(days) {
-    calls.push(`previewCleanup:${days}`);
-    return { wouldDelete: [] };
-  },
-  inProgress() {
-    calls.push('inProgress');
-    return [];
-  },
-  recoverOrphan() {
-    calls.push('recoverOrphan');
-    return {
-      outcome: 'stale-state',
-      actual: { status: 'in-progress', branch: null, session: null, deleted: false },
-    } as const;
-  },
-  countInProgress() {
-    calls.push('countInProgress');
-    return 0;
-  },
-  countBranched() {
-    calls.push('countBranched');
-    return 0;
-  },
-  addTag(id, tag) {
-    calls.push(`addTag:${id}:${tag}`);
-    return task(id);
-  },
-  removeTag(id, tag) {
-    calls.push(`removeTag:${id}:${tag}`);
-    return task(id);
-  },
-  addBlocker(id, blockedBy) {
-    calls.push(`addBlocker:${id}:${referenceId(blockedBy)}`);
-    return task(id);
-  },
-  removeBlocker(id, blockedBy) {
-    calls.push(`removeBlocker:${id}:${referenceId(blockedBy)}`);
-    return task(id);
-  },
-  setPlan(id, plan) {
-    calls.push(`setPlan:${id}:${plan ?? ''}`);
-    return task(id);
-  },
-  setSession(id, provider, session) {
-    calls.push(`setSession:${id}:${provider}:${session ?? ''}`);
-    return task(id);
-  },
-  taskSession(id) {
-    calls.push(`taskSession:${id}`);
-    const item = task(id);
-    return {
-      taskId: item.id,
-      provider: item.provider,
-      session: item.session,
-      branch: item.branch,
-      plan: item.plan,
-    };
-  },
-  allIds() {
-    calls.push('allIds');
-    return [];
-  },
-  allTags() {
-    calls.push('allTags');
-    return [];
-  },
-  ...emptyProgressStoreMethods,
-  close() {
-    calls.push('close');
-  },
-});
-
-const workspaceRoot = async (): Promise<string> => {
-  const root = await temporaryDirectory();
-  await mkdir(join(root, 'packages', 'example'), { recursive: true });
-  await Bun.write(join(root, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
-  return root;
-};
+const temporaryDirectory = (): Promise<string> => createTemporaryDirectory(temporaryDirectories);
+const workspaceRoot = (): Promise<string> => createWorkspaceRoot(temporaryDirectories);
 
 afterEach(async () => {
   await Promise.all(
@@ -247,7 +40,7 @@ describe('runTasksCli', () => {
       ['priority', '3'],
       ['status', 'in-progress'],
       ['session', 'task-id'],
-      ['next'],
+      ['peek'],
       ['remaining'],
       [
         'create',
@@ -320,7 +113,7 @@ describe('runTasksCli', () => {
     expect(cleanupResult.stderr).toBe('');
     expect(cleanupResult.stdout).toContain('Aged cleanup:');
 
-    expect(calls).toContain('create:New Task:draft:3:feature/task-graph');
+    expect(calls).toContain('create:New Task:draft:3:feature/task-graph:desc=Body');
     expect(calls).toContain('update:task-id:Renamed:2:feature/task-graph');
     expect(calls).toContain('withStatus:in-progress');
     expect(calls).toContain('update:task-id:::feature/task-graph');
@@ -490,21 +283,5 @@ describe('runTasksCli', () => {
       code: 'plan_filter_conflict',
       message: 'Use either --planned or --unplanned, not both.',
     });
-  });
-
-  it('rejects empty comma-delimited tag lists before opening a store', async () => {
-    let createStoreCalls = 0;
-    const result = await runTasksCli(['create', '--title', 'Task', '--tags', ','], {
-      createStore: async () => {
-        createStoreCalls += 1;
-        return fakeStore([]);
-      },
-    });
-
-    expect(JSON.parse(result.stderr).error).toEqual({
-      code: 'invalid_tag',
-      message: 'Tags cannot be empty.',
-    });
-    expect(createStoreCalls).toBe(0);
   });
 });

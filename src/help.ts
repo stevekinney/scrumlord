@@ -149,12 +149,12 @@ const topics: HelpTopic[] = [
     examples: ['tasks current'],
   },
   {
-    path: ['next'],
+    path: ['peek'],
     summary: 'Return the next available task.',
-    usage: 'tasks next',
+    usage: 'tasks peek',
     description:
       'Returns an available task, preferring tasks with plans before unplanned tasks. Prints no output when no task is available.',
-    examples: ['tasks next'],
+    examples: ['tasks peek'],
   },
   {
     path: ['remaining'],

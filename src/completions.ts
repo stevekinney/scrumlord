@@ -30,7 +30,7 @@ export const commandSummaries: Record<string, string> = {
   overview: 'Show a task status overview with PR state.',
   help: 'Show help for the CLI or a specific command.',
   current: 'Return the task assigned to the current branch.',
-  next: 'Return the next available task.',
+  peek: 'Return the next available task.',
   remaining: 'Count remaining tasks.',
   repository: 'Show the current GitHub repository.',
   pr: 'Inspect or sync the current pull request.',
