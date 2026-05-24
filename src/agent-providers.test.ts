@@ -6,6 +6,7 @@ import {
   absoluteTaskPlanPath,
   agentProviders,
   buildSetupInvocation,
+  buildSkillInvocation,
   buildTaskResumeInvocation,
   buildTaskStartInvocation,
   defaultTaskPlanPath,
@@ -220,5 +221,72 @@ describe('agent providers', () => {
         environment: { CODEX_HOME: '/codex-home' },
       }),
     ).toEqual(['/codex-home/sessions']);
+  });
+});
+
+describe('buildSkillInvocation', () => {
+  const cwd = '/project';
+  const prompt = 'Review this pull request and approve it.';
+
+  it('builds a claude invocation with the workflow system prompt appended', () => {
+    const result = buildSkillInvocation('claude', { cwd, prompt });
+    expect(result.cwd).toBe(cwd);
+    expect(result.environment).toEqual({});
+    expect(result.command[0]).toBe('claude');
+    expect(result.command).toContain('--append-system-prompt');
+    const systemPromptIndex = result.command.indexOf('--append-system-prompt');
+    expect(result.command[systemPromptIndex + 1]).toContain('workflow skill');
+    // prompt is the last argument
+    expect(result.command[result.command.length - 1]).toBe(prompt);
+    // no plan mode flags by default
+    expect(result.command).not.toContain('--permission-mode');
+  });
+
+  it('builds a claude invocation with planMode=true', () => {
+    const result = buildSkillInvocation('claude', { cwd, prompt, planMode: true });
+    expect(result.command).toContain('--permission-mode');
+    expect(result.command).toContain('plan');
+  });
+
+  it('builds a claude invocation with a session id', () => {
+    const result = buildSkillInvocation('claude', { cwd, prompt, session: 'my-session' });
+    expect(result.command).toContain('--session-id');
+    const sessionIndex = result.command.indexOf('--session-id');
+    expect(result.command[sessionIndex + 1]).toBe('my-session');
+  });
+
+  it('omits --session-id when session is null', () => {
+    const result = buildSkillInvocation('claude', { cwd, prompt, session: null });
+    expect(result.command).not.toContain('--session-id');
+  });
+
+  it('builds a codex invocation with the workflow system prompt embedded', () => {
+    const result = buildSkillInvocation('codex', { cwd, prompt });
+    expect(result.cwd).toBe(cwd);
+    expect(result.environment).toEqual({});
+    expect(result.command[0]).toBe('codex');
+    expect(result.command).toContain('--cd');
+    const cdIndex = result.command.indexOf('--cd');
+    expect(result.command[cdIndex + 1]).toBe(cwd);
+    // The final argument is the combined prompt
+    const finalArg = result.command[result.command.length - 1]!;
+    expect(finalArg).toContain('workflow skill');
+    expect(finalArg).toContain(prompt);
+  });
+
+  it('builds a codex invocation with planMode=true prefixed with /plan', () => {
+    const result = buildSkillInvocation('codex', { cwd, prompt, planMode: true });
+    const finalArg = result.command[result.command.length - 1]!;
+    expect(finalArg).toStartWith('/plan ');
+  });
+
+  it('builds a codex invocation without /plan prefix when planMode is false', () => {
+    const result = buildSkillInvocation('codex', { cwd, prompt, planMode: false });
+    const finalArg = result.command[result.command.length - 1]!;
+    expect(finalArg).not.toStartWith('/plan ');
+  });
+
+  it('rejects an unknown provider', () => {
+    expect(() => buildSkillInvocation('vim' as 'claude', { cwd, prompt })).toThrow(ScrumlordError);
   });
 });
