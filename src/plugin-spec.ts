@@ -107,6 +107,24 @@ export const scrumlordPluginSpec: PluginSpec = {
       description: 'Inspect and update the local Scrumlord task graph.',
       sourcePath: join(srcSkillsDir, 'tasks.md'),
     },
+    {
+      name: 'committee-review',
+      description:
+        'Gate PR creation behind a multi-agent review loop: discover subagents, parallel-review the diff, implement feedback, loop until consensus, then open the PR. Trigger on "open a PR", "create a pull request", or "submit for review".',
+      sourcePath: join(srcSkillsDir, 'committee-review.md'),
+    },
+    {
+      name: 'address-pr',
+      description:
+        'Load a pull request, implement review feedback (human and bots), resolve threads, and loop until CI is green and the PR is merge-ready. Trigger on a PR number, PR questions, or fix-it requests.',
+      sourcePath: join(srcSkillsDir, 'address-pr.md'),
+    },
+    {
+      name: 'plan-review',
+      description:
+        "Adversarially review a task's drafted plan with Codex before it is associated and implemented. Loops until Codex approves or the round cap is hit; fail-warns when Codex is unavailable.",
+      sourcePath: join(srcSkillsDir, 'plan-review.md'),
+    },
   ],
   agents: [
     {
