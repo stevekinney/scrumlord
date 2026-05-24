@@ -177,6 +177,33 @@ describe('GitHub helper functions', () => {
     });
   });
 
+  it('prefers html_url (the browser PR page) over the api url field', async () => {
+    const root = await workspaceRoot();
+    const runner = runnerWith({
+      reviewComments: commandResult({
+        stdout: '{"data":{"repository":{"pullRequest":{"reviewThreads":{}}}}}',
+      }),
+      // Real GitHub REST returns both: `url` is the api.github.com JSON endpoint
+      // and `html_url` is the page a human should open.
+      pullRequestList: includedResponse({
+        body: JSON.stringify([
+          {
+            number: 149,
+            url: 'https://api.github.com/repos/owner/repository/pulls/149',
+            html_url: 'https://github.com/owner/repository/pull/149',
+            title: 'Test',
+            head: { ref: 'feature/task-graph', sha: 'abc123' },
+            base: { ref: 'main' },
+            state: 'open',
+          },
+        ]),
+      }),
+    });
+
+    const report = await pullRequestStatus(root, { runner });
+    expect(report.pullRequest.url).toBe('https://github.com/owner/repository/pull/149');
+  });
+
   it('marks a pull request as ready when direct gh data has no unresolved comments or failing checks', async () => {
     const root = await workspaceRoot();
     const runner = runnerWith({

@@ -79,7 +79,10 @@ export type GitHubOptions = {
 };
 
 const pullRequestUrlFrom = (record: Record<string, unknown>): string | null => {
-  return stringOrNull(record['url']) ?? stringOrNull(record['html_url']);
+  // Prefer `html_url` (the browser-facing PR page). The REST API's `url` field
+  // is the api.github.com endpoint that returns JSON; GraphQL has no `html_url`
+  // and its `url` is already the page, so fall back to it.
+  return stringOrNull(record['html_url']) ?? stringOrNull(record['url']);
 };
 
 const pullRequestHeadRefNameFrom = (
