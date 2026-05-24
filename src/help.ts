@@ -758,6 +758,87 @@ const topics: HelpTopic[] = [
     ],
   },
   {
+    path: ['next'],
+    summary: 'Claim and start work on the next available task.',
+    usage: 'tasks next [--start] [--cli <claude|codex>]',
+    description:
+      "In print mode (no --start), resolves the next available task read-only and emits the `next` workflow skill prompt seeded with that task's id and title. Prints no output when no task is available. In start mode (--start), claims the task, materializes a dedicated worktree at tmp/worktrees/tasks/<task-id>, and launches the agent with the `next` skill prompt.",
+    options: [
+      { name: '--start', description: 'Claim the next task and launch the agent.' },
+      {
+        name: '--cli',
+        value: '<claude|codex>',
+        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
+      },
+    ],
+    examples: ['tasks next', 'tasks next --start --cli claude'],
+  },
+  {
+    path: ['resolve'],
+    summary: 'Emit or run the resolve workflow skill.',
+    usage: 'tasks resolve [--start] [--cli <claude|codex>] [--all]',
+    description:
+      'In print mode (no --start), prints the `resolve` workflow skill prompt to stdout. With --start, launches the agent to run the skill.',
+    options: [
+      { name: '--start', description: 'Launch the agent to run the resolve skill.' },
+      { name: '--all', description: 'Operate on all matching tasks.' },
+      {
+        name: '--cli',
+        value: '<claude|codex>',
+        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
+      },
+    ],
+    examples: ['tasks resolve', 'tasks resolve --start --cli claude'],
+  },
+  {
+    path: ['sync'],
+    summary: 'Emit or run the sync workflow skill.',
+    usage: 'tasks sync [--start] [--cli <claude|codex>]',
+    description:
+      'In print mode (no --start), prints the `sync` workflow skill prompt to stdout. With --start, launches the agent to run the skill.',
+    options: [
+      { name: '--start', description: 'Launch the agent to run the sync skill.' },
+      {
+        name: '--cli',
+        value: '<claude|codex>',
+        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
+      },
+    ],
+    examples: ['tasks sync', 'tasks sync --start --cli claude'],
+  },
+  {
+    path: ['audit'],
+    summary: 'Emit or run the audit workflow skill.',
+    usage: 'tasks audit [--start] [--cli <claude|codex>]',
+    description:
+      'In print mode (no --start), prints the `audit` workflow skill prompt to stdout. With --start, launches the agent to run the skill.',
+    options: [
+      { name: '--start', description: 'Launch the agent to run the audit skill.' },
+      {
+        name: '--cli',
+        value: '<claude|codex>',
+        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
+      },
+    ],
+    examples: ['tasks audit', 'tasks audit --start --cli claude'],
+  },
+  {
+    path: ['merge'],
+    summary: 'Emit or run the merge workflow skill.',
+    usage: 'tasks merge [--start] [--cli <claude|codex>]',
+    description:
+      'In print mode (no --start), prints the `merge` workflow skill prompt to stdout. With --start, launches the agent to run the skill.',
+    options: [
+      { name: '--start', description: 'Launch the agent to run the merge skill.' },
+      {
+        name: '--cli',
+        value: '<claude|codex>',
+        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
+      },
+    ],
+    examples: ['tasks merge', 'tasks merge --start --cli claude'],
+  },
+  {
     path: ['teleport'],
     summary: 'Print the worktree path for a task (for shell `cd`).',
     usage: 'tasks teleport <task-id> [--json]',

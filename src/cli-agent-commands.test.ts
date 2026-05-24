@@ -354,6 +354,39 @@ describe('startTask phase resolution and worktree setup', () => {
   });
 });
 
+describe('startTask — reattach paths', () => {
+  it('throws provider_mismatch when a different provider is requested on resume', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const store = await createTaskStore({ cwd: root });
+    const task = store.create({ id: 'task-id', title: 'Provider mismatch' });
+    // Set up an in-progress task with a stored claude provider/session
+    store.update(task.id, {
+      status: 'in-progress',
+      provider: 'claude',
+      session: 'claude-session-id',
+    });
+
+    let caught: unknown;
+    try {
+      // Task was started with claude; request codex via --cli override → should throw provider_mismatch
+      await startTask(store, task.id, {
+        // provider: undefined so optionalProviderFromStartOptions uses the environment override
+        environment: { SCRUMLORD_CLI: 'codex' },
+        which: () => '/bin/provider',
+        runner: startRunner(),
+        runAgentInvocation: async () => 0,
+        stderr: () => {},
+      });
+    } catch (error) {
+      caught = error;
+    } finally {
+      store.close();
+    }
+    expect((caught as { code?: string })?.code).toBe('provider_mismatch');
+  });
+});
+
 describe('runAgentHookCommand', () => {
   it('returns UserPromptSubmit context on stdout', async () => {
     const root = await temporaryDirectory();

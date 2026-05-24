@@ -58,6 +58,11 @@ export const commandSummaries: Record<string, string> = {
   setup: 'Configure Scrumlord and agent integrations.',
   teleport: 'Print the worktree path for a task (for shell cd).',
   completions: 'Generate shell completion scripts.',
+  next: 'Claim and start work on the next available task.',
+  resolve: 'Emit or run the resolve workflow skill.',
+  sync: 'Emit or run the sync workflow skill.',
+  audit: 'Emit or run the audit workflow skill.',
+  merge: 'Emit or run the merge workflow skill.',
 };
 
 /** Backslash-escapes characters special in bash word lists and double-quoted strings. */

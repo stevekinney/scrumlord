@@ -683,7 +683,7 @@ const storeCommandInputValidators: Partial<Record<string, StoreCommandInputValid
     }
   },
   cleanup: (parsed) => {
-    cleanupModeFrom(parsed);
+    if (!parsed.flags.has('worktrees')) cleanupModeFrom(parsed);
   },
   start: (parsed, options) => {
     providerFromStartCommand(parsed, options);
