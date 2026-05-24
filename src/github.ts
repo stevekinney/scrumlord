@@ -401,7 +401,12 @@ export const checksForPullRequestInRepository = async (
   return checkRunsFrom(checkRuns).concat(commitStatusesFrom(commitStatuses));
 };
 
-const pullRequestDetails = async (
+/**
+ * Fetches a single pull request from the REST detail endpoint. Unlike the list
+ * endpoint, this populates `mergeable` / `mergeStateStatus` (GitHub computes
+ * mergeability lazily and omits it from list responses).
+ */
+export const pullRequestDetails = async (
   projectRoot: string,
   repository: string,
   number: number,

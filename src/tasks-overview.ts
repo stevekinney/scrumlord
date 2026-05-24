@@ -1,6 +1,7 @@
 import {
   checksForPullRequestInRepository,
   openPullRequests,
+  pullRequestDetails,
   repositoryName,
   reportForCheck,
   requireGh,
@@ -67,9 +68,12 @@ const overviewForPullRequest = async (
   mutateTaskReviewState: boolean,
   options?: GitHubOptions,
 ): Promise<PullRequestOverviewItem> => {
-  const [reviewComments, checks] = await Promise.all([
+  // The list endpoint omits mergeability, so fetch the PR detail to populate
+  // `mergeable` / `mergeStateStatus` for the conflict signal.
+  const [reviewComments, checks, detail] = await Promise.all([
     reviewCommentsForPullRequest(store.projectRoot, repository, pullRequest, options),
     checksForPullRequestInRepository(store.projectRoot, repository, pullRequest, options),
+    pullRequestDetails(store.projectRoot, repository, pullRequest.number, options),
   ]);
   const checkReports = checks.map(reportForCheck);
   const pending = checkReports.filter((check) => check.conclusion === 'pending');
@@ -78,7 +82,11 @@ const overviewForPullRequest = async (
   const readyToMerge = reviewComments.length === 0 && pending.length === 0 && failed.length === 0;
 
   return {
-    pullRequest,
+    pullRequest: {
+      ...pullRequest,
+      mergeable: detail.mergeable,
+      mergeStateStatus: detail.mergeStateStatus,
+    },
     associatedTasks,
     reviewComments: {
       unresolvedCount: reviewComments.length,

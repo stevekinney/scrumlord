@@ -97,6 +97,30 @@ const overviewResponses: Record<string, CommandResult> = {
     ]),
   }),
   'statuses-43': includedResponse({ body: '[]' }),
+  'detail-42': includedResponse({
+    body: JSON.stringify({
+      number: 42,
+      html_url: 'https://github.test/owner/repository/pull/42',
+      title: 'Build overview',
+      head: { ref: 'feature/tasks-overview', sha: 'sha-overview' },
+      base: { ref: 'main' },
+      state: 'open',
+      mergeable: false,
+      merge_state_status: 'DIRTY',
+    }),
+  }),
+  'detail-43': includedResponse({
+    body: JSON.stringify({
+      number: 43,
+      html_url: 'https://github.test/owner/repository/pull/43',
+      title: 'No task',
+      head: { ref: 'feature/no-task', sha: 'sha-no-task' },
+      base: { ref: 'main' },
+      state: 'open',
+      mergeable: true,
+      merge_state_status: 'CLEAN',
+    }),
+  }),
 };
 
 const overviewMatchers = [
@@ -131,6 +155,16 @@ const overviewMatchers = [
     key: 'statuses-43',
     matches: (command: string[]) =>
       command.some((part) => part === 'repos/owner/repository/commits/sha-no-task/statuses'),
+  },
+  {
+    key: 'detail-42',
+    matches: (command: string[]) =>
+      command.some((part) => part === 'repos/owner/repository/pulls/42'),
+  },
+  {
+    key: 'detail-43',
+    matches: (command: string[]) =>
+      command.some((part) => part === 'repos/owner/repository/pulls/43'),
   },
 ];
 
@@ -169,8 +203,9 @@ describe('GitHub pull request overview', () => {
         baseRefName: '',
         mergedAt: null,
         body: null,
-        mergeable: null,
-        mergeStateStatus: null,
+        // Mergeability comes from the per-PR detail fetch, not the list endpoint.
+        mergeable: 'CONFLICTING',
+        mergeStateStatus: 'DIRTY',
       });
       expect(firstOverviewItem.associatedTasks.map((item) => item.id)).toEqual([
         'task-documentation',
