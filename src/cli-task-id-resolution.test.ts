@@ -25,6 +25,7 @@ const workspaceRoot = async (): Promise<string> => {
   const root = await temporaryDirectory();
   await mkdir(join(root, 'packages', 'example'), { recursive: true });
   await Bun.write(join(root, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
+  await Bun.write(join(root, '.gitignore'), 'tmp/\n');
   await run(['git', 'init'], root);
   await run(['git', 'checkout', '-b', 'feature/resolution-test'], root);
   return root;

@@ -18,6 +18,7 @@ const temporaryDirectories: string[] = [];
 const temporaryDirectory = async (): Promise<string> => {
   const directory = await mkdtemp(join(tmpdir(), 'scrumlord-pipeline-test-'));
   temporaryDirectories.push(directory);
+  writeFileSync(join(directory, '.gitignore'), 'tmp/\n');
   return directory;
 };
 
@@ -110,7 +111,7 @@ const buildPullRequest = (number: number, state: 'open' | 'closed', merged = fal
   state,
   url: `https://github.test/pull/${number}`,
   title: 'Title',
-  head: { ref: 'task/abc12345', sha: 'sha-42' },
+  head: { ref: 'tasks/abc12345', sha: 'sha-42' },
   base: { ref: 'main' },
   merged_at: merged ? '2026-05-13T15:00:00Z' : null,
 });

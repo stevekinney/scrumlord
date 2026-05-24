@@ -164,9 +164,9 @@ const makeGitRepo = async (branch: string): Promise<string> => {
 
 describe('tasks teleport — success cases', () => {
   it('returns the worktree path for a UUID task', async () => {
-    const t = task('abc12345', { branch: 'task/abc12345' });
+    const t = task('abc12345', { branch: 'tasks/abc12345' });
     const store = makeStore({ tasks: [t] });
-    const porcelain = makePorcelain([{ path: '/tmp/wt-abc', branch: 'task/abc12345' }]);
+    const porcelain = makePorcelain([{ path: '/tmp/wt-abc', branch: 'tasks/abc12345' }]);
 
     const result = await runTasksCli(['teleport', 'abc12345'], {
       createStore: async () => store,
@@ -179,7 +179,7 @@ describe('tasks teleport — success cases', () => {
   });
 
   it('returns the worktree path for the current task', async () => {
-    const branch = 'task/cur-branch';
+    const branch = 'tasks/cur-branch';
     const gitRoot = await makeGitRepo(branch);
     const t = task('cur-task', { branch });
     const store = makeStore({ tasks: [t], projectRoot: gitRoot });
@@ -196,9 +196,9 @@ describe('tasks teleport — success cases', () => {
   });
 
   it('returns the worktree path for the next task', async () => {
-    const t = task('next-task', { branch: 'task/next' });
+    const t = task('next-task', { branch: 'tasks/next' });
     const store = makeStore({ tasks: [t] });
-    const porcelain = makePorcelain([{ path: '/tmp/wt-next', branch: 'task/next' }]);
+    const porcelain = makePorcelain([{ path: '/tmp/wt-next', branch: 'tasks/next' }]);
 
     const result = await runTasksCli(['teleport', 'next'], {
       createStore: async () => store,
@@ -226,9 +226,9 @@ describe('tasks teleport — success cases', () => {
   });
 
   it('returns the raw path even when --json is passed on success', async () => {
-    const t = task('json-task', { branch: 'task/json' });
+    const t = task('json-task', { branch: 'tasks/json' });
     const store = makeStore({ tasks: [t] });
-    const porcelain = makePorcelain([{ path: '/tmp/wt-json', branch: 'task/json' }]);
+    const porcelain = makePorcelain([{ path: '/tmp/wt-json', branch: 'tasks/json' }]);
 
     const result = await runTasksCli(['teleport', 'json-task', '--json'], {
       createStore: async () => store,
@@ -240,9 +240,9 @@ describe('tasks teleport — success cases', () => {
   });
 
   it('returns the raw path under CLAUDECODE=1', async () => {
-    const t = task('claude-task', { branch: 'task/claude' });
+    const t = task('claude-task', { branch: 'tasks/claude' });
     const store = makeStore({ tasks: [t] });
-    const porcelain = makePorcelain([{ path: '/tmp/wt-claude', branch: 'task/claude' }]);
+    const porcelain = makePorcelain([{ path: '/tmp/wt-claude', branch: 'tasks/claude' }]);
 
     const result = await runTasksCli(['teleport', 'claude-task'], {
       createStore: async () => store,
@@ -255,9 +255,9 @@ describe('tasks teleport — success cases', () => {
   });
 
   it('returns the raw path under CODEX_MANAGED_BY_BUN=1', async () => {
-    const t = task('codex-task', { branch: 'task/codex' });
+    const t = task('codex-task', { branch: 'tasks/codex' });
     const store = makeStore({ tasks: [t] });
-    const porcelain = makePorcelain([{ path: '/tmp/wt-codex', branch: 'task/codex' }]);
+    const porcelain = makePorcelain([{ path: '/tmp/wt-codex', branch: 'tasks/codex' }]);
 
     const result = await runTasksCli(['teleport', 'codex-task'], {
       createStore: async () => store,
@@ -270,12 +270,12 @@ describe('tasks teleport — success cases', () => {
   });
 
   it('matches the right worktree from multi-record porcelain', async () => {
-    const t = task('multi-task', { branch: 'task/abc12345' });
+    const t = task('multi-task', { branch: 'tasks/abc12345' });
     const store = makeStore({ tasks: [t] });
     const porcelain = makePorcelain([
       { path: '/project' }, // detached — no branch line
       { path: '/project', branch: 'main' },
-      { path: '/tmp/wt-linked', branch: 'task/abc12345' },
+      { path: '/tmp/wt-linked', branch: 'tasks/abc12345' },
     ]);
 
     const result = await runTasksCli(['teleport', 'multi-task'], {
@@ -357,7 +357,7 @@ describe('tasks teleport — teleport_no_branch', () => {
 });
 
 describe('tasks teleport — teleport_no_worktree', () => {
-  const t = task('orphan-task', { branch: 'task/orphan' });
+  const t = task('orphan-task', { branch: 'tasks/orphan' });
   const store = makeStore({ tasks: [t] });
   const emptyPorcelain = makePorcelain([{ path: '/project', branch: 'main' }]);
   const runner = worktreeRunner(emptyPorcelain);
@@ -372,7 +372,7 @@ describe('tasks teleport — teleport_no_worktree', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('orphan-task');
-    expect(result.stderr).toContain('task/orphan');
+    expect(result.stderr).toContain('tasks/orphan');
     expect(result.stdout).toBe('');
   });
 
@@ -389,7 +389,7 @@ describe('tasks teleport — teleport_no_worktree', () => {
 });
 
 describe('tasks teleport — teleport_worktree_lookup_failed', () => {
-  const t = task('fail-task', { branch: 'task/fail' });
+  const t = task('fail-task', { branch: 'tasks/fail' });
   const store = makeStore({ tasks: [t] });
 
   it('includes git error text in human stderr', async () => {
@@ -429,9 +429,9 @@ describe('tasks teleport — teleport_worktree_lookup_failed', () => {
   });
 
   it('emits teleport_worktree_lookup_failed for a non-absolute path', async () => {
-    const t2 = task('rel-task', { branch: 'task/rel' });
+    const t2 = task('rel-task', { branch: 'tasks/rel' });
     const store2 = makeStore({ tasks: [t2] });
-    const relPorcelain = 'worktree worktrees/rel\nHEAD abc123\nbranch refs/heads/task/rel\n\n';
+    const relPorcelain = 'worktree worktrees/rel\nHEAD abc123\nbranch refs/heads/tasks/rel\n\n';
 
     const result = await runTasksCli(['teleport', 'rel-task', '--json'], {
       createStore: async () => store2,
@@ -449,7 +449,7 @@ describe('tasks teleport — resolver and store errors', () => {
   // All tests that call `tasks teleport current` need a real git repo so
   // currentBranchTask can call `git branch --show-current`.
   it('returns human error for current with no branch task', async () => {
-    const gitRoot = await makeGitRepo('task/empty-branch');
+    const gitRoot = await makeGitRepo('tasks/empty-branch');
     const emptyStore = makeStore({ projectRoot: gitRoot });
 
     const result = await runTasksCli(['teleport', 'current'], {
@@ -465,7 +465,7 @@ describe('tasks teleport — resolver and store errors', () => {
   });
 
   it('returns JSON envelope for current with no branch task when --json', async () => {
-    const gitRoot = await makeGitRepo('task/empty-branch2');
+    const gitRoot = await makeGitRepo('tasks/empty-branch2');
     const emptyStore = makeStore({ projectRoot: gitRoot });
 
     const result = await runTasksCli(['teleport', 'current', '--json'], {
@@ -479,7 +479,7 @@ describe('tasks teleport — resolver and store errors', () => {
   });
 
   it('returns JSON envelope under CLAUDECODE=1 for current_task_not_found', async () => {
-    const gitRoot = await makeGitRepo('task/empty-branch3');
+    const gitRoot = await makeGitRepo('tasks/empty-branch3');
     const emptyStore = makeStore({ projectRoot: gitRoot });
 
     const result = await runTasksCli(['teleport', 'current'], {
@@ -553,7 +553,7 @@ describe('tasks teleport — resolver and store errors', () => {
   });
 
   it('returns JSON envelope for ambiguous branch tasks when --json', async () => {
-    const branch = 'task/ambiguous-branch';
+    const branch = 'tasks/ambiguous-branch';
     const gitRoot = await makeGitRepo(branch);
     const t1 = task('task-1', { branch });
     const t2 = task('task-2', { branch });

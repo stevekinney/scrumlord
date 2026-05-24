@@ -72,10 +72,10 @@ describe('branchExistsAnywhere', () => {
 
   it('returns missing when both local and remote refs absent', async () => {
     const runner = mockRunner({
-      'git show-ref --verify --quiet refs/heads/task/abc': fail(1),
-      'git show-ref --verify --quiet refs/remotes/origin/task/abc': fail(1),
+      'git show-ref --verify --quiet refs/heads/tasks/abc': fail(1),
+      'git show-ref --verify --quiet refs/remotes/origin/tasks/abc': fail(1),
     });
-    const result = await branchExistsAnywhere('/tmp', 'task/abc', runner);
+    const result = await branchExistsAnywhere('/tmp', 'tasks/abc', runner);
     expect(result).toBe('missing');
   });
 
@@ -139,11 +139,11 @@ describe('findOrphans', () => {
 
   it('skips task whose branch exists locally', async () => {
     const { root, store } = await createStore();
-    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'task/abc' });
+    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'tasks/abc' });
     const runner = mockRunner({
       'git remote': ok('origin\n'),
-      'git check-ref-format --branch task/abc': ok(),
-      'git show-ref --verify --quiet refs/heads/task/abc': ok(),
+      'git check-ref-format --branch tasks/abc': ok(),
+      'git show-ref --verify --quiet refs/heads/tasks/abc': ok(),
     });
     const result = await findOrphans(store, root, runner);
     expect(result.candidates).toHaveLength(0);
@@ -152,12 +152,12 @@ describe('findOrphans', () => {
 
   it('skips task whose branch exists only on origin', async () => {
     const { root, store } = await createStore();
-    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'task/abc' });
+    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'tasks/abc' });
     const runner = mockRunner({
       'git remote': ok('origin\n'),
-      'git check-ref-format --branch task/abc': ok(),
-      'git show-ref --verify --quiet refs/heads/task/abc': fail(1),
-      'git show-ref --verify --quiet refs/remotes/origin/task/abc': ok(),
+      'git check-ref-format --branch tasks/abc': ok(),
+      'git show-ref --verify --quiet refs/heads/tasks/abc': fail(1),
+      'git show-ref --verify --quiet refs/remotes/origin/tasks/abc': ok(),
     });
     const result = await findOrphans(store, root, runner);
     expect(result.candidates).toHaveLength(0);
@@ -166,12 +166,12 @@ describe('findOrphans', () => {
 
   it('flags task whose branch is absent from both local and remote', async () => {
     const { root, store } = await createStore();
-    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'task/abc' });
+    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'tasks/abc' });
     const runner = mockRunner({
       'git remote': ok('origin\n'),
-      'git check-ref-format --branch task/abc': ok(),
-      'git show-ref --verify --quiet refs/heads/task/abc': fail(1),
-      'git show-ref --verify --quiet refs/remotes/origin/task/abc': fail(1),
+      'git check-ref-format --branch tasks/abc': ok(),
+      'git show-ref --verify --quiet refs/heads/tasks/abc': fail(1),
+      'git show-ref --verify --quiet refs/remotes/origin/tasks/abc': fail(1),
     });
     const result = await findOrphans(store, root, runner);
     expect(result.candidates).toHaveLength(1);
@@ -180,11 +180,11 @@ describe('findOrphans', () => {
 
   it('skips with git-probe-error when local git exit is non-1 (128)', async () => {
     const { root, store } = await createStore();
-    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'task/abc' });
+    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'tasks/abc' });
     const runner = mockRunner({
       'git remote': ok('origin\n'),
-      'git check-ref-format --branch task/abc': ok(),
-      'git show-ref --verify --quiet refs/heads/task/abc': fail(128),
+      'git check-ref-format --branch tasks/abc': ok(),
+      'git show-ref --verify --quiet refs/heads/tasks/abc': fail(128),
     });
     const result = await findOrphans(store, root, runner);
     expect(result.candidates).toHaveLength(0);
@@ -194,12 +194,12 @@ describe('findOrphans', () => {
 
   it('skips with git-probe-error when remote git exit is non-1 (128)', async () => {
     const { root, store } = await createStore();
-    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'task/abc' });
+    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'tasks/abc' });
     const runner = mockRunner({
       'git remote': ok('origin\n'),
-      'git check-ref-format --branch task/abc': ok(),
-      'git show-ref --verify --quiet refs/heads/task/abc': fail(1),
-      'git show-ref --verify --quiet refs/remotes/origin/task/abc': fail(128),
+      'git check-ref-format --branch tasks/abc': ok(),
+      'git show-ref --verify --quiet refs/heads/tasks/abc': fail(1),
+      'git show-ref --verify --quiet refs/remotes/origin/tasks/abc': fail(128),
     });
     const result = await findOrphans(store, root, runner);
     expect(result.skips[0]?.reason).toBe('git-probe-error');
@@ -235,14 +235,14 @@ describe('findOrphans', () => {
     expect(checkRefFormatCalled).toBe(false);
   });
 
-  it('accepts task/abc123 since slash alone is not a rejection signal', async () => {
+  it('accepts tasks/abc123 since slash alone is not a rejection signal', async () => {
     const { root, store } = await createStore();
-    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'task/abc123' });
+    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'tasks/abc123' });
     const runner = mockRunner({
       'git remote': ok('origin\n'),
-      'git check-ref-format --branch task/abc123': ok(),
-      'git show-ref --verify --quiet refs/heads/task/abc123': fail(1),
-      'git show-ref --verify --quiet refs/remotes/origin/task/abc123': fail(1),
+      'git check-ref-format --branch tasks/abc123': ok(),
+      'git show-ref --verify --quiet refs/heads/tasks/abc123': fail(1),
+      'git show-ref --verify --quiet refs/remotes/origin/tasks/abc123': fail(1),
     });
     const result = await findOrphans(store, root, runner);
     expect(result.candidates[0]?.reason).toBe('branch-not-in-git');
@@ -274,10 +274,10 @@ describe('findOrphans', () => {
 
   it('returns git-probe-error when check-ref-format exits 128', async () => {
     const { root, store } = await createStore();
-    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'task/x' });
+    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'tasks/x' });
     const runner = mockRunner({
       'git remote': ok('origin\n'),
-      'git check-ref-format --branch task/x': fail(128, 'fatal: broken'),
+      'git check-ref-format --branch tasks/x': fail(128, 'fatal: broken'),
     });
     const result = await findOrphans(store, root, runner);
     expect(result.skips[0]?.reason).toBe('git-probe-error');
@@ -285,7 +285,7 @@ describe('findOrphans', () => {
 
   it('skips non-empty branch tasks with git-probe-error when git remote fails, but still recovers null-branch tasks', async () => {
     const { root, store } = await createStore();
-    store.create({ id: 't1', title: 'Task with branch', status: 'in-progress', branch: 'task/x' });
+    store.create({ id: 't1', title: 'Task with branch', status: 'in-progress', branch: 'tasks/x' });
     store.create({ id: 't2', title: 'Task no branch', status: 'in-progress' });
     const runner = mockRunner({ 'git remote': fail(1) });
     const result = await findOrphans(store, root, runner);
@@ -371,12 +371,12 @@ describe('recoverOrphans', () => {
 
   it('stale-state guard: surfaces stale-state skip when task changes between discovery and recovery', async () => {
     const { root, store } = await createStore();
-    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'task/x' });
+    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'tasks/x' });
     const runner = mockRunner({
       'git remote': ok('origin\n'),
-      'git check-ref-format --branch task/x': ok(),
-      'git show-ref --verify --quiet refs/heads/task/x': fail(1),
-      'git show-ref --verify --quiet refs/remotes/origin/task/x': fail(1),
+      'git check-ref-format --branch tasks/x': ok(),
+      'git show-ref --verify --quiet refs/heads/tasks/x': fail(1),
+      'git show-ref --verify --quiet refs/remotes/origin/tasks/x': fail(1),
     });
 
     // Simulate another writer updating the task between discovery and recovery
@@ -385,7 +385,7 @@ describe('recoverOrphans', () => {
       get(target, prop) {
         if (prop === 'recoverOrphan') {
           return (...args: Parameters<typeof store.recoverOrphan>) => {
-            target.update('t1', { branch: 'task/y' });
+            target.update('t1', { branch: 'tasks/y' });
             return target.recoverOrphan(...args);
           };
         }

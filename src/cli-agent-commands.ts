@@ -1,5 +1,4 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import {
   absoluteTaskPlanPath,
   buildSkillInvocation,
@@ -19,13 +18,12 @@ import { ScrumlordError } from './errors.js';
 import { currentGitBranch } from './git-status.js';
 import type { CliOptions, CliResult } from './cli-types.js';
 import type { AgentProvider, Task, TaskStore } from './types.js';
-import { parseAgentProvider } from './validation.js';
+import { isReservedTaskBranch, parseAgentProvider } from './validation.js';
 import {
   checkProviderCapabilities,
   deriveBranchAndShortId,
   ensureTaskWorktree,
   repoCommonDir,
-  repoSlug,
   resolveBaseBranch,
   scrumlordWorktreePath,
 } from './worktree.js';
@@ -206,7 +204,7 @@ type WorktreeSetup = {
 };
 
 const shortIdFromBranch = (branch: string, commonDir: string, taskId: string): string => {
-  const match = /^task\/([0-9a-f]{8})$/.exec(branch);
+  const match = /^tasks\/([0-9a-f]{8})$/.exec(branch);
   if (match) return match[1]!;
   return deriveBranchAndShortId(commonDir, taskId).shortId;
 };
@@ -229,7 +227,11 @@ const noWorktreeSetup = async (
     options,
     `⚠ --no-worktree: agent will run on the current branch (${current}). Not recommended.`,
   );
-  return { worktree: store.projectRoot, branch: task.branch ?? current, created: 'skipped' };
+  // The agent runs in projectRoot regardless, but a task must never be pinned to
+  // an integration branch — fall back to the task's existing branch (often null).
+  const resolved = task.branch ?? current;
+  const branch = isReservedTaskBranch(resolved) ? (task.branch ?? null) : resolved;
+  return { worktree: store.projectRoot, branch: branch ?? '', created: 'skipped' };
 };
 
 /**
@@ -248,10 +250,8 @@ const setupTaskWorktree = async (
   const derived = task.branch
     ? { branch: task.branch, shortId: shortIdFromBranch(task.branch, common, task.id) }
     : deriveBranchAndShortId(common, task.id);
-  const slug = repoSlug(store.projectRoot);
   const directory =
-    options.worktreeDirectory ??
-    (await scrumlordWorktreePath(store.projectRoot, slug, derived.shortId));
+    options.worktreeDirectory ?? (await scrumlordWorktreePath(store.projectRoot, derived.shortId));
   const base = await resolveBaseBranch(store.projectRoot, runner);
   const worktreeLog = options.stderr
     ? (line: string): void => writeStderrLine(options, line)
@@ -570,12 +570,11 @@ export const runNextCommand = async (
   const task = store.next();
   if (!task) return { exitCode: 0, stdout: '', stderr: '' };
 
-  const worktreeDirectory = join(store.projectRoot, 'tmp', 'worktrees', 'tasks', task.id);
+  // The default worktree path is already tmp/worktrees/tasks/<short-id>; no override needed.
   const prepared = await prepareTaskWorktree(store, task.id, {
     ...options,
     provider,
     persistClaim: true,
-    worktreeDirectory,
   });
 
   const prompt = renderNextPrompt(prepared.task.id, prepared.task.title);

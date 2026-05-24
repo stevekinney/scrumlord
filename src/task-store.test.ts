@@ -466,6 +466,28 @@ describe('createTaskStore', () => {
     store.close();
   });
 
+  it('refuses to associate a task with an integration branch', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const store = await createTaskStore({ cwd: root });
+
+    for (const reserved of ['main', 'master', 'origin/main', 'origin/master']) {
+      expect(() => store.create({ title: `On ${reserved}`, branch: reserved })).toThrow(
+        ScrumlordError,
+      );
+    }
+
+    const task = store.create({ id: 'feature', title: 'Feature task' });
+    expect(() => store.update(task.id, { branch: 'main' })).toThrow(ScrumlordError);
+    // A surrounding-whitespace variant still normalizes to the reserved name.
+    expect(() => store.update(task.id, { branch: '  main  ' })).toThrow(ScrumlordError);
+    // Feature branches and clearing remain allowed.
+    expect(store.update(task.id, { branch: 'feature/ok' }).branch).toBe('feature/ok');
+    expect(store.update(task.id, { branch: null }).branch).toBeNull();
+
+    store.close();
+  });
+
   it('rejects invalid storage inputs and cleans old completed tasks', async () => {
     const { store, blocker, parent, blocked, setCurrentDate } = await createSeededStore();
 
@@ -768,12 +790,12 @@ describe('recoverOrphan', () => {
     let now = new Date('2026-05-11T12:00:00.000Z');
     const store = await createTaskStore({ cwd: root, now: () => now });
 
-    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'task/x' });
+    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'tasks/x' });
     store.update('t1', { provider: 'claude', session: 'sess123' });
 
     now = new Date('2026-05-11T13:00:00.000Z');
     const result = store.recoverOrphan('t1', {
-      previousBranch: 'task/x',
+      previousBranch: 'tasks/x',
       previousSession: 'sess123',
       reason: 'branch-not-in-git',
     });
@@ -793,14 +815,14 @@ describe('recoverOrphan', () => {
 
   it('stale-state on status change: returns stale-state with no writes', async () => {
     const { store } = await createSeededStore();
-    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'task/x' });
+    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'tasks/x' });
 
     // Change status before recovery
     store.update('t1', { status: 'in-review' });
 
     const before = store.getTask('t1');
     const result = store.recoverOrphan('t1', {
-      previousBranch: 'task/x',
+      previousBranch: 'tasks/x',
       previousSession: null,
       reason: 'branch-not-in-git',
     });
@@ -818,11 +840,11 @@ describe('recoverOrphan', () => {
 
   it('stale-state on branch drift: returns stale-state when branch changed', async () => {
     const { store } = await createSeededStore();
-    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'task/x' });
-    store.update('t1', { branch: 'task/y' });
+    store.create({ id: 't1', title: 'Task', status: 'in-progress', branch: 'tasks/x' });
+    store.update('t1', { branch: 'tasks/y' });
 
     const result = store.recoverOrphan('t1', {
-      previousBranch: 'task/x',
+      previousBranch: 'tasks/x',
       previousSession: null,
       reason: 'branch-not-in-git',
     });

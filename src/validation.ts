@@ -92,6 +92,41 @@ export const parseOptionalText = (value: string | null | undefined): string | nu
   return trimmed || null;
 };
 
+/**
+ * Branch names a task may never be associated with. These are integration
+ * branches, not feature branches — a task that "owns" `main` corrupts
+ * branch-based current-task resolution (every session on `main` resolves to a
+ * stale task). Local and remote-qualified forms are both rejected.
+ */
+const reservedTaskBranches: ReadonlySet<string> = new Set([
+  'main',
+  'master',
+  'origin/main',
+  'origin/master',
+]);
+
+/** Reports whether a branch name is an integration branch a task may never own. */
+export const isReservedTaskBranch = (branch: string | null | undefined): boolean => {
+  return branch != null && reservedTaskBranches.has(branch);
+};
+
+/**
+ * Parses a task branch value and rejects reserved integration branches. Returns
+ * `undefined` when the field is absent (no change), `null` when explicitly
+ * cleared, otherwise the trimmed branch name. Throws `invalid_branch` when the
+ * resolved name is an integration branch such as `main`.
+ */
+export const parseTaskBranch = (value: string | null | undefined): string | null | undefined => {
+  const branch = parseOptionalText(value);
+  if (isReservedTaskBranch(branch)) {
+    throw new ScrumlordError(
+      'invalid_branch',
+      `Tasks cannot be associated with the integration branch "${branch}". Work a task on a feature branch (Scrumlord derives one as tasks/<short-id>).`,
+    );
+  }
+  return branch;
+};
+
 const dependencyLanguagePatterns = [
   /\bgated\s+(?:on|by)\b/i,
   /\bblocked\s+(?:by|until|on)\b/i,

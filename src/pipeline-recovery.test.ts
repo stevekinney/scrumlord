@@ -68,7 +68,7 @@ describe('classifyTaskForRecovery', () => {
 
   it('manual past-claim-with-missing-state when phase markers exist but no branch', () => {
     const result = classifyTaskForRecovery(
-      inputs({ task: task({ branch: 'task/abc' }), progressPhases: ['claim', 'push'] }),
+      inputs({ task: task({ branch: 'tasks/abc' }), progressPhases: ['claim', 'push'] }),
     );
     expect(result.kind).toBe('manual');
     expect(result).toMatchObject({ code: 'past-claim-with-missing-state' });
@@ -77,13 +77,13 @@ describe('classifyTaskForRecovery', () => {
   it('resumable needs-pr when remote branch exists ahead of base with task-derived provenance', () => {
     const result = classifyTaskForRecovery(
       inputs({
-        task: task({ branch: 'task/abc' }),
+        task: task({ branch: 'tasks/abc' }),
         remoteBranchExists: true,
         remoteCommitsAheadOfMain: 3,
         branchProvenance: 'task-derived',
       }),
     );
-    expect(result).toMatchObject({ kind: 'resumable', needsPr: true, branch: 'task/abc' });
+    expect(result).toMatchObject({ kind: 'resumable', needsPr: true, branch: 'tasks/abc' });
   });
 
   it('manual foreign-branch when remote branch exists but provenance is foreign', () => {
@@ -101,7 +101,7 @@ describe('classifyTaskForRecovery', () => {
   it('manual empty-remote-branch when remote branch exists but is not ahead of base', () => {
     const result = classifyTaskForRecovery(
       inputs({
-        task: task({ branch: 'task/abc' }),
+        task: task({ branch: 'tasks/abc' }),
         remoteBranchExists: true,
         remoteCommitsAheadOfMain: 0,
       }),
@@ -112,7 +112,7 @@ describe('classifyTaskForRecovery', () => {
   it('resumable when one open PR with clean worktree and task-derived provenance', () => {
     const result = classifyTaskForRecovery(
       inputs({
-        task: task({ branch: 'task/abc' }),
+        task: task({ branch: 'tasks/abc' }),
         candidatePullRequests: [open()],
       }),
     );
@@ -122,7 +122,7 @@ describe('classifyTaskForRecovery', () => {
   it('manual dirty-worktree when one open PR with dirty worktree', () => {
     const result = classifyTaskForRecovery(
       inputs({
-        task: task({ branch: 'task/abc' }),
+        task: task({ branch: 'tasks/abc' }),
         worktreeDirty: true,
         candidatePullRequests: [open()],
       }),
@@ -144,7 +144,7 @@ describe('classifyTaskForRecovery', () => {
   it('complete-safe when one PR merged into the resolved base', () => {
     const result = classifyTaskForRecovery(
       inputs({
-        task: task({ branch: 'task/abc' }),
+        task: task({ branch: 'tasks/abc' }),
         candidatePullRequests: [merged()],
       }),
     );
@@ -154,7 +154,7 @@ describe('classifyTaskForRecovery', () => {
   it('manual wrong-base when one PR merged into a different base', () => {
     const result = classifyTaskForRecovery(
       inputs({
-        task: task({ branch: 'task/abc' }),
+        task: task({ branch: 'tasks/abc' }),
         candidatePullRequests: [merged({ baseRefName: 'develop' })],
       }),
     );
@@ -164,7 +164,7 @@ describe('classifyTaskForRecovery', () => {
   it('manual merged-dirty-worktree when one PR merged but worktree has uncommitted work', () => {
     const result = classifyTaskForRecovery(
       inputs({
-        task: task({ branch: 'task/abc' }),
+        task: task({ branch: 'tasks/abc' }),
         worktreeDirty: true,
         candidatePullRequests: [merged()],
       }),
@@ -186,7 +186,7 @@ describe('classifyTaskForRecovery', () => {
   it('manual multiple-prs when more than one PR matches', () => {
     const result = classifyTaskForRecovery(
       inputs({
-        task: task({ branch: 'task/abc' }),
+        task: task({ branch: 'tasks/abc' }),
         candidatePullRequests: [open(), open({ number: 2 })],
       }),
     );
@@ -196,7 +196,7 @@ describe('classifyTaskForRecovery', () => {
   it('manual closed-unmerged-pr when the only PR is closed without merging', () => {
     const result = classifyTaskForRecovery(
       inputs({
-        task: task({ branch: 'task/abc' }),
+        task: task({ branch: 'tasks/abc' }),
         candidatePullRequests: [{ ...open(), state: 'CLOSED' }],
       }),
     );
@@ -206,7 +206,7 @@ describe('classifyTaskForRecovery', () => {
   it('manual dirty-worktree when no PR but worktree has unpushed commits', () => {
     const result = classifyTaskForRecovery(
       inputs({
-        task: task({ branch: 'task/abc' }),
+        task: task({ branch: 'tasks/abc' }),
         worktreeUnpushed: 2,
       }),
     );
@@ -216,7 +216,7 @@ describe('classifyTaskForRecovery', () => {
   it('rollback-safe when branch recorded but no remote, no PR, only claim phase', () => {
     const result = classifyTaskForRecovery(
       inputs({
-        task: task({ branch: 'task/abc' }),
+        task: task({ branch: 'tasks/abc' }),
         remoteBranchExists: false,
         progressPhases: ['claim'],
       }),

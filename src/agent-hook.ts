@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { runCommand, type CommandRunner } from './command-runner.js';
 import { currentGitBranch, syncGitStatus } from './git-status.js';
 import { absoluteTaskPlanPath, defaultTaskPlanPath, getAgentProvider } from './agent-providers.js';
+import { isReservedTaskBranch } from './validation.js';
 import type { AddTaskProgressInput, AgentProvider, Task, TaskStore } from './types.js';
 
 type HookRecord = Record<string, unknown>;
@@ -220,6 +221,12 @@ const synchronizeHookBranch = async (
   try {
     const branch = await currentGitBranch(store.projectRoot, options.runner ?? runCommand);
     if (task.branch === branch) return;
+    if (isReservedTaskBranch(branch)) {
+      // A session running on an integration branch (main/master) must not pin
+      // the task to it — that would corrupt branch-based current-task lookup.
+      actions.push('branch-skipped-reserved');
+      return;
+    }
     store.update(task.id, { branch });
     actions.push('branch-recorded');
   } catch {

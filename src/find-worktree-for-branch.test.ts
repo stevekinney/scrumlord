@@ -22,21 +22,21 @@ const porcelain = (entries: { path: string; branch?: string }[]): string =>
 
 describe('findWorktreeForBranch', () => {
   it('returns found with the path for a matching record', async () => {
-    const output = porcelain([{ path: '/tmp/wt-abc', branch: 'task/abc' }]);
-    const result = await findWorktreeForBranch('/project', 'task/abc', runner(output));
+    const output = porcelain([{ path: '/tmp/wt-abc', branch: 'tasks/abc' }]);
+    const result = await findWorktreeForBranch('/project', 'tasks/abc', runner(output));
     expect(result).toEqual({ kind: 'found', path: '/tmp/wt-abc' });
   });
 
   it('returns not_found when no record matches', async () => {
     const output = porcelain([{ path: '/project', branch: 'main' }]);
-    const result = await findWorktreeForBranch('/project', 'task/missing', runner(output));
+    const result = await findWorktreeForBranch('/project', 'tasks/missing', runner(output));
     expect(result).toEqual({ kind: 'not_found' });
   });
 
   it('returns failed with stderr when the runner exits non-zero', async () => {
     const result = await findWorktreeForBranch(
       '/project',
-      'task/any',
+      'tasks/any',
       failRunner('fatal: not a git repository'),
     );
     expect(result).toEqual({ kind: 'failed', stderr: 'fatal: not a git repository' });
@@ -46,17 +46,17 @@ describe('findWorktreeForBranch', () => {
     const output = porcelain([
       { path: '/project/detached' }, // no branch line
       { path: '/tmp/wt-main', branch: 'main' },
-      { path: '/tmp/wt-task', branch: 'task/abc' },
+      { path: '/tmp/wt-task', branch: 'tasks/abc' },
     ]);
-    const result = await findWorktreeForBranch('/project', 'task/abc', runner(output));
+    const result = await findWorktreeForBranch('/project', 'tasks/abc', runner(output));
     expect(result).toEqual({ kind: 'found', path: '/tmp/wt-task' });
   });
 
   it('does not cross-match branch lines from different records', async () => {
     const output =
       'worktree /wrong/path\nHEAD abc123\nbranch refs/heads/other\n\n' +
-      'worktree /correct/path\nHEAD def456\nbranch refs/heads/task/abc\n\n';
-    const result = await findWorktreeForBranch('/project', 'task/abc', runner(output));
+      'worktree /correct/path\nHEAD def456\nbranch refs/heads/tasks/abc\n\n';
+    const result = await findWorktreeForBranch('/project', 'tasks/abc', runner(output));
     expect(result).toEqual({ kind: 'found', path: '/correct/path' });
   });
 });
