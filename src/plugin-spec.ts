@@ -125,6 +125,48 @@ export const scrumlordPluginSpec: PluginSpec = {
         "Adversarially review a task's drafted plan with Codex before it is associated and implemented. Loops until Codex approves or the round cap is hit; fail-warns when Codex is unavailable.",
       sourcePath: join(srcSkillsDir, 'plan-review.md'),
     },
+    {
+      name: 'next',
+      description:
+        'Work the next available task end-to-end from inside its worktree: plan it (gated by plan-review) if unplanned, implement it, and open a pull request via committee-review, leaving the task in-review. Trigger on "work the next task" or "tasks next".',
+      sourcePath: join(srcSkillsDir, 'next.md'),
+    },
+    {
+      name: 'plan',
+      description:
+        'Plan every unplanned incomplete task: fan out a subagent per task to draft a plan, gate each through plan-review, and associate approved plans back to the task. Trigger on "plan the tasks" or "plan the backlog".',
+      sourcePath: join(srcSkillsDir, 'plan.md'),
+    },
+    {
+      name: 'resolve',
+      description:
+        'Drive a task\'s pull request to merge-ready via the address-pr loop (unresolved comments, conflicts, failing CI), then complete the task. With --all, merge ready PRs and fan out to resolve the rest. Trigger on "resolve the PR".',
+      sourcePath: join(srcSkillsDir, 'resolve.md'),
+    },
+    {
+      name: 'sync',
+      description:
+        'Reconcile task statuses with reality: fast-forward main, infer in-progress/in-review/completed from open PRs, worktrees, and merged diffs, create follow-up tasks for partially-completed work, and repair the dependency graph. Trigger on "sync the tasks".',
+      sourcePath: join(srcSkillsDir, 'sync.md'),
+    },
+    {
+      name: 'audit',
+      description:
+        'Review recently completed tasks, sessions, and PRs for uncaptured work, run the validation scripts, and file tasks for pre-existing issues. Trigger on "audit the tasks" or "audit the backlog".',
+      sourcePath: join(srcSkillsDir, 'audit.md'),
+    },
+    {
+      name: 'merge',
+      description:
+        'Clear the merge queue: find every open pull request that is genuinely ready, fan out to merge each, and complete the associated task. Conservative — never force-merges. Trigger on "merge the ready PRs".',
+      sourcePath: join(srcSkillsDir, 'merge.md'),
+    },
+    {
+      name: 'cleanup',
+      description:
+        'Remove git worktrees for completed tasks whose pull requests have merged, skipping anything still in flight or with uncommitted changes. Trigger on "clean up worktrees" or "tasks cleanup --worktrees".',
+      sourcePath: join(srcSkillsDir, 'cleanup-worktrees.md'),
+    },
   ],
   agents: [
     {

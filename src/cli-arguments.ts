@@ -165,7 +165,16 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
   cleanup: withJsonFlag({
     minPositionals: 0,
     maxPositionals: 1,
-    booleanFlags: ['hard', 'recover-orphans', 'orphans-only', 'dry-run', 'prompt'],
+    booleanFlags: [
+      'hard',
+      'recover-orphans',
+      'orphans-only',
+      'dry-run',
+      'prompt',
+      'worktrees',
+      'start',
+    ],
+    valueFlags: ['cli'],
   }),
   search: withJsonFlag({
     minPositionals: 0,
@@ -174,7 +183,23 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
     booleanFlags: ['all', ...listingBooleanFlags],
     positionalVariants: [[], ['free-text']],
   }),
-  plan: { minPositionals: 0, maxPositionals: 1, positionalVariants: [[], ['task-id']] },
+  next: { minPositionals: 0, maxPositionals: 0, valueFlags: ['cli'], booleanFlags: ['start'] },
+  plan: {
+    minPositionals: 0,
+    maxPositionals: 1,
+    positionalVariants: [[], ['task-id']],
+    booleanFlags: ['start', 'all'],
+    valueFlags: ['cli'],
+  },
+  resolve: {
+    minPositionals: 0,
+    maxPositionals: 0,
+    valueFlags: ['cli'],
+    booleanFlags: ['start', 'all'],
+  },
+  sync: { minPositionals: 0, maxPositionals: 0, valueFlags: ['cli'], booleanFlags: ['start'] },
+  audit: { minPositionals: 0, maxPositionals: 0, valueFlags: ['cli'], booleanFlags: ['start'] },
+  merge: { minPositionals: 0, maxPositionals: 0, valueFlags: ['cli'], booleanFlags: ['start'] },
   create: withJsonFlag({
     ...noPositionals,
     valueFlags: [

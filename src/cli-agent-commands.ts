@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   absoluteTaskPlanPath,
   buildSkillInvocation,
@@ -494,6 +495,94 @@ export const runWorkflowCommand = async (
   const invocation = withExecutablePath(
     buildSkillInvocation(provider, {
       cwd: store.projectRoot,
+      prompt,
+    }),
+    executablePath,
+  );
+
+  const exitCode = await runAgentInvocation(invocation, options);
+  return { exitCode, stdout: '', stderr: '' };
+};
+
+/**
+ * Renders the prompt for the `next` workflow skill. In print mode this is
+ * called with the already-resolved next task so the prompt can reference the
+ * task id and title; pass `null` when no task is available.
+ */
+export const renderNextPrompt = (taskId: string | null, taskTitle: string | null): string => {
+  if (!taskId) return '';
+  return `Run the \`next\` workflow skill for task ${taskId}${taskTitle ? ` — ${taskTitle}` : ''}.`;
+};
+
+/** Renders the prompt for the `plan` workflow skill (fan-out planning via --start). */
+export const renderPlanWorkflowPrompt = (_context: WorkflowPromptContext): string =>
+  'Run the `plan` workflow skill.';
+
+/** Renders the prompt for the `resolve` workflow skill. */
+export const renderResolvePrompt = (_context: WorkflowPromptContext): string =>
+  'Run the `resolve` workflow skill.';
+
+/** Renders the prompt for the `sync` workflow skill. */
+export const renderSyncPrompt = (_context: WorkflowPromptContext): string =>
+  'Run the `sync` workflow skill.';
+
+/** Renders the prompt for the `audit` workflow skill. */
+export const renderAuditPrompt = (_context: WorkflowPromptContext): string =>
+  'Run the `audit` workflow skill.';
+
+/** Renders the prompt for the `merge` workflow skill. */
+export const renderMergePrompt = (_context: WorkflowPromptContext): string =>
+  'Run the `merge` workflow skill.';
+
+/** Renders the prompt for the `cleanup` workflow skill (triggered by --worktrees). */
+export const renderCleanupWorkflowPrompt = (_context: WorkflowPromptContext): string =>
+  'Run the `cleanup` workflow skill.';
+
+/**
+ * Handles the `next` command. In print mode (no `--start`), resolves the next
+ * task read-only and emits the skill prompt seeded with its id and title; exits
+ * 0 with no output when no task is available. In start mode, claims the task,
+ * materializes a dedicated worktree at `tmp/worktrees/tasks/<task-id>`, and
+ * launches the agent with the `next` skill prompt.
+ */
+export const runNextCommand = async (
+  store: TaskStore,
+  parsed: ParsedArguments,
+  options: CliOptions,
+): Promise<CliResult> => {
+  if (!parsed.flags.has('start')) {
+    const task = store.next();
+    if (!task) return { exitCode: 0, stdout: '', stderr: '' };
+    const prompt = renderNextPrompt(task.id, task.title);
+    return { exitCode: 0, stdout: `${prompt}\n`, stderr: '' };
+  }
+
+  const provider = providerFromStartCommand(parsed, options);
+  const adapter = getAgentProvider(provider);
+  const executablePath = (options.which ?? Bun.which)(adapter.executable);
+  if (!executablePath) {
+    throw new ScrumlordError(
+      'provider_cli_not_found',
+      `Could not find ${adapter.executable} in PATH.`,
+    );
+  }
+
+  const task = store.next();
+  if (!task) return { exitCode: 0, stdout: '', stderr: '' };
+
+  const worktreeDirectory = join(store.projectRoot, 'tmp', 'worktrees', 'tasks', task.id);
+  const prepared = await prepareTaskWorktree(store, task.id, {
+    ...options,
+    provider,
+    persistClaim: true,
+    worktreeDirectory,
+  });
+
+  const prompt = renderNextPrompt(prepared.task.id, prepared.task.title);
+
+  const invocation = withExecutablePath(
+    buildSkillInvocation(provider, {
+      cwd: prepared.worktree,
       prompt,
     }),
     executablePath,

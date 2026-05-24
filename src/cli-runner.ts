@@ -1,6 +1,17 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { runAgentHookCommand, runStartCommand } from './cli-agent-commands.js';
+import {
+  runAgentHookCommand,
+  runNextCommand,
+  runStartCommand,
+  runWorkflowCommand,
+  renderPlanWorkflowPrompt,
+  renderResolvePrompt,
+  renderSyncPrompt,
+  renderAuditPrompt,
+  renderMergePrompt,
+  renderCleanupWorkflowPrompt,
+} from './cli-agent-commands.js';
 import { runCompletionsBoundaryCommand } from './cli-completions-command.js';
 import { runCompletionsDataCommand } from './cli-completions-data-command.js';
 import { runOverviewWatchCommand } from './cli-overview-watch.js';
@@ -58,6 +69,11 @@ const storeCommands = new Set([
   'pipeline',
   'completions-data',
   'teleport',
+  'next',
+  'resolve',
+  'sync',
+  'audit',
+  'merge',
 ]);
 
 const renderHelpResult = (parsed: ParsedArguments, options: CliOptions): CliResult => {
@@ -414,26 +430,53 @@ type OpenedStoreHandler = (
   options: CliOptions,
 ) => Promise<CliResult> | CliResult;
 
+/** Builds an {@link OpenedStoreHandler} that dispatches to a workflow skill. */
+const workflowHandler =
+  (config: Parameters<typeof runWorkflowCommand>[3]): OpenedStoreHandler =>
+  (store, parsedArgs, opts) =>
+    runWorkflowCommand(store, parsedArgs, opts, config);
+
+/** Direct command → handler table (no flag gating needed). */
+const directStoreHandlers: Record<string, OpenedStoreHandler> = {
+  start: runStartCommand,
+  pipeline: runPipelineCommand,
+  teleport: runTeleportCommand,
+  'completions-data': (store, parsedArgs) => runCompletionsDataCommand(store, parsedArgs),
+  next: runNextCommand,
+  resolve: workflowHandler({ skillName: 'resolve', renderPrompt: renderResolvePrompt }),
+  sync: workflowHandler({ skillName: 'sync', renderPrompt: renderSyncPrompt }),
+  audit: workflowHandler({ skillName: 'audit', renderPrompt: renderAuditPrompt }),
+  merge: workflowHandler({ skillName: 'merge', renderPrompt: renderMergePrompt }),
+};
+
+/** Flag-gated alternate dispatch: `[command, flag] → handler`. */
+const flagGatedHandlers: Array<[command: string, flag: string, handler: OpenedStoreHandler]> = [
+  [
+    'cleanup',
+    'worktrees',
+    workflowHandler({ skillName: 'cleanup', renderPrompt: renderCleanupWorkflowPrompt }),
+  ],
+  ['plan', 'start', workflowHandler({ skillName: 'plan', renderPrompt: renderPlanWorkflowPrompt })],
+  ['pr', 'sync', runPullRequestSyncCommand],
+  [
+    'overview',
+    'watch',
+    (store, parsedArgs, opts) => runOverviewWatchCommand(store, parsedArgs, opts, runStoreCommand),
+  ],
+  ['complete', 'sync', runCompleteSyncCommand],
+];
+
 /**
  * Commands that bypass the generic store dispatch. Resolved before falling
  * through to {@link runStoreCommand}. Keyed by command name; entries gated on a
  * flag check their own flag and return undefined when it is absent.
  */
 const specialStoreHandler = (parsed: ParsedArguments): OpenedStoreHandler | undefined => {
-  const direct: Record<string, OpenedStoreHandler> = {
-    start: runStartCommand,
-    pipeline: runPipelineCommand,
-    teleport: runTeleportCommand,
-    'completions-data': (store, parsedArgs) => runCompletionsDataCommand(store, parsedArgs),
-  };
-  const directHandler = parsed.command ? direct[parsed.command] : undefined;
+  const directHandler = parsed.command ? directStoreHandlers[parsed.command] : undefined;
   if (directHandler) return directHandler;
-  if (parsed.command === 'pr' && parsed.flags.has('sync')) return runPullRequestSyncCommand;
-  if (parsed.command === 'overview' && parsed.flags.has('watch')) {
-    return (store, parsedArgs, options) =>
-      runOverviewWatchCommand(store, parsedArgs, options, runStoreCommand);
+  for (const [command, flag, handler] of flagGatedHandlers) {
+    if (parsed.command === command && parsed.flags.has(flag)) return handler;
   }
-  if (parsed.command === 'complete' && parsed.flags.has('sync')) return runCompleteSyncCommand;
   return undefined;
 };
 

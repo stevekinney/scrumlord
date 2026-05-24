@@ -79,7 +79,6 @@ const pureCommandContracts: Record<string, OutputContract> = {
   clear: { kind: 'jsonData', shape: 'single-task' },
   session: { kind: 'jsonData', shape: 'task-session' },
   remaining: { kind: 'jsonData', shape: 'remaining' },
-  cleanup: { kind: 'jsonData', shape: 'cleanup' },
   overview: { kind: 'jsonData', shape: 'pr-overview' },
   init: { kind: 'jsonData', shape: 'init-result' },
   start: { kind: 'jsonData', shape: 'start-result' },
@@ -89,6 +88,11 @@ const pureCommandContracts: Record<string, OutputContract> = {
   plan: { kind: 'rawText' },
   completions: { kind: 'rawText' },
   'completions-data': { kind: 'rawText' },
+  next: { kind: 'rawText' },
+  resolve: { kind: 'rawText' },
+  sync: { kind: 'rawText' },
+  audit: { kind: 'rawText' },
+  merge: { kind: 'rawText' },
 };
 
 /**
@@ -104,6 +108,7 @@ export const knownContractCommands = new Set<string>([
   'tags',
   'blockers',
   'complete',
+  'cleanup',
 ]);
 
 const tagsContract = (flags: ReadonlySet<string>): OutputContract => {
@@ -165,6 +170,11 @@ const setupContract = (flags: ReadonlySet<string>): OutputContract => {
   return { kind: 'jsonData', shape: 'setup-result' };
 };
 
+const cleanupContract = (flags: ReadonlySet<string>): OutputContract => {
+  if (flags.has('worktrees')) return { kind: 'rawText' };
+  return { kind: 'jsonData', shape: 'cleanup' };
+};
+
 /**
  * Resolves the {@link OutputContract} for a parsed command + flag
  * combination. Mixed-form commands (`pr`, `repository`, `setup`, `progress`)
@@ -177,6 +187,7 @@ export const contractForInvocation = (
   if (command === 'pr') return pullRequestContract(flags);
   if (command === 'repository') return repositoryContract(flags);
   if (command === 'setup') return setupContract(flags);
+  if (command === 'cleanup') return cleanupContract(flags);
   if (command === 'progress') return progressContract(flags);
   if (command === 'tags') return tagsContract(flags);
   if (command === 'blockers') return blockersContract(flags);

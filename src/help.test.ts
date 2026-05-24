@@ -43,6 +43,11 @@ const expectedTopics = [
   'agent-hook',
   'pr',
   'search',
+  'next',
+  'resolve',
+  'sync',
+  'audit',
+  'merge',
   'teleport',
   'completions',
 ];

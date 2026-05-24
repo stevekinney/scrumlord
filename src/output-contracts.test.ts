@@ -116,6 +116,13 @@ const expectedContracts: ReadonlyArray<{
   { command: 'plan', flags: new Set(), expected: { kind: 'rawText' } },
   { command: 'completions', flags: new Set(), expected: { kind: 'rawText' } },
   { command: 'completions-data', flags: new Set(), expected: { kind: 'rawText' } },
+  { command: 'next', flags: new Set(), expected: { kind: 'rawText' } },
+  { command: 'resolve', flags: new Set(), expected: { kind: 'rawText' } },
+  { command: 'sync', flags: new Set(), expected: { kind: 'rawText' } },
+  { command: 'audit', flags: new Set(), expected: { kind: 'rawText' } },
+  { command: 'merge', flags: new Set(), expected: { kind: 'rawText' } },
+  { command: 'cleanup', flags: new Set(), expected: { kind: 'jsonData', shape: 'cleanup' } },
+  { command: 'cleanup', flags: new Set(['worktrees']), expected: { kind: 'rawText' } },
   { command: 'pr', flags: new Set(), expected: { kind: 'jsonData', shape: 'pr-status' } },
   { command: 'pr', flags: new Set(['url']), expected: { kind: 'rawText' } },
   { command: 'pr', flags: new Set(['open']), expected: { kind: 'silent' } },
@@ -196,7 +203,16 @@ describe('contract / parser drift', () => {
     // still accept --json — both honor the resolved outputMode and emit a
     // JSON envelope when it is `'json'`. Pure rawText commands have no JSON
     // form and are excluded.
-    const exclusions = new Set<string>(['plan', 'completions', 'completions-data']);
+    const exclusions = new Set<string>([
+      'plan',
+      'completions',
+      'completions-data',
+      'next',
+      'resolve',
+      'sync',
+      'audit',
+      'merge',
+    ]);
     for (const command of knownContractCommands) {
       if (exclusions.has(command)) continue;
       const spec = commandSpecifications[command];
@@ -208,8 +224,23 @@ describe('contract / parser drift', () => {
   });
 
   it('pure rawText commands do not accept --json', () => {
-    const spec = commandSpecifications['plan'];
-    expect(spec?.booleanFlags?.includes('json') ?? false).toBe(false);
+    const rawTextCommands = [
+      'plan',
+      'completions',
+      'completions-data',
+      'next',
+      'resolve',
+      'sync',
+      'audit',
+      'merge',
+    ];
+    for (const cmd of rawTextCommands) {
+      const spec = commandSpecifications[cmd];
+      expect({ cmd, supportsJson: spec?.booleanFlags?.includes('json') ?? false }).toEqual({
+        cmd,
+        supportsJson: false,
+      });
+    }
   });
 });
 
