@@ -368,6 +368,16 @@ const reattachTask = async (
   task: Task,
   options: TaskAgentCommandOptions,
 ): Promise<TaskAgentCommandResult> => {
+  // Guard against a provider override before doing any session resolution work:
+  // the task is already claimed with a recorded provider, so a mismatch is
+  // decidable up front and should fail fast rather than after resolving the session.
+  const requested = optionalProviderFromStartOptions(options);
+  if (requested && task.provider && requested !== task.provider) {
+    throw new ScrumlordError(
+      'provider_mismatch',
+      `Task ${task.id} was started with ${task.provider}; refusing to resume with ${requested}.`,
+    );
+  }
   const session = await resolveTaskSession(
     store,
     task.id,
@@ -377,13 +387,6 @@ const reattachTask = async (
     throw new ScrumlordError(
       'task_session_missing',
       `Task does not have a resumable provider session: ${task.id}`,
-    );
-  }
-  const requested = optionalProviderFromStartOptions(options);
-  if (requested && requested !== session.provider) {
-    throw new ScrumlordError(
-      'provider_mismatch',
-      `Task ${task.id} was started with ${session.provider}; refusing to resume with ${requested}.`,
     );
   }
   const executablePath = providerExecutablePath(session.provider, options);
