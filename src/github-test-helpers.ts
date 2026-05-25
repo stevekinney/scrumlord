@@ -16,6 +16,10 @@ export const workspaceRoot = async (): Promise<string> => {
   const root = await temporaryDirectory();
   await mkdir(join(root, 'packages', 'example'), { recursive: true });
   await Bun.write(join(root, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
+  // Initialize git so the shared-database store resolves a stable project for
+  // this workspace (the project scope is keyed on the git common dir).
+  const gitInit = Bun.spawn(['git', 'init'], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  await gitInit.exited;
   return root;
 };
 

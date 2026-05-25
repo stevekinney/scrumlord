@@ -12,6 +12,8 @@ const emptyStore = (): TaskStore =>
   ({
     projectRoot: '/project',
     databasePath: '/project/tmp/tasks.db',
+    projectGitCommonDir: null,
+    projectResolved: true,
     available: () => [],
     availableCount: () => 0,
     close: () => {},
@@ -156,6 +158,8 @@ describe('cli-runner output mode resolution', () => {
       ({
         projectRoot: '/project',
         databasePath: '/project/tmp/tasks.db',
+        projectGitCommonDir: null,
+        projectResolved: true,
         progress: () => [progressEntry, progressEntry],
         addProgress: () => progressEntry,
         list: () => [

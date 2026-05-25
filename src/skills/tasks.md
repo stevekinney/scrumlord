@@ -4,12 +4,13 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 
 ## Rules
 
-- Run commands from anywhere inside the project; the CLI resolves the Git root first and only then opens `tmp/tasks.db`.
+- Tasks for every project live in one shared database at `~/.scrumlord/tasks.db`. Commands scope automatically to the current repository (resolved from its GitHub `owner/repo` name, cached per repo), so run them from anywhere inside the project and you only ever see that project's tasks.
+- Pass `--project <owner/repo>` on any command to target a different project's tasks instead of the current repository. A bare repository name (e.g. `--project cinder`) works when it unambiguously matches one stored project; otherwise pass the full `owner/repo`. Filesystem/git commands (`start`, `pipeline`, `teleport`, `next`, `pr --sync`, `plan --start`, `cleanup --worktrees`) reject a `--project` that points at a different working tree.
 - Data commands run in three output modes: pretty when stdout is a TTY (for humans), JSON when stdout is not a TTY (the agent case), and JSON whenever `--json` is passed. Pass `--json` explicitly when you need machine-parseable output regardless of context, and parse the JSON instead of scraping human-readable text.
 - If `tasks peek` prints nothing and exits 0, there is no available task; stop instead of treating that as an error.
 - Use `tasks remaining` when you need a count of unfinished tasks, including tasks with future start dates.
-- Run `tasks init` when the project has not been set up yet. It creates and migrates `tmp/tasks.db`, writes local task skills, and installs managed Scrumlord Lefthook jobs when a Lefthook configuration exists.
-- Run `tasks setup status` before changing setup. It reports whether `tasks`, provider CLIs, skills, subagents, hooks, and `tmp/tasks.db` are present without creating the database.
+- Run `tasks init` when the project has not been set up yet. It registers the project in the shared database, writes local task skills, and installs managed Scrumlord Lefthook jobs when a Lefthook configuration exists.
+- Run `tasks setup status` before changing setup. It reports whether `tasks`, provider CLIs, skills, subagents, and hooks are present without writing anything.
 - Use `tasks setup --yes` for the default full setup when the user wants Scrumlord initialized for installed providers. Use `tasks setup --codex` or `tasks setup --claude` only when the user wants that CLI launched after setup.
 - Use `tasks setup --subagents` to install the `scrumlord-task-manager` subagent for installed providers. Use `tasks setup --subagents --agent codex`, `tasks setup --subagents --agent claude`, or `tasks setup --subagents --agent all` when a provider is explicit.
 - Use `tasks setup --shell` to emit shell helpers (e.g. `tasks-teleport`, `tasks-start`) for the user's `.zshrc` or `.bashrc`. Pair with `tasks completions <bash|zsh>` when the user also wants shell completions.
@@ -31,7 +32,8 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 - Use `tasks plan <task-id>` to emit a ready-to-use planning prompt for a single task, or `tasks plan` with no argument to emit prompts for every unplanned task. This is the entry point the `plan-tasks` workflow drives — prefer it over hand-rolling a prompt.
 - If you re-enter plan mode for a task, update the existing plan file or replace it with the new plan you generate.
 - Record meaningful progress with `tasks progress add current --message "<note>"` after planning, major implementation steps, blockers, and handoffs. Recording progress moves `draft` or `ready` tasks to `in-progress`.
-- Do not edit `tmp/tasks.db` directly. Use the CLI so migrations, timestamps, and graph checks stay consistent.
+- Do not edit `~/.scrumlord/tasks.db` directly. Use the CLI so migrations, timestamps, project scoping, and graph checks stay consistent.
+- `tasks import-legacy-databases` is a one-time migration that ports old per-project `tmp/tasks.db` files into the shared database. Pass `--from <repo-root>` (repeatable), `--dry-run` to preview counts, and `--confirm` to use the built-in defaults. It snapshots the shared database first and is safe to re-run.
 
 ## Decomposing Documents Into Tasks
 
@@ -71,7 +73,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 - Use `tasks pr --comments` to inspect unresolved review comments before deciding what to fix; add `--resolved` for resolved threads or `--all` for both.
 - If `tasks pr` or `tasks overview` fails with `gh_not_found`, install the GitHub CLI or continue with non-GitHub task commands.
 - If a command fails with `pull_request_not_found`, open a pull request or keep the task in `in-progress`.
-- If a command fails with `project_root_not_found`, move into the Git repository or npm workspace before retrying. Do not create or edit a database by hand.
+- If a read command prints a `project: unresolved` notice on stderr (or a mutating command fails with `project_unresolved`), you are outside any git repository. Move into the project, or pass `--project <owner/repo>` to target a known project explicitly.
 
 ## Useful Commands
 

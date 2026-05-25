@@ -60,6 +60,8 @@ const referenceId = (reference: TaskReference): string => {
 const fakeStore = (calls: string[]): TaskStore => ({
   projectRoot: '/project',
   databasePath: '/project/tmp/tasks.db',
+  projectGitCommonDir: null,
+  projectResolved: true,
   create: () => task('created'),
   update(id, input) {
     calls.push(`update:${id}:${input.status ?? ''}:${input.branch ?? ''}`);

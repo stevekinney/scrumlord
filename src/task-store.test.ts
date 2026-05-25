@@ -95,10 +95,12 @@ describe('createTaskStore', () => {
   it('reports a helpful error when the database directory cannot be created', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
-    await Bun.write(join(root, 'tmp'), 'not a directory');
+    const home = await temporaryDirectory();
+    // Block creation of `<home>/.scrumlord` by placing a file where the dir goes.
+    await Bun.write(join(home, '.scrumlord'), 'not a directory');
 
     try {
-      await createTaskStore({ cwd: root });
+      await createTaskStore({ cwd: root, homeDirectory: home });
       throw new Error('Expected createTaskStore to fail.');
     } catch (error) {
       expect(error).toBeInstanceOf(ScrumlordError);
@@ -109,10 +111,11 @@ describe('createTaskStore', () => {
   it('reports a helpful error when the database cannot be opened', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
-    await mkdir(join(root, 'tmp', 'tasks.db'), { recursive: true });
+    const home = await temporaryDirectory();
+    await mkdir(join(home, '.scrumlord', 'tasks.db'), { recursive: true });
 
     try {
-      await createTaskStore({ cwd: root });
+      await createTaskStore({ cwd: root, homeDirectory: home });
       throw new Error('Expected createTaskStore to fail.');
     } catch (error) {
       expect(error).toBeInstanceOf(ScrumlordError);
@@ -120,23 +123,24 @@ describe('createTaskStore', () => {
     }
   });
 
-  it('reports a helpful migration error when an existing database is corrupt', async () => {
+  it('reports a helpful open error when an existing database file is corrupt', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
-    await mkdir(join(root, 'tmp'), { recursive: true });
-    await Bun.write(join(root, 'tmp', 'tasks.db'), 'not a sqlite database');
+    const home = await temporaryDirectory();
+    await mkdir(join(home, '.scrumlord'), { recursive: true });
+    await Bun.write(join(home, '.scrumlord', 'tasks.db'), 'not a sqlite database');
 
     try {
-      await createTaskStore({ cwd: root });
+      await createTaskStore({ cwd: root, homeDirectory: home });
       throw new Error('Expected createTaskStore to fail.');
     } catch (error) {
       expect(error).toBeInstanceOf(ScrumlordError);
-      expect(error).toHaveProperty('code', 'migration_failed');
+      expect(error).toHaveProperty('code', 'database_open_failed');
     }
   });
 
   it('runs migrations and exposes graph queries', async () => {
-    const { root, store, blocker, parent, blocked, future } = await createSeededStore();
+    const { store, blocker, parent, blocked, future } = await createSeededStore();
 
     expect(store.getTask(blocked.id)).toMatchObject({
       id: 'blocked',
@@ -166,9 +170,11 @@ describe('createTaskStore', () => {
     expect(store.remaining()).toBe(4);
     expect(remainingTasks(store)).toBe(4);
 
-    const migrationDatabase = new Database(join(root, 'tmp', 'tasks.db'), { readonly: true });
+    const migrationDatabase = new Database(store.databasePath, { readonly: true });
     expect(
-      migrationDatabase.query<{ version: number }, []>('SELECT version FROM task_migrations').all(),
+      migrationDatabase
+        .query<{ version: number }, []>('SELECT version FROM task_migrations ORDER BY version')
+        .all(),
     ).toEqual([
       { version: 1 },
       { version: 2 },
@@ -177,6 +183,7 @@ describe('createTaskStore', () => {
       { version: 5 },
       { version: 6 },
       { version: 7 },
+      { version: 8 },
     ]);
     migrationDatabase.close();
     expect(future.id).toBe('future');

@@ -59,6 +59,8 @@ const updateCallDescriptions = (
 export const fakeStore = (calls: string[]): TaskStore => ({
   projectRoot: '/project',
   databasePath: '/project/tmp/tasks.db',
+  projectGitCommonDir: '/project/.git',
+  projectResolved: true,
   create(input) {
     calls.push(
       `create:${input.title}:${input.status}:${input.priority}:${input.branch ?? ''}:desc=${input.description ?? ''}`,

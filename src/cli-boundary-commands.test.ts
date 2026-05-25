@@ -35,6 +35,8 @@ const referenceId = (reference: TaskReference): string => {
 const fakeStore = (calls: string[]): TaskStore => ({
   projectRoot: '/project',
   databasePath: '/project/tmp/tasks.db',
+  projectGitCommonDir: null,
+  projectResolved: true,
   create: () => task('created'),
   update: (id, input) => task(id, input),
   delete: (id) => task(id),
@@ -401,6 +403,8 @@ describe('runTasksCli boundary commands', () => {
       setupProject: async (setupOptions) => ({
         projectRoot: setupOptions.cwd ?? root,
         databasePath: join(setupOptions.cwd ?? root, 'tmp/tasks.db'),
+        projectGitCommonDir: null,
+        projectResolved: true,
         skills: [],
         subagents: null,
         agentHooks: null,
@@ -418,6 +422,8 @@ describe('runTasksCli boundary commands', () => {
       setupProject: async (setupOptions) => ({
         projectRoot: setupOptions.cwd ?? root,
         databasePath: join(setupOptions.cwd ?? root, 'tmp/tasks.db'),
+        projectGitCommonDir: null,
+        projectResolved: true,
         skills: [],
         subagents: null,
         agentHooks: null,
@@ -435,6 +441,8 @@ describe('runTasksCli boundary commands', () => {
       setupProject: async (setupOptions) => ({
         projectRoot: setupOptions.cwd ?? root,
         databasePath: join(setupOptions.cwd ?? root, 'tmp/tasks.db'),
+        projectGitCommonDir: null,
+        projectResolved: true,
         skills: [],
         subagents: null,
         agentHooks: null,
@@ -449,6 +457,8 @@ describe('runTasksCli boundary commands', () => {
       cwd: root,
       which: () => null,
     });
-    expect(JSON.parse(realSetupResult.stdout).databasePath).toBe(join(root, 'tmp/tasks.db'));
+    expect(JSON.parse(realSetupResult.stdout).databasePath).toBe(
+      join(process.env['SCRUMLORD_HOME']!, '.scrumlord', 'tasks.db'),
+    );
   });
 });

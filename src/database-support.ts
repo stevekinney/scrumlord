@@ -74,7 +74,8 @@ export const taskIsBlockedExistsSql = `EXISTS (
       AND blocker.deleted = 0
   )`;
 
-const availableTasksWhereSql = `WHERE status = 'ready'
+const availableTasksWhereSql = `WHERE project_id = $projectId
+  AND status = 'ready'
   AND deleted = 0
   AND (start_date IS NULL OR start_date <= $now)
   AND NOT ${taskIsBlockedExistsSql}`;
@@ -106,11 +107,12 @@ export const listCandidatesSql = `SELECT * FROM tasks
  LIMIT $limit`;
 
 export const blockedTasksSql = `SELECT * FROM tasks
- WHERE deleted = 0 AND ${taskIsBlockedExistsSql}
+ WHERE project_id = $projectId AND deleted = 0 AND ${taskIsBlockedExistsSql}
  ORDER BY priority DESC, created_at ASC, id ASC`;
 
 export const remainingTasksSql = `SELECT count(*) AS count FROM tasks
- WHERE deleted = 0
+ WHERE project_id = $projectId
+   AND deleted = 0
    AND status NOT IN ('completed', 'in-progress')`;
 
 export const booleanToInteger = (value: boolean): number => (value ? 1 : 0);
@@ -391,18 +393,35 @@ export const hydrateTaskProgress = (row: TaskProgressRow): TaskProgress => ({
   commitSha: row.commit_sha,
 });
 
-export const hasBlockerPath = (database: Database, start: string, target: string): boolean => {
+/**
+ * Returns true when `target` is reachable from `start` by following blocker
+ * edges. Every hop joins `tasks` and requires `project_id = $projectId` so the
+ * traversal can never cross into another project's dependency graph, even if a
+ * stray cross-project edge existed.
+ */
+export const hasBlockerPath = (
+  database: Database,
+  start: string,
+  target: string,
+  projectId: number | null,
+): boolean => {
   return Boolean(
     database
       .query<{ id: string }, QueryBindings>(
         `WITH RECURSIVE blockers(id) AS (
-          SELECT blocked_by_task_id FROM task_dependencies WHERE task_id = $start
+          SELECT task_dependencies.blocked_by_task_id
+          FROM task_dependencies
+          JOIN tasks AS blocker ON blocker.id = task_dependencies.blocked_by_task_id
+          WHERE task_dependencies.task_id = $start AND blocker.project_id = $projectId
           UNION
           SELECT task_dependencies.blocked_by_task_id
-          FROM task_dependencies JOIN blockers ON task_dependencies.task_id = blockers.id
+          FROM task_dependencies
+          JOIN blockers ON task_dependencies.task_id = blockers.id
+          JOIN tasks AS blocker ON blocker.id = task_dependencies.blocked_by_task_id
+          WHERE blocker.project_id = $projectId
         )
         SELECT id FROM blockers WHERE id = $target LIMIT 1`,
       )
-      .get({ start, target }),
+      .get({ start, target, projectId }),
   );
 };

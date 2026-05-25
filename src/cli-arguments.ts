@@ -76,6 +76,12 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
     positionalVariants: [['task-id']],
   }),
   init: withJsonFlag(noPositionals),
+  'import-legacy-databases': withJsonFlag({
+    ...noPositionals,
+    valueFlags: ['from'],
+    booleanFlags: ['dry-run', 'confirm'],
+    visibleInCompletions: false,
+  }),
   overview: withJsonFlag({ ...noPositionals, booleanFlags: ['sync', 'watch'] }),
   help: { minPositionals: 0, maxPositionals: 2 },
   current: withJsonFlag(noPositionals),
@@ -281,9 +287,15 @@ const flagKind = (
   name: string,
 ): 'unknown' | 'boolean' | 'value' => {
   if (name === 'help') return 'boolean';
+  // A command's own declarations win, so a command that uses `--project` as a
+  // boolean scope flag (e.g. `setup --project`) keeps that meaning.
+  if (specification?.booleanFlags?.includes(name)) return 'boolean';
+  if (specification?.valueFlags?.includes(name)) return 'value';
+  // Otherwise `--project` is a global value flag: any task command may be
+  // scoped to a specific project (`owner/repo` or an unambiguous bare repo
+  // name) instead of the current repository, without listing it per command.
+  if (name === 'project') return 'value';
   if (!specification) return 'value';
-  if (specification.booleanFlags?.includes(name)) return 'boolean';
-  if (specification.valueFlags?.includes(name)) return 'value';
   return 'unknown';
 };
 

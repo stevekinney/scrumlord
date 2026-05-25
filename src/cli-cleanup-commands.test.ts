@@ -49,6 +49,8 @@ const task = (id: string, overrides: Partial<Task> = {}): Task => ({
 const fakeStore = (): TaskStore => ({
   projectRoot: '/project',
   databasePath: '/project/tmp/tasks.db',
+  projectGitCommonDir: null,
+  projectResolved: true,
   create() {
     return task('created');
   },

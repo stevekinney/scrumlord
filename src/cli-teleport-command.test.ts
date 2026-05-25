@@ -52,6 +52,8 @@ const makeStore = ({
 }: StoreOptions = {}): TaskStore => ({
   projectRoot,
   databasePath: `${projectRoot}/tmp/tasks.db`,
+  projectGitCommonDir: `${projectRoot}/.git`,
+  projectResolved: true,
   create: () => task('created'),
   update: (id, input) => task(id, input),
   delete: (id) => task(id),

@@ -46,31 +46,58 @@ import { normalizeTag, parsePriority, taskIdFrom } from './validation.js';
 export class SqliteTaskStore implements TaskStore {
   readonly #database: Database;
   readonly #now: () => Date;
+  /**
+   * Surrogate id of the project this store is scoped to, or `null` when the
+   * project could not be resolved. Every command-facing query filters on it;
+   * a `null` scope binds `project_id = NULL`, which never matches, so reads
+   * return nothing and writes are rejected by {@link requireProjectScope}.
+   */
+  readonly #projectId: number | null;
 
   constructor(
     readonly projectRoot: string,
     readonly databasePath: string,
     database: Database,
     now: () => Date,
+    projectId: number | null,
+    readonly projectGitCommonDir: string | null = null,
   ) {
     this.#database = database;
     this.#now = now;
+    this.#projectId = projectId;
+    this.projectResolved = projectId !== null;
+  }
+
+  /** Whether a project scope was resolved for this store. */
+  readonly projectResolved: boolean;
+
+  /** Returns the resolved project id, or throws `project_unresolved` for writes. */
+  private requireProjectScope(): number {
+    if (this.#projectId === null) {
+      throw new ScrumlordError(
+        'project_unresolved',
+        'Could not determine the current project. Run inside a git repository with an ' +
+          'authenticated `gh`, or pass --project owner/repo.',
+      );
+    }
+    return this.#projectId;
   }
 
   create(input: CreateTaskInput): Task {
+    const projectId = this.requireProjectScope();
     const id = input.id ?? crypto.randomUUID();
     const now = this.#now().toISOString();
-    if (this.getTask(id))
+    if (this.getTaskGlobally(id))
       throw new ScrumlordError('duplicate_task_id', `Task already exists: ${id}`);
 
-    const bindings = createTaskBindings(this.projectRoot, input, id, now);
+    const bindings = { ...createTaskBindings(this.projectRoot, input, id, now), projectId };
     const transaction = this.#database.transaction(() => {
       this.#database
         .query<unknown, QueryBindings>(
           `INSERT INTO tasks (
-            id, title, status, description, priority, created_at, start_date, due_date, branch, plan, provider, session, last_modified_at
+            id, title, status, description, priority, created_at, start_date, due_date, branch, plan, provider, session, last_modified_at, project_id
           ) VALUES (
-            $id, $title, $status, $description, $priority, $createdAt, $startDate, $dueDate, $branch, $plan, $provider, $session, $lastModifiedAt
+            $id, $title, $status, $description, $priority, $createdAt, $startDate, $dueDate, $branch, $plan, $provider, $session, $lastModifiedAt, $projectId
           )`,
         )
         .run(bindings);
@@ -158,6 +185,22 @@ export class SqliteTaskStore implements TaskStore {
 
   getTask(id: TaskIdentifier): Task | null {
     const row = this.#database
+      .query<
+        TaskRow,
+        QueryBindings
+      >('SELECT * FROM tasks WHERE id = $id AND project_id = $projectId')
+      .get({ id, projectId: this.#projectId });
+    return row ? this.hydrate(row) : null;
+  }
+
+  /**
+   * Looks up a task by id across every project, ignoring the store's scope.
+   * Reserved for cross-project tooling (the legacy-database importer and the
+   * duplicate-id guard) — never use it on a command path, or one project's
+   * command could read or mutate another's task by id.
+   */
+  getTaskGlobally(id: TaskIdentifier): Task | null {
+    const row = this.#database
       .query<TaskRow, QueryBindings>('SELECT * FROM tasks WHERE id = $id')
       .get({ id });
     return row ? this.hydrate(row) : null;
@@ -165,10 +208,12 @@ export class SqliteTaskStore implements TaskStore {
 
   list(options: { includeInactive?: boolean } = {}): Task[] {
     if (options.includeInactive) {
-      return this.selectTasks('SELECT * FROM tasks ORDER BY priority DESC, created_at ASC, id ASC');
+      return this.selectTasks(
+        'SELECT * FROM tasks WHERE project_id = $projectId ORDER BY priority DESC, created_at ASC, id ASC',
+      );
     }
     return this.selectTasks(
-      'SELECT * FROM tasks WHERE deleted = 0 ORDER BY priority DESC, created_at ASC, id ASC',
+      'SELECT * FROM tasks WHERE project_id = $projectId AND deleted = 0 ORDER BY priority DESC, created_at ASC, id ASC',
     );
   }
 
@@ -183,7 +228,7 @@ export class SqliteTaskStore implements TaskStore {
 
   completed(): Task[] {
     return this.selectTasks(
-      "SELECT * FROM tasks WHERE status = 'completed' AND deleted = 0 ORDER BY last_modified_at DESC, id ASC",
+      "SELECT * FROM tasks WHERE project_id = $projectId AND status = 'completed' AND deleted = 0 ORDER BY last_modified_at DESC, id ASC",
     );
   }
 
@@ -191,7 +236,7 @@ export class SqliteTaskStore implements TaskStore {
     return this.selectTasks(
       `SELECT tasks.* FROM tasks
        JOIN task_tags ON task_tags.task_id = tasks.id
-       WHERE task_tags.tag = $tag AND tasks.deleted = 0
+       WHERE tasks.project_id = $projectId AND task_tags.tag = $tag AND tasks.deleted = 0
        ORDER BY tasks.priority DESC, tasks.created_at ASC, tasks.id ASC`,
       { tag: normalizeTag(tag) },
     );
@@ -202,7 +247,8 @@ export class SqliteTaskStore implements TaskStore {
     return this.selectTasks(
       `SELECT tasks.* FROM tasks
        JOIN task_tags ON task_tags.task_id = tasks.id
-       WHERE task_tags.tag IN (${placeholders(normalizedTags)})
+       WHERE tasks.project_id = $projectId
+         AND task_tags.tag IN (${placeholders(normalizedTags)})
          AND tasks.deleted = 0
        GROUP BY tasks.id
        HAVING count(DISTINCT task_tags.tag) = $tagCount
@@ -216,7 +262,8 @@ export class SqliteTaskStore implements TaskStore {
     return this.selectTasks(
       `SELECT DISTINCT tasks.* FROM tasks
        JOIN task_tags ON task_tags.task_id = tasks.id
-       WHERE task_tags.tag IN (${placeholders(normalizedTags)})
+       WHERE tasks.project_id = $projectId
+         AND task_tags.tag IN (${placeholders(normalizedTags)})
          AND tasks.deleted = 0
        ORDER BY tasks.priority DESC, tasks.created_at ASC, tasks.id ASC`,
       indexedBindings(normalizedTags),
@@ -225,7 +272,7 @@ export class SqliteTaskStore implements TaskStore {
 
   withBranch(branch: string): Task[] {
     return this.selectTasks(
-      'SELECT * FROM tasks WHERE branch = $branch AND deleted = 0 ORDER BY priority DESC, created_at ASC, id ASC',
+      'SELECT * FROM tasks WHERE project_id = $projectId AND branch = $branch AND deleted = 0 ORDER BY priority DESC, created_at ASC, id ASC',
       { branch },
     );
   }
@@ -234,7 +281,7 @@ export class SqliteTaskStore implements TaskStore {
     return this.selectTasks(
       `SELECT blocker.* FROM task_dependencies
        JOIN tasks AS blocker ON blocker.id = task_dependencies.blocked_by_task_id
-       WHERE task_dependencies.task_id = $id AND blocker.deleted = 0
+       WHERE task_dependencies.task_id = $id AND blocker.project_id = $projectId AND blocker.deleted = 0
        ORDER BY blocker.priority DESC, blocker.created_at ASC, blocker.id ASC`,
       { id: taskIdFrom(taskOrId) },
     );
@@ -244,7 +291,7 @@ export class SqliteTaskStore implements TaskStore {
     return this.selectTasks(
       `SELECT tasks.* FROM task_dependencies
        JOIN tasks ON tasks.id = task_dependencies.task_id
-       WHERE task_dependencies.blocked_by_task_id = $id AND tasks.deleted = 0
+       WHERE task_dependencies.blocked_by_task_id = $id AND tasks.project_id = $projectId AND tasks.deleted = 0
        ORDER BY tasks.priority DESC, tasks.created_at ASC, tasks.id ASC`,
       { id: taskIdFrom(taskOrId) },
     );
@@ -252,14 +299,14 @@ export class SqliteTaskStore implements TaskStore {
 
   withPriority(priority: TaskPriority): Task[] {
     return this.selectTasks(
-      'SELECT * FROM tasks WHERE priority = $priority AND deleted = 0 ORDER BY created_at ASC, id ASC',
+      'SELECT * FROM tasks WHERE project_id = $projectId AND priority = $priority AND deleted = 0 ORDER BY created_at ASC, id ASC',
       { priority: parsePriority(priority) },
     );
   }
 
   withStatus(status: TaskStatus): Task[] {
     return this.selectTasks(
-      'SELECT * FROM tasks WHERE status = $status AND deleted = 0 ORDER BY priority DESC, created_at ASC, id ASC',
+      'SELECT * FROM tasks WHERE project_id = $projectId AND status = $status AND deleted = 0 ORDER BY priority DESC, created_at ASC, id ASC',
       { status },
     );
   }
@@ -272,6 +319,8 @@ export class SqliteTaskStore implements TaskStore {
   claimNext(options: ClaimNextOptions): Task | null {
     const now = this.#now().toISOString();
     let claimedId: TaskIdentifier | null = null;
+    // IMMEDIATE so two agents racing for the same next task across the shared
+    // database cannot both read it as available before either writes the claim.
     const transaction = this.#database.transaction(() => {
       const candidate = this.selectTasks(nextTaskSql, { now })[0];
       if (!candidate) return;
@@ -307,7 +356,7 @@ export class SqliteTaskStore implements TaskStore {
           commitSha: null,
         });
     });
-    transaction();
+    transaction.immediate();
     return claimedId ? this.requireTask(claimedId) : null;
   }
 
@@ -360,7 +409,9 @@ export class SqliteTaskStore implements TaskStore {
   }
 
   remaining(): number {
-    const row = this.#database.query<{ count: number }, []>(remainingTasksSql).get();
+    const row = this.#database
+      .query<{ count: number }, QueryBindings>(remainingTasksSql)
+      .get({ projectId: this.#projectId });
     return row?.count ?? 0;
   }
 
@@ -375,9 +426,9 @@ export class SqliteTaskStore implements TaskStore {
     const rows = this.#database
       .query<
         { status: string; count: number },
-        []
-      >('SELECT status, COUNT(*) AS count FROM tasks WHERE deleted = 0 GROUP BY status')
-      .all();
+        QueryBindings
+      >('SELECT status, COUNT(*) AS count FROM tasks WHERE project_id = $projectId AND deleted = 0 GROUP BY status')
+      .all({ projectId: this.#projectId });
     const counts = { draft: 0, ready: 0, inProgress: 0, inReview: 0, completed: 0 };
     for (const row of rows) {
       if (row.status === 'draft') counts.draft = row.count;
@@ -427,9 +478,9 @@ export class SqliteTaskStore implements TaskStore {
         this.#database
           .query<{ id: string }, QueryBindings>(
             `SELECT id FROM tasks
-             WHERE status = 'completed' AND deleted = 0 AND last_modified_at < $cutoff`,
+             WHERE project_id = $projectId AND status = 'completed' AND deleted = 0 AND last_modified_at < $cutoff`,
           )
-          .all({ cutoff })
+          .all({ cutoff, projectId: this.#projectId })
           .map((row) => row.id),
       );
       if (targets.size === 0) return;
@@ -470,20 +521,26 @@ export class SqliteTaskStore implements TaskStore {
         this.#database
           .query<{ id: string }, QueryBindings>(
             `SELECT id FROM tasks
-             WHERE (status = 'completed' OR deleted = 1) AND last_modified_at < $cutoff`,
+             WHERE project_id = $projectId AND (status = 'completed' OR deleted = 1) AND last_modified_at < $cutoff`,
           )
-          .all({ cutoff })
+          .all({ cutoff, projectId: this.#projectId })
           .map((row) => row.id),
       );
       if (targets.size === 0) return;
       deleted = targets.size;
       const neighbors = this.affectedNeighbors(targets);
+      const ids = [...targets];
       this.#database
-        .query<unknown, QueryBindings>(
-          `DELETE FROM tasks
-           WHERE (status = 'completed' OR deleted = 1) AND last_modified_at < $cutoff`,
-        )
-        .run({ cutoff });
+        .query<
+          unknown,
+          QueryBindings
+        >(`DELETE FROM tasks WHERE id IN (${ids.map((_id, index) => `$id${index}`).join(', ')})`)
+        .run(
+          ids.reduce<QueryBindings>((bindings, id, index) => {
+            bindings[`id${index}`] = id;
+            return bindings;
+          }, {}),
+        );
       for (const id of neighbors) this.touchAt(id, now);
     });
     transaction();
@@ -493,7 +550,7 @@ export class SqliteTaskStore implements TaskStore {
   /** Returns tasks whose branch does not exist in Git and can be demoted back to ready. */
   inProgress(): Task[] {
     return this.selectTasks(
-      "SELECT * FROM tasks WHERE status = 'in-progress' AND deleted = 0 ORDER BY last_modified_at DESC",
+      "SELECT * FROM tasks WHERE project_id = $projectId AND status = 'in-progress' AND deleted = 0 ORDER BY last_modified_at DESC",
     );
   }
 
@@ -503,8 +560,8 @@ export class SqliteTaskStore implements TaskStore {
       .query<
         { count: number },
         QueryBindings
-      >("SELECT COUNT(*) as count FROM tasks WHERE status = 'in-progress' AND deleted = 0")
-      .get({});
+      >("SELECT COUNT(*) as count FROM tasks WHERE project_id = $projectId AND status = 'in-progress' AND deleted = 0")
+      .get({ projectId: this.#projectId });
     return row?.count ?? 0;
   }
 
@@ -514,8 +571,8 @@ export class SqliteTaskStore implements TaskStore {
       .query<
         { count: number },
         QueryBindings
-      >("SELECT COUNT(*) as count FROM tasks WHERE deleted = 0 AND branch IS NOT NULL AND TRIM(branch) != ''")
-      .get({});
+      >("SELECT COUNT(*) as count FROM tasks WHERE project_id = $projectId AND deleted = 0 AND branch IS NOT NULL AND TRIM(branch) != ''")
+      .get({ projectId: this.#projectId });
     return row?.count ?? 0;
   }
 
@@ -529,9 +586,11 @@ export class SqliteTaskStore implements TaskStore {
     }
     const cutoff = new Date(this.#now().getTime() - days * 24 * 60 * 60 * 1000).toISOString();
     const sql = options.hard
-      ? `SELECT id FROM tasks WHERE (status = 'completed' OR deleted = 1) AND last_modified_at < $cutoff`
-      : `SELECT id FROM tasks WHERE status = 'completed' AND deleted = 0 AND last_modified_at < $cutoff`;
-    const rows = this.#database.query<{ id: string }, QueryBindings>(sql).all({ cutoff });
+      ? `SELECT id FROM tasks WHERE project_id = $projectId AND (status = 'completed' OR deleted = 1) AND last_modified_at < $cutoff`
+      : `SELECT id FROM tasks WHERE project_id = $projectId AND status = 'completed' AND deleted = 0 AND last_modified_at < $cutoff`;
+    const rows = this.#database
+      .query<{ id: string }, QueryBindings>(sql)
+      .all({ cutoff, projectId: this.#projectId });
     return { wouldDelete: rows.map((row) => row.id) };
   }
 
@@ -563,8 +622,8 @@ export class SqliteTaskStore implements TaskStore {
         .query<
           StateRow,
           QueryBindings
-        >('SELECT status, branch, session, deleted FROM tasks WHERE id = $id')
-        .get({ id });
+        >('SELECT status, branch, session, deleted FROM tasks WHERE id = $id AND project_id = $projectId')
+        .get({ id, projectId: this.#projectId });
 
       if (!current) {
         outcome = {
@@ -597,8 +656,8 @@ export class SqliteTaskStore implements TaskStore {
         .query<
           unknown,
           QueryBindings
-        >(`UPDATE tasks SET status = 'ready', branch = NULL, session = NULL, last_modified_at = $now WHERE id = $id`)
-        .run({ id, now });
+        >(`UPDATE tasks SET status = 'ready', branch = NULL, session = NULL, last_modified_at = $now WHERE id = $id AND project_id = $projectId`)
+        .run({ id, now, projectId: this.#projectId });
 
       this.#database
         .query<unknown, QueryBindings>(
@@ -675,7 +734,7 @@ export class SqliteTaskStore implements TaskStore {
   withSession(provider: AgentProvider, session: string): Task[] {
     return this.selectTasks(
       `SELECT * FROM tasks
-       WHERE provider = $provider AND session = $session AND deleted = 0
+       WHERE project_id = $projectId AND provider = $provider AND session = $session AND deleted = 0
        ORDER BY last_modified_at DESC, id ASC`,
       { provider, session },
     );
@@ -740,20 +799,22 @@ export class SqliteTaskStore implements TaskStore {
 
   allIds(): string[] {
     return this.#database
-      .query<{ id: string }, []>(`SELECT id FROM tasks WHERE deleted = 0 ORDER BY id`)
-      .all()
+      .query<{ id: string }, QueryBindings>(
+        `SELECT id FROM tasks WHERE project_id = $projectId AND deleted = 0 ORDER BY id`,
+      )
+      .all({ projectId: this.#projectId })
       .map((row) => row.id);
   }
 
   allTags(): string[] {
     return this.#database
-      .query<{ tag: string }, []>(
+      .query<{ tag: string }, QueryBindings>(
         `SELECT DISTINCT tag FROM task_tags
          INNER JOIN tasks ON tasks.id = task_tags.task_id
-         WHERE tasks.deleted = 0
+         WHERE tasks.project_id = $projectId AND tasks.deleted = 0
          ORDER BY tag`,
       )
-      .all()
+      .all({ projectId: this.#projectId })
       .map((row) => row.tag)
       .filter((tag) => !tag.includes('\n'));
   }
@@ -762,10 +823,15 @@ export class SqliteTaskStore implements TaskStore {
     this.#database.close(false);
   }
 
+  /**
+   * Runs a task-rooted SELECT and hydrates the rows. The store's `project_id`
+   * is bound automatically as `$projectId`; every task-rooted query must
+   * reference it in its WHERE clause so results never leak across projects.
+   */
   private selectTasks(sql: string, bindings: QueryBindings = {}): Task[] {
     return this.#database
       .query<TaskRow, QueryBindings>(sql)
-      .all(bindings)
+      .all({ projectId: this.#projectId, ...bindings })
       .map((row) => this.hydrate(row));
   }
 
@@ -835,7 +901,7 @@ export class SqliteTaskStore implements TaskStore {
     if (id === blockedBy)
       throw new ScrumlordError('invalid_dependency', 'A task cannot block itself.');
     this.ensureTaskExists(blockedBy);
-    if (hasBlockerPath(this.#database, blockedBy, id)) {
+    if (hasBlockerPath(this.#database, blockedBy, id, this.#projectId)) {
       throw new ScrumlordError('dependency_cycle', 'Task dependencies cannot create a cycle.');
     }
     this.#database
@@ -851,7 +917,9 @@ export class SqliteTaskStore implements TaskStore {
 
   private touchAt(id: TaskIdentifier, lastModifiedAt: string): void {
     this.#database
-      .query('UPDATE tasks SET last_modified_at = $lastModifiedAt WHERE id = $id')
-      .run({ id, lastModifiedAt });
+      .query(
+        'UPDATE tasks SET last_modified_at = $lastModifiedAt WHERE id = $id AND project_id = $projectId',
+      )
+      .run({ id, lastModifiedAt, projectId: this.#projectId });
   }
 }

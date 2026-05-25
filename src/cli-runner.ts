@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -13,6 +14,7 @@ import {
   renderCleanupWorkflowPrompt,
 } from './cli-agent-commands.js';
 import { runCompletionsBoundaryCommand } from './cli-completions-command.js';
+import { guardProjectWorkingTree, withUnresolvedProjectNotice } from './cli-project-guard.js';
 import { runCompletionsDataCommand } from './cli-completions-data-command.js';
 import { runOverviewWatchCommand } from './cli-overview-watch.js';
 import { runPipelineCommand } from './cli-pipeline-command.js';
@@ -293,8 +295,14 @@ const runInitBoundaryCommand: BoundaryCommandHandler = async (_parsed, options) 
   return success(await init(options.cwd === undefined ? {} : { cwd: options.cwd }));
 };
 
+const runImportLegacyDatabasesCommand: BoundaryCommandHandler = async (parsed, options) => {
+  const { runImportLegacyDatabases } = await import('./import-legacy-databases.js');
+  return success(await runImportLegacyDatabases(parsed, options));
+};
+
 const boundaryCommandHandlers: Record<string, BoundaryCommandHandler> = {
   init: runInitBoundaryCommand,
+  'import-legacy-databases': runImportLegacyDatabasesCommand,
   repository: runRepositoryBoundaryCommand,
   pr: runPullRequestBoundaryCommand,
   setup: runSetupBoundaryCommand,
@@ -317,7 +325,14 @@ const runBoundaryCommand = async (
 
 const openStore = async (options: CliOptions): Promise<TaskStore> => {
   if (options.createStore) return await options.createStore(options.cwd ?? process.cwd());
-  return await createTaskStore(options.cwd === undefined ? {} : { cwd: options.cwd });
+  // Project resolution always uses the real git/gh runner: the CLI's injected
+  // `runner` (when present) is for command-specific stubs like agent launches,
+  // not for resolving which project the shared database is scoped to.
+  return await createTaskStore({
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    ...(options.projectFlag === undefined ? {} : { projectFlag: options.projectFlag }),
+    ...(options.homeDirectory === undefined ? {} : { homeDirectory: options.homeDirectory }),
+  });
 };
 
 const renderAgedLines = (
@@ -520,6 +535,31 @@ const parseErrorMode = (
   );
 };
 
+const assertKnownStoreCommand = (command: string): void => {
+  if (storeCommands.has(command)) return;
+  const hint = removedCommandHints[command];
+  throw new ScrumlordError(
+    'unknown_command',
+    hint ? `Unknown command: ${command}. ${hint}` : `Unknown command: ${command}`,
+  );
+};
+
+/** Opens the project-scoped store, runs the command, and closes the store. */
+const runStoreCommandLifecycle = async (
+  parsed: ParsedArguments,
+  options: CliOptions,
+): Promise<CliResult> => {
+  validateStoreCommandInput(parsed, options);
+  const store = await openStore(options);
+  try {
+    await guardProjectWorkingTree(store, parsed, options);
+    const result = await runOpenedStoreCommand(store, parsed, options);
+    return withUnresolvedProjectNotice(result, store);
+  } finally {
+    store.close();
+  }
+};
+
 /** Runs the tasks CLI and returns captured output for process wrappers and tests. */
 export const runTasksCli = async (argv: string[], options: CliOptions = {}): Promise<CliResult> => {
   let parsed: ParsedArguments | undefined;
@@ -530,28 +570,17 @@ export const runTasksCli = async (argv: string[], options: CliOptions = {}): Pro
     validatePositionals(parsed);
     rejectJsonOnRawForm(parsed);
 
+    const projectFlag = parsed.flags.get('project')?.at(-1);
     const resolvedOptions: CliOptions = {
       ...options,
       outputMode: resolveModeForOptions(parsed, options),
+      ...(projectFlag === undefined ? {} : { projectFlag }),
     };
 
     const boundaryResult = await runBoundaryCommand(parsed, resolvedOptions);
     if (boundaryResult) return boundaryResult;
-    if (!storeCommands.has(parsed.command)) {
-      const hint = removedCommandHints[parsed.command];
-      const message = hint
-        ? `Unknown command: ${parsed.command}. ${hint}`
-        : `Unknown command: ${parsed.command}`;
-      throw new ScrumlordError('unknown_command', message);
-    }
-    validateStoreCommandInput(parsed, resolvedOptions);
-
-    const store = await openStore(resolvedOptions);
-    try {
-      return await runOpenedStoreCommand(store, parsed, resolvedOptions);
-    } finally {
-      store.close();
-    }
+    assertKnownStoreCommand(parsed.command);
+    return await runStoreCommandLifecycle(parsed, resolvedOptions);
   } catch (error) {
     return formatCliError(error, { ...options, outputMode: parseErrorMode(argv, parsed, options) });
   }

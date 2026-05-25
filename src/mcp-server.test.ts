@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ScrumlordError } from './errors';
@@ -13,13 +13,17 @@ const temporaryDirectories: string[] = [];
 const temporaryDirectory = async (): Promise<string> => {
   const directory = await mkdtemp(join(tmpdir(), 'scrumlord-mcp-'));
   temporaryDirectories.push(directory);
-  return directory;
+  // Resolve symlinks (macOS /var -> /private/var) so the path matches the
+  // realpath-normalized projectRoot the store derives from `git rev-parse`.
+  return realpath(directory);
 };
 
 const workspaceRoot = async (): Promise<string> => {
   const root = await temporaryDirectory();
   await mkdir(join(root, 'packages', 'example'), { recursive: true });
   await Bun.write(join(root, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
+  const gitInit = Bun.spawn(['git', 'init'], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  await gitInit.exited;
   return root;
 };
 

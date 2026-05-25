@@ -46,6 +46,8 @@ const unexpected = (): never => {
 const store = (projectRoot: string, tasks: Task[], calls: string[]): TaskStore => ({
   projectRoot,
   databasePath: join(projectRoot, 'tmp/tasks.db'),
+  projectGitCommonDir: null,
+  projectResolved: true,
   create: unexpected,
   update(id: string, input: UpdateTaskInput) {
     calls.push(`update:${id}:${input.branch ?? ''}:${input.status ?? ''}`);

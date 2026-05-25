@@ -25,6 +25,7 @@ export type DataShape =
   | 'init-result'
   | 'setup-result'
   | 'start-result'
+  | 'import-legacy-result'
   | 'repository-summary';
 
 /**
@@ -55,6 +56,7 @@ export const renderReadiness: Record<DataShape, RenderReadiness> = {
   'init-result': 'jsonFallback',
   'setup-result': 'jsonFallback',
   'start-result': 'jsonFallback',
+  'import-legacy-result': 'jsonFallback',
   'repository-summary': 'jsonFallback',
 };
 
@@ -81,6 +83,7 @@ const pureCommandContracts: Record<string, OutputContract> = {
   remaining: { kind: 'jsonData', shape: 'remaining' },
   overview: { kind: 'jsonData', shape: 'pr-overview' },
   init: { kind: 'jsonData', shape: 'init-result' },
+  'import-legacy-databases': { kind: 'jsonData', shape: 'import-legacy-result' },
   start: { kind: 'jsonData', shape: 'start-result' },
   'agent-hook': { kind: 'jsonData', shape: 'start-result' },
   pipeline: { kind: 'bespoke' },

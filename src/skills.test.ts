@@ -60,7 +60,7 @@ describe('setupSkills', () => {
     expect(claudeSkill).toContain('tasks progress add');
     expect(claudeSkill).toContain('tasks start');
     expect(claudeSkill).toContain('tasks setup --agent-hooks');
-    expect(claudeSkill).toContain('project_root_not_found');
+    expect(claudeSkill).toContain('project_unresolved');
     expect(claudeSkill).toContain('gh_not_found');
     expect(claudeSkill).toContain('pull_request_not_found');
     expect(claudeSkill).toContain('tasks pr');

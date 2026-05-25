@@ -67,7 +67,7 @@ describe('setupSubagents', () => {
     expect(codex).toContain('Treat dependency language as graph data');
     expect(codex).toContain('Scrumlord priorities are only');
     expect(codex).toContain('do not fire many `tasks create` commands in parallel');
-    expect(codex).toContain('Never edit `tmp/tasks.db` directly.');
+    expect(codex).toContain('Never edit the shared `~/.scrumlord/tasks.db` directly.');
     expect(codex).toContain(join(root, '.agents/skills/tasks/SKILL.md'));
 
     const claude = await Bun.file(claudePath).text();

@@ -32,6 +32,8 @@ export type CliOptions = {
    */
   outputMode?: OutputMode;
   createStore?: (cwd: string) => Promise<TaskStore>;
+  /** Explicit `--project` selector; defaults to the current repository. */
+  projectFlag?: string;
   initializeProject?: (options: InitializeProjectOptions) => Promise<unknown>;
   readStdin?: () => Promise<string>;
   runAgentInvocation?: (invocation: AgentInvocation) => Promise<number>;

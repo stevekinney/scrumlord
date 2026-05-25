@@ -63,8 +63,12 @@ describe('resolveProjectRoot', () => {
     expect(resolvedRoot).toBe(await realpath(root));
     expect(nextResult.exitCode).toBe(0);
     expect(nextResult.stderr).toBe('');
+    // The primary checkout and the linked worktree share one git common dir, so
+    // they resolve to the same project in the shared database — a task created
+    // from the primary checkout is visible from the linked worktree.
     expect(JSON.parse(nextResult.stdout)).toMatchObject({ title: 'Primary worktree task' });
-    expect(existsSync(join(root, 'tmp', 'tasks.db'))).toBe(true);
+    // The database now lives in the shared `~/.scrumlord`, never in `tmp/`.
+    expect(existsSync(join(root, 'tmp', 'tasks.db'))).toBe(false);
     expect(existsSync(join(linkedWorktree, 'tmp', 'tasks.db'))).toBe(false);
   });
 
@@ -96,22 +100,28 @@ describe('resolveProjectRoot', () => {
     }
   });
 
-  it('fails without creating a database when no project root exists', async () => {
+  it('returns an empty result for a bare directory with no resolvable project', async () => {
     const root = await temporaryDirectory();
     const result = await runTasksCli(['available'], { cwd: root });
 
-    expect(result.exitCode).toBe(1);
-    expect(JSON.parse(result.stderr)).toEqual({
-      error: {
-        code: 'project_root_not_found',
-        message:
-          'Could not find a Git repository root or npm workspace root from the current directory.',
-      },
-    });
+    // A directory that is neither a git repo nor a workspace has no project
+    // scope: reads succeed and return nothing rather than erroring, but a
+    // stderr notice distinguishes "unresolved" from "no tasks".
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain('project: unresolved');
+    expect(JSON.parse(result.stdout)).toEqual([]);
     expect(existsSync(join(root, 'tmp', 'tasks.db'))).toBe(false);
   });
 
-  it('fails without creating a database when a workspace package manifest is invalid', async () => {
+  it('rejects a mutating command in a bare directory with no resolvable project', async () => {
+    const root = await temporaryDirectory();
+    const result = await runTasksCli(['create', '--title', 'Orphan'], { cwd: root });
+
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stderr).error).toMatchObject({ code: 'project_unresolved' });
+  });
+
+  it('surfaces an invalid workspace package manifest without creating a database', async () => {
     const root = await temporaryDirectory();
     const nested = join(root, 'packages', 'example');
     await mkdir(nested, { recursive: true });

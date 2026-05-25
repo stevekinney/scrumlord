@@ -1,5 +1,6 @@
 import { basename } from 'node:path';
 import type { CommandRunner } from './command-runner.js';
+import { parseRepoName } from './project-identity.js';
 
 type CleanupPromptStore = {
   countInProgress(): number;
@@ -11,17 +12,6 @@ type CleanupPromptContext = {
   projectRoot: string;
   runner: CommandRunner;
   now: () => Date;
-};
-
-const parseRepoName = (url: string): string | null => {
-  const trimmed = url.trim();
-  // SSH: git@github.com:owner/repo.git
-  const sshMatch = /^git@[^:]+:(.+?)(?:\.git)?$/.exec(trimmed);
-  if (sshMatch) return sshMatch[1] ?? null;
-  // HTTPS: https://github.com/owner/repo.git
-  const httpsMatch = /^https?:\/\/[^/]+\/(.+?)(?:\.git)?$/.exec(trimmed);
-  if (httpsMatch) return httpsMatch[1] ?? null;
-  return null;
 };
 
 const resolveRepoName = async (projectRoot: string, runner: CommandRunner): Promise<string> => {

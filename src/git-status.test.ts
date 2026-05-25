@@ -36,6 +36,8 @@ const store = (
 ): TaskStore => ({
   projectRoot: '/project',
   databasePath: '/project/tmp/tasks.db',
+  projectGitCommonDir: null,
+  projectResolved: true,
   create() {
     return unexpectedStoreMethod();
   },

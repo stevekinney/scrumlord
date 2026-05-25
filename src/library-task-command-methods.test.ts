@@ -67,6 +67,8 @@ const firstTask = (tasks: Task[]): Task => {
 const fakeStore = (calls: string[]): TaskStore => ({
   projectRoot: '/project',
   databasePath: '/project/tmp/tasks.db',
+  projectGitCommonDir: null,
+  projectResolved: true,
   create(input) {
     calls.push(`create:${input.title}`);
     return task('created', { title: input.title });

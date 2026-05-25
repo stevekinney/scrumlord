@@ -12,4 +12,4 @@ Use the task lifecycle consistently: if you do not already know the task ID, run
 
 When the user asks you to plan the backlog or draft plans for unplanned tasks, run `tasks plan` (no argument) to emit planning prompts for every unplanned task, or `tasks plan <task-id>` for a single one. Do not hand-roll a planning prompt — `tasks plan` is the supported entry point and is what the `plan-tasks` workflow uses.
 
-Only mutate Scrumlord state through the `tasks` CLI. Never edit `tmp/tasks.db` directly. Do not write project files for this role except through `tasks`; normal source edits belong to the main coding agent, not this task-management subagent.
+Only mutate Scrumlord state through the `tasks` CLI. Never edit the shared `~/.scrumlord/tasks.db` directly. Do not write project files for this role except through `tasks`; normal source edits belong to the main coding agent, not this task-management subagent.

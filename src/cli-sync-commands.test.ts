@@ -29,6 +29,8 @@ const fakeStore = (calls: string[]): TaskStore =>
   ({
     projectRoot: '/project',
     databasePath: '/project/tmp/tasks.db',
+    projectGitCommonDir: null,
+    projectResolved: true,
     create: () => task('created'),
     update: (id: string) => task(id),
     delete: (id: string) => task(id),

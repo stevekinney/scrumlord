@@ -158,6 +158,12 @@ const migrations: readonly Migration[] = [
         END;
     `,
   },
+  {
+    version: 8,
+    name: 'add_projects_and_project_scope',
+    requiresOwnTransaction: true,
+    run: runAddProjectsAndProjectScope,
+  },
 ];
 
 /**
@@ -274,6 +280,110 @@ function runDropArchivedAndParent(context: MigrationRunContext): void {
       throw new ScrumlordError(
         'migration_fk_violation',
         `v5 foreign_key_check returned ${violations.length} violation(s)`,
+      );
+    }
+    recordMigration();
+    database.run('COMMIT');
+    inTransaction = false;
+  } catch (error) {
+    if (inTransaction) {
+      try {
+        database.run('ROLLBACK');
+      } catch {
+        // ignore rollback failure; original error is more important
+      }
+    }
+    throw error;
+  } finally {
+    database.run('PRAGMA foreign_keys = ON;');
+  }
+}
+
+/**
+ * Introduces the shared-database project model. Adds a `projects` table and a
+ * `NOT NULL project_id` foreign key on `tasks`. A plain
+ * `ALTER TABLE tasks ADD COLUMN project_id INTEGER NOT NULL REFERENCES ...` is
+ * invalid SQLite (a NOT NULL added column needs a non-null default, while a new
+ * REFERENCES column with foreign keys on must default NULL), so we use the
+ * table-rebuild pattern from v5.
+ *
+ * This migration only runs cleanly on an empty `tasks` table — the shared
+ * database at `~/.scrumlord/tasks.db` starts empty and is populated by the
+ * `import-legacy-databases` command, never by the migration. If pre-existing
+ * rows are found we abort with `migration_unsafe` rather than inventing a
+ * project for orphaned data.
+ */
+function runAddProjectsAndProjectScope(context: MigrationRunContext): void {
+  const { database, recordMigration } = context;
+  const existing = database
+    .query<{ count: number }, []>('SELECT COUNT(*) AS count FROM tasks')
+    .get();
+  if ((existing?.count ?? 0) > 0) {
+    throw new ScrumlordError(
+      'migration_unsafe',
+      'v8 expected an empty tasks table in the shared database. Found existing rows; ' +
+        'use `tasks import-legacy-databases` to populate the shared database instead.',
+    );
+  }
+
+  database.run('PRAGMA foreign_keys = OFF;');
+  let inTransaction = false;
+  try {
+    database.run('BEGIN');
+    inTransaction = true;
+    database.run(`
+      CREATE TABLE projects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name_with_owner TEXT NOT NULL,
+        name_with_owner_key TEXT NOT NULL UNIQUE,
+        repository_name_key TEXT NOT NULL,
+        git_common_dir TEXT UNIQUE,
+        remote_url TEXT,
+        last_resolved_at TEXT
+      );
+
+      CREATE INDEX projects_repository_name_key_index ON projects(repository_name_key);
+
+      CREATE TABLE tasks_new (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL CHECK (length(trim(title)) > 0),
+        status TEXT NOT NULL CHECK (status IN ('draft', 'ready', 'in-progress', 'in-review', 'completed')),
+        description TEXT NOT NULL DEFAULT '',
+        priority INTEGER NOT NULL CHECK (priority IN (1, 2, 3)),
+        created_at TEXT NOT NULL,
+        start_date TEXT,
+        due_date TEXT,
+        last_modified_at TEXT NOT NULL,
+        deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1)),
+        branch TEXT,
+        plan TEXT,
+        provider TEXT CHECK (provider IS NULL OR provider IN ('claude', 'codex')),
+        session TEXT,
+        project_id INTEGER NOT NULL REFERENCES projects(id)
+      );
+
+      INSERT INTO tasks_new (
+        id, title, status, description, priority, created_at, start_date, due_date,
+        last_modified_at, deleted, branch, plan, provider, session, project_id
+      )
+      SELECT
+        id, title, status, description, priority, created_at, start_date, due_date,
+        last_modified_at, deleted, branch, plan, provider, session, NULL
+      FROM tasks;
+
+      DROP TABLE tasks;
+      ALTER TABLE tasks_new RENAME TO tasks;
+
+      CREATE INDEX tasks_status_priority_index ON tasks(status, priority);
+      CREATE INDEX tasks_branch_index ON tasks(branch);
+      CREATE INDEX tasks_provider_session_index ON tasks(provider, session);
+      CREATE INDEX tasks_project_index ON tasks(project_id, status, priority);
+    `);
+    const violations = database.query<unknown, []>('PRAGMA foreign_key_check').all();
+    if (violations.length > 0) {
+      throw new ScrumlordError(
+        'migration_fk_violation',
+        `v8 foreign_key_check returned ${violations.length} violation(s)`,
       );
     }
     recordMigration();

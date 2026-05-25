@@ -157,6 +157,19 @@ export type DeleteOptions = {
 export type TaskStore = {
   readonly projectRoot: string;
   readonly databasePath: string;
+  /**
+   * Canonical git common dir of the resolved project, or `null` when the
+   * project is unresolved or has no filesystem anchor. Used to guard
+   * filesystem/git-dependent commands against a `--project` selector that
+   * points at a different working tree.
+   */
+  readonly projectGitCommonDir: string | null;
+  /**
+   * False when no project could be resolved (no git repository, or a non-git
+   * directory). Read commands then return empty results; the CLI surfaces a
+   * notice so callers can distinguish "unresolved project" from "no tasks".
+   */
+  readonly projectResolved: boolean;
   create(input: CreateTaskInput): Task;
   update(id: TaskIdentifier, input: UpdateTaskInput): Task;
   delete(id: TaskIdentifier, options?: DeleteOptions): Task | null;
