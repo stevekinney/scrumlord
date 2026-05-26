@@ -15,6 +15,10 @@ let sharedHome: string | undefined;
 beforeEach(() => {
   sharedHome = mkdtempSync(join(tmpdir(), 'scrumlord-home-'));
   process.env['SCRUMLORD_HOME'] = sharedHome;
+  // Drop the developer's ambient provider selection so provider-resolution tests
+  // (`scrumlord_cli_required`, `--cli`/SCRUMLORD_CLI precedence) are hermetic and
+  // don't pass or fail based on whether SCRUMLORD_CLI happens to be exported.
+  delete process.env['SCRUMLORD_CLI'];
 });
 
 afterEach(() => {
