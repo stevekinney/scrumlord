@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CommandResult, CommandRunner } from './command-runner';
 import { ScrumlordError } from './errors';
+import { TASK_ID_PREFIX_LENGTH } from './task-id-prefix';
 import {
+  branchExistsInGit,
   checkProviderCapabilities,
   deriveBranchAndShortId,
   ensureTaskWorktree,
@@ -65,20 +67,66 @@ const caught = async (action: () => Promise<unknown>): Promise<unknown> => {
   throw new Error('Expected the action to throw, but it resolved.');
 };
 
+const TASK_BRANCH_PATTERN = new RegExp(`^tasks/([0-9a-f]{${TASK_ID_PREFIX_LENGTH}})$`);
+
 describe('deriveBranchAndShortId', () => {
-  it('produces a stable 8-char hash keyed on common dir', () => {
-    const a = deriveBranchAndShortId('/repo-a/.git', 'task-1');
-    const b = deriveBranchAndShortId('/repo-b/.git', 'task-1');
-    expect(a.shortId).toHaveLength(8);
-    expect(a.branch).toBe(`tasks/${a.shortId}`);
-    expect(a.shortId).not.toBe(b.shortId);
-    expect(deriveBranchAndShortId('/repo-a/.git', 'task-1')).toEqual(a);
+  it('uses the task uuid prefix shown in `tasks list` as the short id', () => {
+    const id = '3f9c1a2b-e29b-41d4-a716-446655440000';
+    const { branch, shortId } = deriveBranchAndShortId(id);
+    expect(shortId).toBe(id.slice(0, TASK_ID_PREFIX_LENGTH));
+    expect(branch).toBe(`tasks/${shortId}`);
   });
 
-  it('uses repo common dir, not display-only slug', () => {
-    const first = deriveBranchAndShortId('/foo/scrumlord/.git', 'task');
-    const second = deriveBranchAndShortId('/bar/scrumlord/.git', 'task');
-    expect(first.shortId).not.toBe(second.shortId);
+  it('is a pure function of the task id, independent of repo path', () => {
+    // The old hash keyed on the repo common dir; the prefix must not.
+    const id = '3f9c1a2b-e29b-41d4-a716-446655440000';
+    expect(deriveBranchAndShortId(id)).toEqual(deriveBranchAndShortId(id));
+  });
+
+  it('normalizes uppercase ids to lowercase so the branch parser matches', () => {
+    const { branch, shortId } = deriveBranchAndShortId('3F9C1A2B-E29B-41D4-A716-446655440000');
+    expect(shortId).toBe('3f9c1a2b');
+    expect(TASK_BRANCH_PATTERN.test(branch)).toBe(true);
+  });
+
+  it('produces a branch that round-trips through the task branch pattern', () => {
+    // Locks the readable→parseable invariant on the one shared constant: the
+    // branch suffix the CLI parses back out equals the derived short id.
+    const id = 'abcdef12-3456-7890-abcd-ef1234567890';
+    const { branch, shortId } = deriveBranchAndShortId(id);
+    const match = TASK_BRANCH_PATTERN.exec(branch);
+    expect(match?.[1]).toBe(shortId);
+  });
+});
+
+describe('branchExistsInGit', () => {
+  it('is true when a local head exists', async () => {
+    const runner = matchingRunner([
+      { match: /show-ref --verify --quiet refs\/heads\/tasks\/abcdef12/, reply: ok() },
+    ]);
+    expect(await branchExistsInGit('/repo', 'tasks/abcdef12', runner)).toBe(true);
+  });
+
+  it('is true when only a remote-tracking ref exists', async () => {
+    const runner = matchingRunner([
+      { match: /show-ref --verify --quiet refs\/remotes\/origin\/tasks\/abcdef12/, reply: ok() },
+    ]);
+    expect(await branchExistsInGit('/repo', 'tasks/abcdef12', runner)).toBe(true);
+  });
+
+  it('is true when a worktree is checked out on the branch', async () => {
+    const runner = matchingRunner([
+      {
+        match: /worktree list --porcelain/,
+        reply: ok('worktree /wt\nbranch refs/heads/tasks/abcdef12\n'),
+      },
+    ]);
+    expect(await branchExistsInGit('/repo', 'tasks/abcdef12', runner)).toBe(true);
+  });
+
+  it('is false when no head, remote ref, or worktree matches', async () => {
+    const runner = matchingRunner([{ match: /worktree list --porcelain/, reply: ok('') }]);
+    expect(await branchExistsInGit('/repo', 'tasks/abcdef12', runner)).toBe(false);
   });
 });
 

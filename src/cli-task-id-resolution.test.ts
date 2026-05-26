@@ -126,6 +126,13 @@ const stubProviderRunner = async (
   cmd: string[],
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
   if (cmd[1] === '--help') return { exitCode: 0, stdout: '--worktree --print -C', stderr: '' };
+  // A fresh task's `tasks/<short>` branch does not exist yet — `git show-ref`
+  // must report that (exit 1), or the start path would treat the branch as
+  // pre-existing and unowned. Base-branch probes (`main`, origin/HEAD) still
+  // resolve, so only the task-branch refs report missing.
+  if (cmd[0] === 'git' && cmd[1] === 'show-ref' && cmd.some((arg) => arg.includes('/tasks/'))) {
+    return { exitCode: 1, stdout: '', stderr: '' };
+  }
   return { exitCode: 0, stdout: '', stderr: '' };
 };
 

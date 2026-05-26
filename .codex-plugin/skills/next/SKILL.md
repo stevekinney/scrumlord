@@ -3,7 +3,7 @@ name: next
 description: Work the next available task end-to-end from inside its worktree: plan it (gated by plan-review) if unplanned, implement it, and open a pull request via committee-review, leaving the task in-review. Trigger on "work the next task" or "tasks next".
 ---
 
-Work the next task from claim to open pull request. The `tasks next --start` command already did the hard part before you arrived: it claimed the next ready task and materialized a worktree at `tmp/worktrees/tasks/<short-id>` on a `tasks/<short-id>` branch. You are picking up from inside that worktree, on the task's branch, with the task already moved to `in-progress`. Your job is to plan it (if it has no plan), build it, and shepherd it through `committee-review` until a pull request is open and the task is `in-review`.
+Work the next task from claim to open pull request. The `tasks next --start` command already did the hard part before you arrived: it claimed the next ready task and materialized a worktree at `tmp/worktrees/tasks/<short-id>` on a `tasks/<short-id>` branch. The `<short-id>` is the task's own UUID prefix (the first 8 characters shown in `tasks list`), so the branch name maps straight back to its task. You are picking up from inside that worktree, on the task's branch, with the task already moved to `in-progress`. Your job is to plan it (if it has no plan), build it, and shepherd it through `committee-review` until a pull request is open and the task is `in-review`.
 
 This is the plugin's end-to-end task workflow. Driving the open PR all the way to merged is the `resolve` skill's job — this skill stops at `in-review`. The caller can chain `resolve` afterward to finish, and you should say so when you hand off.
 

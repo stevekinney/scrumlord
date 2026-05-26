@@ -14,7 +14,7 @@ The governing rule: **never remove a worktree with uncommitted or unpushed chang
 git worktree list --porcelain
 ```
 
-This lists every worktree with its path, `HEAD`, and branch. Filter to task worktrees by the convention: their path is under `tmp/worktrees/tasks/<short-id>` on a `tasks/<short-id>` branch. The short-id is a hash, not the task ID — connect a worktree back to its task through its **branch**, not by parsing the directory name.
+This lists every worktree with its path, `HEAD`, and branch. Filter to task worktrees by the convention: their path is under `tmp/worktrees/tasks/<short-id>` on a `tasks/<short-id>` branch. The short-id is the task's own UUID prefix for worktrees created after this convention landed, though older worktrees may still carry an opaque hash — so do not assume either shape. Connect a worktree back to its task through its **branch** (the authoritative link Scrumlord stores), resolving the short-id with `tasks with-branch` / a `resolveTaskId` prefix match rather than parsing the directory name.
 
 ## Step 2: Resolve each worktree's task and decide
 

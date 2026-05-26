@@ -18,12 +18,13 @@ import { ScrumlordError } from './errors.js';
 import { currentGitBranch } from './git-status.js';
 import type { CliOptions, CliResult } from './cli-types.js';
 import type { AgentProvider, Task, TaskStore } from './types.js';
+import { TASK_ID_PREFIX_LENGTH } from './task-id-prefix.js';
 import { isReservedTaskBranch, parseAgentProvider } from './validation.js';
 import {
+  branchExistsInGit,
   checkProviderCapabilities,
   deriveBranchAndShortId,
   ensureTaskWorktree,
-  repoCommonDir,
   resolveBaseBranch,
   scrumlordWorktreePath,
 } from './worktree.js';
@@ -203,10 +204,40 @@ type WorktreeSetup = {
   created: 'created' | 'reused' | 'skipped';
 };
 
-const shortIdFromBranch = (branch: string, commonDir: string, taskId: string): string => {
-  const match = /^tasks\/([0-9a-f]{8})$/.exec(branch);
+const TASK_BRANCH_PATTERN = new RegExp(`^tasks/([0-9a-f]{${TASK_ID_PREFIX_LENGTH}})$`);
+
+const shortIdFromBranch = (branch: string, taskId: string): string => {
+  const match = TASK_BRANCH_PATTERN.exec(branch);
   if (match) return match[1]!;
-  return deriveBranchAndShortId(commonDir, taskId).shortId;
+  return deriveBranchAndShortId(taskId).shortId;
+};
+
+/**
+ * Guards a freshly derived `tasks/<shortId>` branch before it is claimed for a
+ * never-started task. Two distinct task UUIDs can share an 8-char prefix, and a
+ * `tasks/<shortId>` branch may already exist in git with no owning task — in
+ * both cases reusing the branch would silently attach this task to unrelated
+ * contents. Repo membership is not task ownership, so we fail loudly instead.
+ */
+const assertBranchUnclaimed = async (
+  store: TaskStore,
+  task: Task,
+  branch: string,
+  runner: CommandRunner,
+): Promise<void> => {
+  const owner = store.withBranch(branch).find((other) => other.id !== task.id);
+  if (owner) {
+    throw new ScrumlordError(
+      'task_branch_prefix_collision',
+      `Branch ${branch} is already owned by task ${owner.id}; it collides with the short id of task ${task.id}.`,
+    );
+  }
+  if (await branchExistsInGit(store.projectRoot, branch, runner)) {
+    throw new ScrumlordError(
+      'task_branch_unowned',
+      `Branch ${branch} already exists in git but is not owned by any task. Refusing to claim it for task ${task.id}.`,
+    );
+  }
 };
 
 const noWorktreeSetup = async (
@@ -246,10 +277,12 @@ const setupTaskWorktree = async (
   runner: CommandRunner,
 ): Promise<WorktreeSetup> => {
   if (options.noWorktree) return noWorktreeSetup(store, task, options, runner);
-  const common = await repoCommonDir(store.projectRoot, runner);
   const derived = task.branch
-    ? { branch: task.branch, shortId: shortIdFromBranch(task.branch, common, task.id) }
-    : deriveBranchAndShortId(common, task.id);
+    ? { branch: task.branch, shortId: shortIdFromBranch(task.branch, task.id) }
+    : deriveBranchAndShortId(task.id);
+  // A never-started task adopts a brand-new derived branch — make sure that name
+  // is not already spoken for by another task or by a stray git branch.
+  if (!task.branch) await assertBranchUnclaimed(store, task, derived.branch, runner);
   const directory =
     options.worktreeDirectory ?? (await scrumlordWorktreePath(store.projectRoot, derived.shortId));
   const base = await resolveBaseBranch(store.projectRoot, runner);

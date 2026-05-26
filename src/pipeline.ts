@@ -40,7 +40,7 @@ import {
   planOnlyPrompt,
 } from './pipeline-prompts.js';
 import type { AgentProvider, Task, TaskStore } from './types.js';
-import { deriveBranchAndShortId, repoCommonDir, resolveBaseBranch } from './worktree.js';
+import { deriveBranchAndShortId, resolveBaseBranch } from './worktree.js';
 
 /* ---------- Tunable constants (env-overridable, strict clamps) ---------- */
 
@@ -1651,18 +1651,11 @@ const gatherRecoveryInputs = async (
     resolvedBaseBranch = 'unknown';
   }
 
-  let common = '';
-  try {
-    common = await repoCommonDir(store.projectRoot, runner);
-  } catch {
-    common = '';
-  }
-
   let provenance: RecoveryInputs['branchProvenance'] = 'unknown';
-  if (task.branch && common) {
-    const expected = deriveBranchAndShortId(common, task.id).branch;
+  if (task.branch) {
+    const expected = deriveBranchAndShortId(task.id).branch;
     provenance = task.branch === expected ? 'task-derived' : 'foreign';
-  } else if (!task.branch) {
+  } else {
     provenance = 'task-derived'; // moot; will fall through to no-branch logic
   }
 
