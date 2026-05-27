@@ -149,12 +149,12 @@ const topics: HelpTopic[] = [
     examples: ['tasks current'],
   },
   {
-    path: ['peek'],
+    path: ['next'],
     summary: 'Return the next available task.',
-    usage: 'tasks peek',
+    usage: 'tasks next',
     description:
-      'Returns an available task, preferring tasks with plans before unplanned tasks. Prints no output when no task is available.',
-    examples: ['tasks peek'],
+      'Returns an available task, preferring tasks with plans before unplanned tasks. Prints no output when no task is available. This is a read-only peek — to claim and launch the next task, use "tasks prompt next" or "tasks start next".',
+    examples: ['tasks next'],
   },
   {
     path: ['remaining'],
@@ -465,13 +465,21 @@ const topics: HelpTopic[] = [
   {
     path: ['tags'],
     summary: 'List tags for a task, the current project, or all projects.',
-    usage: 'tasks tags [task-id] [--all]',
-    description: `With a task id, returns that task's normalized tags. With no argument, lists every distinct tag in the current project. With --all (and no task id), lists distinct tags across every project in the shared database.`,
+    usage:
+      'tasks tags [task-id] [--all]\n  tasks tags add <task-id> <tag>\n  tasks tags remove <task-id> <tag>',
+    description: `With a task id, returns that task's normalized tags. With no argument, lists every distinct tag in the current project. With --all (and no task id), lists distinct tags across every project in the shared database. Use the \`add\` and \`remove\` subcommands to change a task's tags.`,
     arguments: ['[task-id]: Optional. UUID, unique prefix, "current", or "next".'],
     options: [
       { name: '--all', description: 'List tags across all projects (only with no task id).' },
     ],
-    examples: ['tasks tags', 'tasks tags --all', 'tasks tags current', 'tasks tags 8f7d6a'],
+    examples: [
+      'tasks tags',
+      'tasks tags --all',
+      'tasks tags current',
+      'tasks tags 8f7d6a',
+      'tasks tags add 8f7d6a testing',
+      'tasks tags remove 8f7d6a testing',
+    ],
   },
   {
     path: ['tags', 'add'],
@@ -492,11 +500,17 @@ const topics: HelpTopic[] = [
   {
     path: ['blockers'],
     summary: 'List blockers for a task.',
-    usage: 'tasks blockers <task-id> [--planned|--unplanned] [--count]',
-    description: `Returns the tasks that block the supplied task.`,
+    usage:
+      'tasks blockers <task-id> [--planned|--unplanned] [--count]\n  tasks blockers add <task-id> <blocked-by-task-id>\n  tasks blockers remove <task-id> <blocked-by-task-id>',
+    description: `Returns the tasks that block the supplied task. Use the \`add\` and \`remove\` subcommands to create or drop a dependency edge on an existing task.`,
     arguments: [requiredTaskIdArgument],
     options: taskListingOptions,
-    examples: ['tasks blockers current', 'tasks blockers 8f7d6a'],
+    examples: [
+      'tasks blockers current',
+      'tasks blockers 8f7d6a',
+      'tasks blockers add 8f7d6a prerequisite-id',
+      'tasks blockers remove 8f7d6a prerequisite-id',
+    ],
   },
   {
     path: ['blockers', 'add'],
@@ -546,7 +560,7 @@ const topics: HelpTopic[] = [
     usage:
       'tasks setup [--skills|--subagents|--git-hooks|--agent-hooks|--prompt|--shell] [--project|--user|--local] [--agent <all|claude|codex>] [--yes]',
     description:
-      'With no mode flag, runs the interactive numbered-choice setup. With a mode flag, runs that single piece: --skills writes agent skill files; --subagents installs task-manager subagents; --git-hooks installs the Lefthook block; --agent-hooks writes lifecycle hook configuration; --prompt emits a raw setup prompt agents can follow; --shell prints the tasks-teleport and tasks-start shell helpers to stdout.',
+      'With no mode flag, runs the interactive numbered-choice setup. With a mode flag, runs that single piece: --skills writes agent skill files; --subagents installs task-manager subagents; --git-hooks installs the Lefthook block; --agent-hooks writes lifecycle hook configuration; --prompt emits a raw setup prompt agents can follow; --shell prints the tasks-start shell helper to stdout.',
     options: [
       { name: '--skills', description: 'Write agent skill files.' },
       { name: '--subagents', description: 'Install task-manager subagents.' },
@@ -556,7 +570,7 @@ const topics: HelpTopic[] = [
       {
         name: '--shell',
         description:
-          'Print the tasks-teleport and tasks-start shell helpers to stdout. Redirect into your rc file to enable `cd "$(tasks teleport current)"` and have `tasks-start` cd into the task worktree after the agent exits.',
+          'Print the tasks-start shell helper to stdout. Redirect into your rc file to have `tasks-start` cd into the task worktree after the agent exits. To cd into a worktree directly, use `cd "$(tasks locate current)"`.',
       },
       {
         name: '--project',
@@ -871,27 +885,19 @@ const topics: HelpTopic[] = [
     ],
   },
   {
-    path: ['teleport'],
-    summary: 'Resolve a task worktree path; cd via the tasks-teleport shell function.',
-    usage: 'tasks teleport <task-id> [--print] [--json]',
+    path: ['locate'],
+    summary: 'Print a task worktree path; cd via `cd "$(tasks locate <id>)"`.',
+    usage: 'tasks locate <task-id> [--json]',
     description:
-      'Resolves <task-id> (UUID, unique prefix, "current", or "next") and prints the absolute path of its existing git worktree on stdout, newline-terminated. A child process cannot change the parent shell directory, so the actual cd happens in the tasks-teleport shell function (install with "tasks setup --shell"). With --print the binary stays silent on stderr — this is the path the shell function consumes. Without --print, and when the shell function is not installed, a one-line advisory is written to stderr (stdout stays path-only). Never creates a worktree. On error, --json forces the JSON error envelope; success output is always the raw path.',
+      'Resolves <task-id> (UUID, unique prefix, "current", or "next") and prints the absolute path of its existing git worktree on stdout, newline-terminated. A child process cannot change the parent shell directory, so wrap it: cd "$(tasks locate <id>)". Never creates a worktree. On error, --json forces the JSON error envelope; success output is always the raw path.',
     arguments: ['<task-id>: UUID, unique UUID prefix, "current", or "next".'],
     options: [
-      {
-        name: '--print',
-        description: 'Print the bare path only; suppress the shell-function advisory.',
-      },
       {
         name: '--json',
         description: 'Force the error envelope to JSON. Does not affect success output.',
       },
     ],
-    examples: [
-      'tasks setup --shell >> ~/.zshrc   # install tasks-teleport, then: tasks-teleport current',
-      'cd "$(tasks teleport current --print)"',
-      'cd "$(tasks teleport next --print)"',
-    ],
+    examples: ['cd "$(tasks locate current)"', 'cd "$(tasks locate next)"'],
   },
   {
     path: ['completions'],

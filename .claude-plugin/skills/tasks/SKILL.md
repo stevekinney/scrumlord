@@ -9,20 +9,20 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 ## Rules
 
 - Tasks for every project live in one shared database at `~/.scrumlord/tasks.db`. Commands scope automatically to the current repository (resolved from its GitHub `owner/repo` name, cached per repo), so run them from anywhere inside the project and you only ever see that project's tasks.
-- Pass `--project <owner/repo>` on any command to target a different project's tasks instead of the current repository. A bare repository name (e.g. `--project cinder`) works when it unambiguously matches one stored project; otherwise pass the full `owner/repo`. Filesystem/git commands (`start`, `pipeline`, `teleport`, `prompt next`, `pr --sync`, `prompt plan --cli`, `prompt cleanup --cli`) reject a `--project` that points at a different working tree.
+- Pass `--project <owner/repo>` on any command to target a different project's tasks instead of the current repository. A bare repository name (e.g. `--project cinder`) works when it unambiguously matches one stored project; otherwise pass the full `owner/repo`. Filesystem/git commands (`start`, `pipeline`, `locate`, `prompt next`, `pr --sync`, `prompt plan --cli`, `prompt cleanup --cli`) reject a `--project` that points at a different working tree.
 - Data commands run in three output modes: pretty when stdout is a TTY (for humans), JSON when stdout is not a TTY (the agent case), and JSON whenever `--json` is passed. Pass `--json` explicitly when you need machine-parseable output regardless of context, and parse the JSON instead of scraping human-readable text.
-- If `tasks peek` prints nothing and exits 0, there is no available task; stop instead of treating that as an error.
+- If `tasks next` prints nothing and exits 0, there is no available task; stop instead of treating that as an error. (`tasks next` is a read-only peek at the next available task — it does not claim or launch it; use `tasks prompt next` or `tasks start next` for that.)
 - Use `tasks remaining` when you need a count of unfinished tasks, including tasks with future start dates.
 - Run `tasks init` when the project has not been set up yet. It registers the project in the shared database, writes local task skills, and installs managed Scrumlord Lefthook jobs when a Lefthook configuration exists.
 - Run `tasks setup status` before changing setup. It reports whether `tasks`, provider CLIs, skills, subagents, and hooks are present without writing anything.
 - Use `tasks setup --yes` for the default full setup when the user wants Scrumlord initialized for installed providers. Use `tasks setup --codex` or `tasks setup --claude` only when the user wants that CLI launched after setup.
 - Use `tasks setup --subagents` to install the `scrumlord-task-manager` subagent for installed providers. Use `tasks setup --subagents --agent codex`, `tasks setup --subagents --agent claude`, or `tasks setup --subagents --agent all` when a provider is explicit.
-- Use `tasks setup --shell` to emit shell helpers (e.g. `tasks-teleport`, `tasks-start`) for the user's `.zshrc` or `.bashrc`. Pair with `tasks completions <bash|zsh>` when the user also wants shell completions.
-- Use `tasks teleport <task-id>` to resolve the worktree path for a task. The binary cannot change your shell's directory itself — install the `tasks-teleport` shell function with `tasks setup --shell` and run `tasks-teleport current`, or use `cd "$(tasks teleport current --print)"`. Never construct worktree paths yourself.
+- Use `tasks setup --shell` to emit the `tasks-start` shell helper for the user's `.zshrc` or `.bashrc`. Pair with `tasks completions <bash|zsh>` when the user also wants shell completions.
+- Use `tasks locate <task-id>` to resolve the worktree path for a task. It prints the absolute path on stdout; a child process cannot change your shell's directory itself, so wrap it: `cd "$(tasks locate current)"`. Never construct worktree paths yourself.
 - Use `tasks --help` or `tasks <command> --help` when you need the current command syntax. Help output is colorized for humans; data output stays parseable JSON.
-- If you need the task for the current branch and do not already have a task ID, run `tasks current` before falling back to `tasks peek`.
+- If you need the task for the current branch and do not already have a task ID, run `tasks current` before falling back to `tasks next`.
 - Commands that accept a `<task-id>` require one. Pass a UUID, a unique UUID prefix, the literal `current` (the active task on the current Git branch), or the literal `next` (the next claimable task). Tokens are case-sensitive. Prefer `current` for branch-local work; pass an explicit UUID or unique prefix when operating on a specific other task.
-- Prefer `tasks available` or `tasks peek` before choosing new work.
+- Prefer `tasks available` or `tasks next` before choosing new work.
 - Use `tasks list` before decomposing a long document or checklist so you can avoid duplicating existing tasks. Use `tasks list --all` only when archived or deleted tasks matter. Use `tasks search "<query>"` to fuzzy-search by title and description before creating a task that might already exist under a different phrasing.
 - `tasks get` and `tasks list` return a computed `blocked` boolean and per-blocker status on each task. Read that field instead of cross-referencing `tasks blocked-by` manually when you just need to know whether a task is currently blocked.
 - Scrumlord priorities are only `1`, `2`, and `3`, with `3` highest. Never pass `0`, `4`, `5`, `P0`, `P4`, or any source-specific rank through unchanged; normalize source priorities onto the 1-3 scale before running `tasks create`.
@@ -45,6 +45,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 
 - Before creating tasks from a roadmap, specification, or checklist, first build a candidate graph: task title, description source, normalized priority, tags, and blockers.
 - Do not create a flat list unless the items are genuinely independent. If one task unlocks or must precede another, create both tasks and then run `tasks blockers add <blocked-task-id> <blocker-task-id>`.
+- Blockers and tags are managed only through their own commands (`tasks blockers add`/`remove`, `tasks tags add`/`remove`), never through `tasks update` — there is no `update --blocked-by` or `update --tag`. To change a task's dependency or tag edges after creation, use the dedicated command; never delete and recreate a task to rewire its graph.
 - Treat dependency language as graph data. Phrases such as "gated on", "blocked by", "depends on", "prerequisite", or "once ... exists" require an explicit blocker edge before the task can be marked `ready`. This rule is enforced on the transition into `ready` (via `tasks update <id> --status ready`), not at `tasks create` — creating a task with such phrasing in its description always succeeds, so add the blocker edge before marking it ready.
 - Create prerequisite tasks before dependent tasks so you have stable task IDs for `tasks blockers add`.
 - For large imports, do not fire many `tasks create` commands in parallel. Validate the priority scale and required flags first, then create tasks serially or in small batches so one malformed command cannot cancel the whole batch.
@@ -60,7 +61,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
   `tasks progress add current --message "Wrote the failing regression test"`.
 - When GitHub has an open pull request whose head branch matches the task branch, `tasks pr --sync` and `tasks overview` move the task to `in-review`.
 - When the pull request is merged into `origin/main`, move the task to `completed` with `tasks update current --status completed`, or mark one or more tasks done in a batch with `tasks complete <task-id>...`. Already-completed tasks are left untouched and soft-deleted tasks are rejected.
-- Prefer `tasks start current --cli codex` or `tasks start current --cli claude` when beginning branch-local agent-owned work. It materializes a per-task worktree at `tmp/worktrees/tasks/<short-id>` on a `tasks/<short-id>` branch and launches the provider in that worktree with task context, starts in plan mode, and records provider/session metadata when the provider supports it. Never hand-name the branch or construct the worktree path yourself — `tasks start`/`tasks prompt next` own that, and a task may never be associated with an integration branch such as `main`. Manual git-only setup (a hand-rolled `git worktree add`) is unsupported: it never records the branch on the task, so `tasks current`, `tasks teleport`, and cleanup cannot associate it. The payload includes a `phase` field (`start | resume-planning | resume-implementation`) derived from observable task state, and the system prompt names the workflow: plan → implement → `committee-review` (which opens the PR) → `address-pr` (which drives it to merge). Do not run `gh pr create` yourself.
+- Prefer `tasks start current --cli codex` or `tasks start current --cli claude` when beginning branch-local agent-owned work. It materializes a per-task worktree at `tmp/worktrees/tasks/<short-id>` on a `tasks/<short-id>` branch and launches the provider in that worktree with task context, starts in plan mode, and records provider/session metadata when the provider supports it. Never hand-name the branch or construct the worktree path yourself — `tasks start`/`tasks prompt next` own that, and a task may never be associated with an integration branch such as `main`. Manual git-only setup (a hand-rolled `git worktree add`) is unsupported: it never records the branch on the task, so `tasks current`, `tasks locate`, and cleanup cannot associate it. The payload includes a `phase` field (`start | resume-planning | resume-implementation`) derived from observable task state, and the system prompt names the workflow: plan → implement → `committee-review` (which opens the PR) → `address-pr` (which drives it to merge). Do not run `gh pr create` yourself.
 - Use `tasks pipeline --cli <claude|codex>` to drain the ready queue end-to-end: it claims tasks atomically, materializes worktrees, delegates each per-task run to the agent CLI (Claude side uses the `next-task` skill; Codex side gets a self-contained four-phase prompt), polls each pull request to merge, then continues. The pipeline is the merge authority — agents must drive PRs to merge or exit with `STUCK: <reason>` on stderr. A single lockfile (`tmp/pipeline.lock`) protects against concurrent pipelines. `--recover` runs an annotate-only recovery sweep (pair with `--apply` to mutate). `--dry-run` previews without claiming. `--json` emits a structured summary on stdout.
 - Re-run `tasks start current --cli <claude|codex>` on an in-progress task to reattach the recorded provider session — `start` detects the existing session and runs the provider's native resume instead of re-claiming.
 - Before changing status manually, run `tasks pr --sync` if GitHub might already know the current pull request state.
@@ -87,7 +88,7 @@ Use the `tasks` CLI when you need to inspect or update the local task graph for 
 tasks --help
 tasks create --help
 tasks init
-tasks peek
+tasks next
 tasks current
 tasks list
 tasks remaining
@@ -123,8 +124,8 @@ tasks setup --subagents
 tasks setup --agent-hooks
 tasks setup --shell
 tasks search "<query>"
-tasks-teleport current   # shell function from `tasks setup --shell`
-tasks teleport current --print
+cd "$(tasks locate current)"   # cd into a task's worktree
+tasks locate current
 tasks prompt plan
 tasks prompt plan current
 tasks prompt cleanup 30 --dry-run

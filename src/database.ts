@@ -10,6 +10,7 @@ import {
   hydrateTask,
   indexedBindings,
   listCandidatesSql,
+  listTasksOrderSql,
   nextTaskSql,
   normalizeTagSet,
   placeholders,
@@ -209,11 +210,11 @@ export class SqliteTaskStore implements TaskStore {
   list(options: { includeInactive?: boolean } = {}): Task[] {
     if (options.includeInactive) {
       return this.selectTasks(
-        'SELECT * FROM tasks WHERE project_id = $projectId ORDER BY priority DESC, created_at ASC, id ASC',
+        `SELECT * FROM tasks WHERE project_id = $projectId ${listTasksOrderSql()}`,
       );
     }
     return this.selectTasks(
-      'SELECT * FROM tasks WHERE project_id = $projectId AND deleted = 0 ORDER BY priority DESC, created_at ASC, id ASC',
+      `SELECT * FROM tasks WHERE project_id = $projectId AND deleted = 0 ${listTasksOrderSql()}`,
     );
   }
 
@@ -237,7 +238,7 @@ export class SqliteTaskStore implements TaskStore {
       `SELECT tasks.* FROM tasks
        JOIN task_tags ON task_tags.task_id = tasks.id
        WHERE tasks.project_id = $projectId AND task_tags.tag = $tag AND tasks.deleted = 0
-       ORDER BY tasks.priority DESC, tasks.created_at ASC, tasks.id ASC`,
+       ${listTasksOrderSql('tasks.')}`,
       { tag: normalizeTag(tag) },
     );
   }
@@ -252,7 +253,7 @@ export class SqliteTaskStore implements TaskStore {
          AND tasks.deleted = 0
        GROUP BY tasks.id
        HAVING count(DISTINCT task_tags.tag) = $tagCount
-       ORDER BY tasks.priority DESC, tasks.created_at ASC, tasks.id ASC`,
+       ${listTasksOrderSql('tasks.')}`,
       indexedBindings(normalizedTags, { tagCount: normalizedTags.length }),
     );
   }
@@ -265,14 +266,14 @@ export class SqliteTaskStore implements TaskStore {
        WHERE tasks.project_id = $projectId
          AND task_tags.tag IN (${placeholders(normalizedTags)})
          AND tasks.deleted = 0
-       ORDER BY tasks.priority DESC, tasks.created_at ASC, tasks.id ASC`,
+       ${listTasksOrderSql('tasks.')}`,
       indexedBindings(normalizedTags),
     );
   }
 
   withBranch(branch: string): Task[] {
     return this.selectTasks(
-      'SELECT * FROM tasks WHERE project_id = $projectId AND branch = $branch AND deleted = 0 ORDER BY priority DESC, created_at ASC, id ASC',
+      `SELECT * FROM tasks WHERE project_id = $projectId AND branch = $branch AND deleted = 0 ${listTasksOrderSql()}`,
       { branch },
     );
   }
@@ -282,7 +283,7 @@ export class SqliteTaskStore implements TaskStore {
       `SELECT blocker.* FROM task_dependencies
        JOIN tasks AS blocker ON blocker.id = task_dependencies.blocked_by_task_id
        WHERE task_dependencies.task_id = $id AND blocker.project_id = $projectId AND blocker.deleted = 0
-       ORDER BY blocker.priority DESC, blocker.created_at ASC, blocker.id ASC`,
+       ${listTasksOrderSql('blocker.')}`,
       { id: taskIdFrom(taskOrId) },
     );
   }
@@ -292,14 +293,14 @@ export class SqliteTaskStore implements TaskStore {
       `SELECT tasks.* FROM task_dependencies
        JOIN tasks ON tasks.id = task_dependencies.task_id
        WHERE task_dependencies.blocked_by_task_id = $id AND tasks.project_id = $projectId AND tasks.deleted = 0
-       ORDER BY tasks.priority DESC, tasks.created_at ASC, tasks.id ASC`,
+       ${listTasksOrderSql('tasks.')}`,
       { id: taskIdFrom(taskOrId) },
     );
   }
 
   withPriority(priority: TaskPriority): Task[] {
     return this.selectTasks(
-      'SELECT * FROM tasks WHERE project_id = $projectId AND priority = $priority AND deleted = 0 ORDER BY created_at ASC, id ASC',
+      `SELECT * FROM tasks WHERE project_id = $projectId AND priority = $priority AND deleted = 0 ${listTasksOrderSql()}`,
       { priority: parsePriority(priority) },
     );
   }

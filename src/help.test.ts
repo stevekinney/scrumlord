@@ -9,7 +9,7 @@ const expectedTopics = [
   'completed',
   'complete',
   'current',
-  'peek',
+  'next',
   'remaining',
   'repository',
   'session',
@@ -49,7 +49,7 @@ const expectedTopics = [
   'prompt audit',
   'prompt merge',
   'prompt cleanup',
-  'teleport',
+  'locate',
   'completions',
 ];
 
@@ -107,13 +107,13 @@ describe('renderHelp', () => {
   });
 });
 
-describe('renderHelp — teleport', () => {
-  it('renders teleport help with usage, argument, and shell-function example', () => {
-    const help = renderHelp(['teleport'], 'never');
+describe('renderHelp — locate', () => {
+  it('renders locate help with usage, argument, and cd example', () => {
+    const help = renderHelp(['locate'], 'never');
     expect(help).not.toBeNull();
-    expect(help).toContain('tasks teleport <task-id>');
+    expect(help).toContain('tasks locate <task-id>');
     expect(help).toContain('<task-id>: UUID');
-    expect(help).toContain('cd "$(tasks teleport current --print)"');
+    expect(help).toContain('cd "$(tasks locate current)"');
   });
 
   it('renders setup help listing --shell mode', () => {

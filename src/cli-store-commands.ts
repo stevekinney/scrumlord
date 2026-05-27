@@ -534,7 +534,7 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
     );
   },
   current: async (store) => await currentBranchTask(store),
-  peek: (store) => next(store),
+  next: (store) => next(store),
   remaining: (store) => remaining(store),
   create: async (store, parsed) =>
     createTask(store, await resolveBlockedByPrefixes(store, createInputFromFlags(parsed.flags))),
@@ -588,6 +588,49 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
 };
 
 export const taskStoreCommands = new Set(Object.keys(storeCommandHandlers));
+
+/**
+ * Maps each `tasks <command>` store command to the package-root library
+ * export(s) that perform the same operation, keyed by export name. This is the
+ * single source of truth for library/CLI parity: every store command must have a
+ * library equivalent so consumers can do anything the CLI can without shelling
+ * out. `library-methods.test.ts` asserts (a) every key here is a real store
+ * command and every store command is keyed here, and (b) every named export
+ * actually exists on the package root. When you add a store command, add its
+ * library function here — the test fails until you do.
+ *
+ * A command lists every export it dispatches to (e.g. `clear` routes to four
+ * functions depending on the property). `cleanup`/`plan`/`search` map to their
+ * pure library function even though their CLI handlers add orchestration on top.
+ */
+export const storeCommandLibraryMethods: Record<string, readonly string[]> = {
+  available: ['availableTasks'],
+  list: ['listTasks'],
+  blocked: ['blockedTasks'],
+  completed: ['completedTasks'],
+  get: ['getTask'],
+  tagged: ['tasksWithAnyTags', 'tasksWithAllTags'],
+  'with-branch': ['tasksWithBranch'],
+  'blocked-by': ['tasksBlockedBy'],
+  blocking: ['tasksBlocking'],
+  priority: ['tasksWithPriority'],
+  status: ['tasksWithStatus'],
+  session: ['resolveTaskSession'],
+  tags: ['taskTags', 'addTaskTag', 'removeTaskTag'],
+  blockers: ['tasksBlockedBy', 'addTaskBlocker', 'removeTaskBlocker'],
+  progress: ['taskProgress', 'addTaskProgress'],
+  clear: ['clearTaskBranch', 'clearTaskPlan', 'clearTaskSession', 'updateTask'],
+  current: ['currentBranchTask'],
+  next: ['next'],
+  remaining: ['remaining'],
+  create: ['createTask'],
+  update: ['updateTask'],
+  complete: ['completeTasks'],
+  delete: ['deleteTask'],
+  cleanup: ['cleanupTasks'],
+  plan: ['availableTasks'],
+  search: ['searchTasks'],
+};
 
 const validateProgressListFlags = (flags: Map<string, string[]>): void => {
   for (const flagName of ['message', 'provider', 'session'] as const) {

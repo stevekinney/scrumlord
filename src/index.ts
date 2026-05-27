@@ -20,6 +20,7 @@ import * as skillsModule from './skills.js';
 import * as subagentsModule from './subagents.js';
 import * as taskCommandsModule from './task-commands.js';
 import * as taskQueriesModule from './task-queries.js';
+import * as taskSearchModule from './task-search.js';
 import * as tasksOverviewModule from './tasks-overview.js';
 
 export const absoluteTaskPlanPath = agentProvidersModule.absoluteTaskPlanPath;
@@ -76,6 +77,7 @@ export const runAgentHook = agentHookModule.runAgentHook;
 export const runCommand = commandRunnerModule.runCommand;
 export const runScrumlordMcpServer = mcpServerModule.runScrumlordMcpServer;
 export const ScrumlordError = errorsModule.ScrumlordError;
+export const searchTasks = taskSearchModule.searchTasks;
 export const setTaskBranch = taskCommandsModule.setTaskBranch;
 export const setTaskPlan = taskCommandsModule.setTaskPlan;
 export const setTaskSession = taskCommandsModule.setTaskSession;
@@ -170,6 +172,12 @@ export type {
   TaskListingOptions,
   TaskPlanFilter,
 } from './task-commands.js';
+export type {
+  CountSearchTasksOptions,
+  SearchField,
+  SearchQuery,
+  SearchTasksOptions,
+} from './task-search.js';
 export type { PullRequestOverviewItem } from './tasks-overview.js';
 export type {
   AddTaskProgressInput,

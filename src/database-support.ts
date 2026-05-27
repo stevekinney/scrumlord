@@ -84,6 +84,30 @@ export const availableTasksSql = `SELECT * FROM tasks
  ${availableTasksWhereSql}
  ORDER BY priority DESC, created_at ASC, id ASC`;
 
+/**
+ * ORDER BY clause for multi-status listings: rank by status so active work
+ * surfaces first and completed work sorts last (in-review → in-progress → ready
+ * → draft → completed), then fall back to the established priority/age/id
+ * tie-breakers within a status. Single source of truth for status ordering —
+ * reused by every listing that can return mixed statuses.
+ *
+ * `prefix` is the table alias plus a dot (`'tasks.'`, `'blocker.'`) for JOINed
+ * queries, or empty for single-table queries so the columns resolve correctly in
+ * both shapes.
+ */
+export const listTasksOrderSql = (prefix = ''): string => `ORDER BY
+   CASE ${prefix}status
+     WHEN 'in-review' THEN 0
+     WHEN 'in-progress' THEN 1
+     WHEN 'ready' THEN 2
+     WHEN 'draft' THEN 3
+     WHEN 'completed' THEN 4
+     ELSE 5
+   END,
+   ${prefix}priority DESC,
+   ${prefix}created_at ASC,
+   ${prefix}id ASC`;
+
 const nextTaskOrderSql = `ORDER BY
    CASE WHEN plan IS NULL THEN 1 ELSE 0 END,
    priority DESC,

@@ -268,7 +268,7 @@ const noWorktreeSetup = async (
 /**
  * Materializes (or reuses) a Scrumlord-managed worktree for the task, regardless
  * of provider. The agent is always launched in a dedicated worktree so the
- * shell wrapper can teleport into it after the session.
+ * shell wrapper can cd into it after the session.
  */
 const setupTaskWorktree = async (
   store: TaskStore,

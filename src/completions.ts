@@ -31,7 +31,7 @@ export const commandSummaries: Record<string, string> = {
   overview: 'Show a task status overview with PR state.',
   help: 'Show help for the CLI or a specific command.',
   current: 'Return the task assigned to the current branch.',
-  peek: 'Return the next available task.',
+  next: 'Return the next available task.',
   remaining: 'Count remaining tasks.',
   repository: 'Show the current GitHub repository.',
   pr: 'Inspect or sync the current pull request.',
@@ -55,7 +55,7 @@ export const commandSummaries: Record<string, string> = {
   create: 'Create a new task.',
   update: 'Update a task.',
   setup: 'Configure Scrumlord and agent integrations.',
-  teleport: 'Resolve a task worktree path (cd via the tasks-teleport shell function).',
+  locate: 'Print a task worktree path to stdout for use with cd.',
   completions: 'Generate shell completion scripts.',
   prompt: 'Emit or launch a workflow skill (next, plan, resolve, sync, audit, merge, cleanup).',
 };

@@ -13,8 +13,7 @@ import type { TaskStore } from './types.js';
 const filesystemDependentCommands = new Set([
   'start',
   'pipeline',
-  'teleport',
-  'next',
+  'locate',
   'resolve',
   'sync',
   'audit',

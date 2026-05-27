@@ -99,7 +99,7 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
   overview: withJsonFlag({ ...noPositionals, booleanFlags: ['sync', 'watch'] }),
   help: { minPositionals: 0, maxPositionals: 2 },
   current: withJsonFlag(noPositionals),
-  peek: withJsonFlag(noPositionals),
+  next: withJsonFlag(noPositionals),
   remaining: withJsonFlag(noPositionals),
   repository: { ...noPositionals, booleanFlags: ['url', 'json'] },
   pr: {
@@ -246,7 +246,7 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
     ],
     positionalVariants: [['task-id']],
   }),
-  teleport: { ...onePositional, booleanFlags: ['print', 'json'] },
+  locate: { ...onePositional, booleanFlags: ['json'] },
   setup: withJsonFlag({
     minPositionals: 0,
     maxPositionals: 1,
@@ -316,6 +316,50 @@ const removedFlagHints: Record<string, string> = {
     'graph cleanup, or --print to emit the skill prompt.',
 };
 
+/**
+ * Flags that belong on a *different* command, keyed by `command/flag`. Blockers
+ * and tags are collection-valued graph edges with distinct add/remove verbs, so
+ * they cannot be expressed as a last-write-wins `update --flag` value. When a
+ * user reaches for `update` to mutate them, redirect to the dedicated command
+ * with a specific hint thrown *before* the generic `unknown_flag` error, rather
+ * than silently accepting an ambiguous flag. This is intentionally not a real
+ * `update` flag — the redirect is the feature.
+ */
+const misdirectedFlagHints: Record<string, string> = {
+  'update/blocked-by':
+    'Blockers are graph edges, not an attribute; use `tasks blockers add ' +
+    '<task-id> <blocked-by-task-id>` (and `tasks blockers remove ...` to drop one).',
+  'update/blocker':
+    'Blockers are graph edges, not an attribute; use `tasks blockers add ' +
+    '<task-id> <blocked-by-task-id>` (and `tasks blockers remove ...` to drop one).',
+  'update/blockers':
+    'Blockers are graph edges, not an attribute; use `tasks blockers add ' +
+    '<task-id> <blocked-by-task-id>` (and `tasks blockers remove ...` to drop one).',
+  'update/tag':
+    'Tags are added and removed individually; use `tasks tags add <task-id> <tag>` ' +
+    '(and `tasks tags remove ...` to drop one).',
+  'update/tags':
+    'Tags are added and removed individually; use `tasks tags add <task-id> <tag>` ' +
+    '(and `tasks tags remove ...` to drop one).',
+};
+
+/**
+ * Throws a specific, redirecting error when a flag was removed in a command move
+ * or belongs on a different command. Both fire *before* the generic
+ * `unknown_flag` error so the user is pointed at the right command rather than
+ * just told the flag is unknown.
+ */
+const throwFlagRedirectHint = (
+  command: string | undefined,
+  firstPositional: string | undefined,
+  name: string,
+): void => {
+  const removedHint = removedFlagHints[`${command}/${firstPositional}/${name}`];
+  if (removedHint) throw new ScrumlordError('removed_flag', removedHint);
+  const misdirectedHint = misdirectedFlagHints[`${command}/${name}`];
+  if (misdirectedHint) throw new ScrumlordError('misdirected_flag', misdirectedHint);
+};
+
 const parseFlag = (
   command: string | undefined,
   specification: CommandSpecification | undefined,
@@ -327,8 +371,7 @@ const parseFlag = (
   const equalsIndex = value.indexOf('=');
   const inlineValue = equalsIndex === -1 ? undefined : value.slice(equalsIndex + 1);
   const name = value.slice(2, equalsIndex === -1 ? undefined : equalsIndex);
-  const removedHint = removedFlagHints[`${command}/${firstPositional}/${name}`];
-  if (removedHint) throw new ScrumlordError('removed_flag', removedHint);
+  throwFlagRedirectHint(command, firstPositional, name);
   const kind = flagKind(specification, name);
   if (kind === 'unknown') {
     throw new ScrumlordError('unknown_flag', `Unknown flag for ${command}: --${name}.`);

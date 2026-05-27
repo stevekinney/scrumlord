@@ -190,6 +190,52 @@ describe('createTaskStore', () => {
     store.close();
   });
 
+  it('orders multi-status listings by status (in-review, in-progress, ready, draft, completed)', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const store = await createTaskStore({
+      cwd: root,
+      now: () => new Date('2026-05-11T12:00:00.000Z'),
+    });
+
+    // One task per status, all priority 1 so status rank is the sole differentiator.
+    // Insertion order is deliberately scrambled relative to the target order so a
+    // passing test cannot be an accident of created_at/id tie-breaking.
+    store.create({ id: 'c-done', title: 'Done', status: 'completed', tags: ['feature'] });
+    store.create({ id: 'a-ready', title: 'Ready', status: 'ready', tags: ['feature'] });
+    store.create({ id: 'd-review', title: 'In review', status: 'in-review', tags: ['feature'] });
+    store.create({ id: 'b-draft', title: 'Draft', status: 'draft', tags: ['feature'] });
+    store.create({ id: 'e-prog', title: 'In progress', status: 'in-progress', tags: ['feature'] });
+
+    const expected = ['d-review', 'e-prog', 'a-ready', 'b-draft', 'c-done'];
+    expect(taskIds(store.list())).toEqual(expected);
+    expect(taskIds(store.withTag('feature'))).toEqual(expected);
+    expect(taskIds(store.withAnyTag('feature'))).toEqual(expected);
+    expect(taskIds(store.withAllTags('feature'))).toEqual(expected);
+    expect(taskIds(store.withPriority(1))).toEqual(expected);
+
+    store.close();
+  });
+
+  it('orders by status first, then priority then age within a status', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    let currentDate = new Date('2026-05-11T12:00:00.000Z');
+    const store = await createTaskStore({ cwd: root, now: () => currentDate });
+
+    // Two ready tasks (one higher priority) and one in-progress. Status wins first,
+    // so the lower-priority in-progress task still sorts ahead of both ready tasks;
+    // within ready, priority 3 precedes priority 1.
+    store.create({ id: 'ready-low', title: 'Ready low', priority: 1, status: 'ready' });
+    currentDate = new Date('2026-05-11T13:00:00.000Z');
+    store.create({ id: 'ready-high', title: 'Ready high', priority: 3, status: 'ready' });
+    store.create({ id: 'prog', title: 'In progress', priority: 1, status: 'in-progress' });
+
+    expect(taskIds(store.list())).toEqual(['prog', 'ready-high', 'ready-low']);
+
+    store.close();
+  });
+
   it('records chronological task progress with inherited session metadata', async () => {
     const { store, blocked, parent, setCurrentDate } = await createSeededStore();
 

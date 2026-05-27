@@ -20,7 +20,7 @@ import { runOverviewWatchCommand } from './cli-overview-watch.js';
 import { runPipelineCommand } from './cli-pipeline-command.js';
 import { parsePollInteger, parsePollNumber, validatePullRequestFlags } from './cli-pr-flags.js';
 import { runPullRequestWatchCommand } from './cli-pr-watch.js';
-import { runTeleportCommand } from './cli-teleport-command.js';
+import { runLocateCommand } from './cli-locate-command.js';
 import {
   helpPath,
   isHelpRequest,
@@ -72,7 +72,7 @@ const storeCommands = new Set(
     'agent-hook',
     'pipeline',
     'completions-data',
-    'teleport',
+    'locate',
     'prompt',
     // `plan` and `cleanup` keep their store handlers (reused by `tasks prompt`), but
     // are no longer valid as top-level commands — only `tasks prompt plan|cleanup`.
@@ -434,7 +434,7 @@ const storeCommandResult = (
   value: unknown,
   options: CliOptions,
 ): CliResult => {
-  if (parsed.command === 'peek' && value === null) return emptySuccess();
+  if (parsed.command === 'next' && value === null) return emptySuccess();
   if (parsed.command === 'plan' && typeof value === 'string') return rawString(value);
   if (parsed.command === 'cleanup' && isCleanupResult(value)) return renderCleanupResult(value);
   return formatStoreResult(parsed, value, options);
@@ -504,7 +504,7 @@ const cleanupHasSelector = (shifted: ParsedArguments): boolean =>
 const directStoreHandlers: Record<string, OpenedStoreHandler> = {
   start: runStartCommand,
   pipeline: runPipelineCommand,
-  teleport: runTeleportCommand,
+  locate: runLocateCommand,
   'completions-data': (store, parsedArgs) => runCompletionsDataCommand(store, parsedArgs),
   prompt: runPromptCommand,
 };
@@ -555,7 +555,6 @@ const removedCommandHints: Record<string, string> = {
   'clear-branch': "Use 'tasks clear branch' instead.",
   'clear-plan': "Use 'tasks clear plan' instead.",
   'clear-session': "Use 'tasks clear session' instead.",
-  next: "Use 'tasks prompt next' instead.",
   resolve: "Use 'tasks prompt resolve' instead.",
   sync: "Use 'tasks prompt sync' instead.",
   audit: "Use 'tasks prompt audit' instead.",

@@ -70,7 +70,7 @@ const expectedContracts: ReadonlyArray<{
   },
   { command: 'get', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
   { command: 'current', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
-  { command: 'peek', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
+  { command: 'next', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
   { command: 'create', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
   { command: 'update', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
   { command: 'delete', flags: new Set(), expected: { kind: 'jsonData', shape: 'single-task' } },
@@ -113,7 +113,7 @@ const expectedContracts: ReadonlyArray<{
     expected: { kind: 'jsonData', shape: 'start-result' },
   },
   { command: 'pipeline', flags: new Set(), expected: { kind: 'bespoke' } },
-  { command: 'teleport', flags: new Set(), expected: { kind: 'bespoke' } },
+  { command: 'locate', flags: new Set(), expected: { kind: 'bespoke' } },
   { command: 'completions', flags: new Set(), expected: { kind: 'rawText' } },
   { command: 'completions-data', flags: new Set(), expected: { kind: 'rawText' } },
   // `tasks prompt <skill>`: pure skills are rawText; plan delegates to plan's
@@ -205,7 +205,7 @@ describe('contract / parser drift', () => {
   });
 
   it('every jsonData/bespoke command accepts --json in its parser spec', () => {
-    // Bespoke commands (pipeline, teleport) own their own renderers but
+    // Bespoke commands (pipeline, locate) own their own renderers but
     // still accept --json — both honor the resolved outputMode and emit a
     // JSON envelope when it is `'json'`. Pure rawText commands have no JSON
     // form and are excluded.
