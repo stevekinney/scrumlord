@@ -4,24 +4,26 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { emit as emitClaude } from './plugin-emit-claude.js';
 import { emit as emitCodex } from './plugin-emit-codex.js';
-import { claudeMarketplaceSchema, codexMarketplaceSchema } from './plugin-manifest.js';
+import {
+  claudeMarketplaceSchema,
+  codexMarketplaceSchema,
+  pluginManifestSchema,
+} from './plugin-manifest.js';
 import { scrumlordPluginSpec } from './plugin-spec.js';
 
 // Test helper: generated JSON is read loosely so assertions can index freely.
 const readJson = (root: string, ...segments: string[]): any =>
   JSON.parse(readFileSync(join(root, ...segments), 'utf-8'));
 
-let root: string;
-
-beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'scrumlord-emit-'));
-});
-
-afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
-});
-
 describe('emitClaude', () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'scrumlord-emit-claude-'));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
   it('writes a plugin.json with $schema and displayName', async () => {
     await emitClaude(scrumlordPluginSpec, root);
     const manifest = readJson(root, '.claude-plugin', 'plugin.json');
@@ -39,12 +41,28 @@ describe('emitClaude', () => {
     expect(marketplace['plugins'][0]?.['source']).toBe('./');
     expect(marketplace['plugins'][0]?.['policy']).toBeUndefined();
   });
+
+  it('writes each agent as a flat .md with name frontmatter', async () => {
+    await emitClaude(scrumlordPluginSpec, root);
+    const agent = scrumlordPluginSpec.agents[0]!;
+    const body = readFileSync(join(root, '.claude-plugin', 'agents', `${agent.name}.md`), 'utf-8');
+    expect(body.startsWith(`---\nname: ${agent.name}`)).toBe(true);
+    expect(body).toContain('skills:\n  - tasks');
+  });
 });
 
 describe('emitCodex', () => {
-  it('nests the plugin under plugins/<name>/.codex-plugin so codex can install it', async () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'scrumlord-emit-codex-'));
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('nests an installable plugin.json under plugins/<name>/.codex-plugin', async () => {
     await emitCodex(scrumlordPluginSpec, root);
-    const manifestPath = join(
+    const manifest = readJson(
       root,
       '.codex-plugin',
       'plugins',
@@ -52,7 +70,11 @@ describe('emitCodex', () => {
       '.codex-plugin',
       'plugin.json',
     );
-    expect(() => readFileSync(manifestPath, 'utf-8')).not.toThrow();
+    expect(pluginManifestSchema.safeParse(manifest).success).toBe(true);
+    expect(manifest['name']).toBe(scrumlordPluginSpec.name);
+    expect(manifest['interface']['displayName']).toBe(
+      scrumlordPluginSpec.codexInterface.displayName,
+    );
   });
 
   it('writes the marketplace at .agents/plugins pointing source.path at the nested plugin', async () => {

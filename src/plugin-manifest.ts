@@ -117,9 +117,11 @@ export const codexMarketplaceSchema = z.object({
       z.object({
         name: z.string().regex(/^[a-z][a-z0-9-]*$/, 'Plugin name must be kebab-case'),
         source: codexLocalSourceSchema,
+        // Pinned to the literals the emitter produces; observed on every real
+        // Codex marketplace. A typo in the emitted policy fails the build.
         policy: z.object({
-          installation: z.string(),
-          authentication: z.string(),
+          installation: z.literal('AVAILABLE'),
+          authentication: z.literal('ON_INSTALL'),
         }),
         category: z.string().optional(),
       }),
