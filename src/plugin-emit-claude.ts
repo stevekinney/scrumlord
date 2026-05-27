@@ -120,6 +120,7 @@ export const emit = async (spec: PluginSpec, repoRoot: string): Promise<void> =>
   // Local marketplace entry
   const marketplace = {
     name: 'scrumlord-local',
+    owner: { name: 'Steve Kinney', email: 'hello@stevekinney.net' },
     interface: { displayName: 'Scrumlord' },
     plugins: [
       {

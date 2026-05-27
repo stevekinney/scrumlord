@@ -1,5 +1,6 @@
 {
   "name": "scrumlord-local",
+  "owner": { "name": "Steve Kinney", "email": "hello@stevekinney.net" },
   "interface": { "displayName": "Scrumlord" },
   "plugins": [
     {
