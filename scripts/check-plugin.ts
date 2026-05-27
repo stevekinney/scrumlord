@@ -31,25 +31,35 @@ const repoRoot = join(import.meta.dir, '..');
 const generatedTrees = ['.claude-plugin', '.codex-plugin'];
 
 const scratch = mkdtempSync(join(tmpdir(), 'scrumlord-plugin-check-'));
+let driftDetected = false;
 try {
   await emitClaude(scrumlordPluginSpec, scratch);
   await emitCodex(scrumlordPluginSpec, scratch);
 
-  // `diff -r` exits non-zero when a committed tree differs from the freshly
-  // emitted one (content, or files present in one but not the other).
+  // `diff -ru` exits 0 (identical), 1 (differs), or 2 (trouble — e.g. a tree is
+  // missing because an emitter crashed). Report every tree in one pass and exit
+  // *after* the `finally` cleanup, so a failure never leaks the scratch dir.
   for (const tree of generatedTrees) {
     const diff = await $`diff -ru ${join(repoRoot, tree)} ${join(scratch, tree)}`.nothrow().quiet();
-    if (diff.exitCode !== 0) {
+    if (diff.exitCode === 1) {
       process.stderr.write(
         `Generated plugin tree \`${tree}\` is out of date. Run \`bun run plugin:build\` and commit the result.\n\n`,
       );
       process.stderr.write(diff.stdout.toString());
-      process.exit(1);
+      driftDetected = true;
+    } else if (diff.exitCode !== 0) {
+      process.stderr.write(
+        `Could not compare plugin tree \`${tree}\` (diff exit ${diff.exitCode}); an emitter likely produced no output. This is a bug, not stale output.\n`,
+      );
+      process.stderr.write(diff.stderr.toString() || diff.stdout.toString());
+      driftDetected = true;
     }
   }
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }
+
+if (driftDetected) process.exit(1);
 
 process.stdout.write('Plugin trees are in sync with the spec.\n');
 

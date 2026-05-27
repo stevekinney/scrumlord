@@ -49,7 +49,7 @@
     "tsc": "tsc",
     "typecheck": "tsc --noEmit",
     "typecheck:test": "tsc --noEmit --project tsconfig.test.json",
-    "validate": "bun run format:check && bun run lint && bun run typecheck && bun run typecheck:test && bun run test && bun run build && bun run plugin:check && bun run package:check",
+    "validate": "bun run format:check && bun run lint && bun run typecheck && bun run typecheck:test && bun run test && bun run plugin:check && bun run build && bun run package:check",
     "verify:release-version": "bun run scripts/verify-release-version.ts"
   },
   "devDependencies": {
