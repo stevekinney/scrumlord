@@ -305,9 +305,9 @@ describe('--project working-tree guard', () => {
     await runTasksCli(['available'], { cwd: rootA, homeDirectory: home });
     await runTasksCli(['available'], { cwd: rootB, homeDirectory: home });
 
-    // A locate (filesystem-dependent) from rootA but scoped to project beta
+    // A teleport (filesystem-dependent) from rootA but scoped to project beta
     // must be refused rather than operating across working trees.
-    const result = await runTasksCli(['locate', 'whatever', '--project', 'octo/beta'], {
+    const result = await runTasksCli(['teleport', 'whatever', '--project', 'octo/beta'], {
       cwd: rootA,
       homeDirectory: home,
     });

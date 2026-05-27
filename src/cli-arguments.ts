@@ -246,7 +246,7 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
     ],
     positionalVariants: [['task-id']],
   }),
-  locate: { ...onePositional, booleanFlags: ['json'] },
+  teleport: { ...onePositional, booleanFlags: ['print', 'json'] },
   setup: withJsonFlag({
     minPositionals: 0,
     maxPositionals: 1,

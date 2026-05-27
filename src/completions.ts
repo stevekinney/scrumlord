@@ -55,7 +55,7 @@ export const commandSummaries: Record<string, string> = {
   create: 'Create a new task.',
   update: 'Update a task.',
   setup: 'Configure Scrumlord and agent integrations.',
-  locate: 'Print a task worktree path to stdout for use with cd.',
+  teleport: 'Resolve a task worktree path (cd via the tasks-teleport shell function).',
   completions: 'Generate shell completion scripts.',
   prompt: 'Emit or launch a workflow skill (next, plan, resolve, sync, audit, merge, cleanup).',
 };

@@ -560,7 +560,7 @@ const topics: HelpTopic[] = [
     usage:
       'tasks setup [--skills|--subagents|--git-hooks|--agent-hooks|--prompt|--shell] [--project|--user|--local] [--agent <all|claude|codex>] [--yes]',
     description:
-      'With no mode flag, runs the interactive numbered-choice setup. With a mode flag, runs that single piece: --skills writes agent skill files; --subagents installs task-manager subagents; --git-hooks installs the Lefthook block; --agent-hooks writes lifecycle hook configuration; --prompt emits a raw setup prompt agents can follow; --shell prints the tasks-start shell helper to stdout.',
+      'With no mode flag, runs the interactive numbered-choice setup. With a mode flag, runs that single piece: --skills writes agent skill files; --subagents installs task-manager subagents; --git-hooks installs the Lefthook block; --agent-hooks writes lifecycle hook configuration; --prompt emits a raw setup prompt agents can follow; --shell prints the tasks-teleport and tasks-start shell helpers to stdout.',
     options: [
       { name: '--skills', description: 'Write agent skill files.' },
       { name: '--subagents', description: 'Install task-manager subagents.' },
@@ -570,7 +570,7 @@ const topics: HelpTopic[] = [
       {
         name: '--shell',
         description:
-          'Print the tasks-start shell helper to stdout. Redirect into your rc file to have `tasks-start` cd into the task worktree after the agent exits. To cd into a worktree directly, use `cd "$(tasks locate current)"`.',
+          'Print the tasks-teleport and tasks-start shell helpers to stdout. Redirect into your rc file to enable `cd "$(tasks teleport current)"` and have `tasks-start` cd into the task worktree after the agent exits.',
       },
       {
         name: '--project',
@@ -885,19 +885,27 @@ const topics: HelpTopic[] = [
     ],
   },
   {
-    path: ['locate'],
-    summary: 'Print a task worktree path; cd via `cd "$(tasks locate <id>)"`.',
-    usage: 'tasks locate <task-id> [--json]',
+    path: ['teleport'],
+    summary: 'Resolve a task worktree path; cd via the tasks-teleport shell function.',
+    usage: 'tasks teleport <task-id> [--print] [--json]',
     description:
-      'Resolves <task-id> (UUID, unique prefix, "current", or "next") and prints the absolute path of its existing git worktree on stdout, newline-terminated. A child process cannot change the parent shell directory, so wrap it: cd "$(tasks locate <id>)". Never creates a worktree. On error, --json forces the JSON error envelope; success output is always the raw path.',
+      'Resolves <task-id> (UUID, unique prefix, "current", or "next") and prints the absolute path of its existing git worktree on stdout, newline-terminated. A child process cannot change the parent shell directory, so the actual cd happens in the tasks-teleport shell function (install with "tasks setup --shell"). With --print the binary stays silent on stderr — this is the path the shell function consumes. Without --print, and when the shell function is not installed, a one-line advisory is written to stderr (stdout stays path-only). Never creates a worktree. On error, --json forces the JSON error envelope; success output is always the raw path.',
     arguments: ['<task-id>: UUID, unique UUID prefix, "current", or "next".'],
     options: [
+      {
+        name: '--print',
+        description: 'Print the bare path only; suppress the shell-function advisory.',
+      },
       {
         name: '--json',
         description: 'Force the error envelope to JSON. Does not affect success output.',
       },
     ],
-    examples: ['cd "$(tasks locate current)"', 'cd "$(tasks locate next)"'],
+    examples: [
+      'tasks setup --shell >> ~/.zshrc   # install tasks-teleport, then: tasks-teleport current',
+      'cd "$(tasks teleport current --print)"',
+      'cd "$(tasks teleport next --print)"',
+    ],
   },
   {
     path: ['completions'],

@@ -1,9 +1,10 @@
 /* eslint-disable max-lines */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runTasksCli } from './cli-runner';
+import { TELEPORT_SHELL_SNIPPET } from './cli-teleport-command';
 import type { CommandResult } from './command-runner';
 import { emptyProgressStoreMethods } from './test-progress-store-methods';
 import type { Task, TaskStore } from './types';
@@ -127,7 +128,7 @@ const failingWorktreeRunner =
 const temporaryDirectories: string[] = [];
 
 const temporaryDirectory = async (): Promise<string> => {
-  const directory = await mkdtemp(join(tmpdir(), 'scrumlord-locate-'));
+  const directory = await mkdtemp(join(tmpdir(), 'scrumlord-teleport-'));
   temporaryDirectories.push(directory);
   return directory;
 };
@@ -165,13 +166,13 @@ const makeGitRepo = async (branch: string): Promise<string> => {
   return root;
 };
 
-describe('tasks locate — success cases', () => {
+describe('tasks teleport — success cases', () => {
   it('returns the worktree path for a UUID task', async () => {
     const t = task('abc12345', { branch: 'tasks/abc12345' });
     const store = makeStore({ tasks: [t] });
     const porcelain = makePorcelain([{ path: '/tmp/wt-abc', branch: 'tasks/abc12345' }]);
 
-    const result = await runTasksCli(['locate', 'abc12345'], {
+    const result = await runTasksCli(['teleport', 'abc12345', '--print'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
     });
@@ -188,7 +189,7 @@ describe('tasks locate — success cases', () => {
     const store = makeStore({ tasks: [t], projectRoot: gitRoot });
     const porcelain = makePorcelain([{ path: '/tmp/wt-current', branch }]);
 
-    const result = await runTasksCli(['locate', 'current'], {
+    const result = await runTasksCli(['teleport', 'current', '--print'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain, branch),
     });
@@ -203,7 +204,7 @@ describe('tasks locate — success cases', () => {
     const store = makeStore({ tasks: [t] });
     const porcelain = makePorcelain([{ path: '/tmp/wt-next', branch: 'tasks/next' }]);
 
-    const result = await runTasksCli(['locate', 'next'], {
+    const result = await runTasksCli(['teleport', 'next', '--print'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
     });
@@ -219,7 +220,7 @@ describe('tasks locate — success cases', () => {
     store.projectRoot = '/project';
     const porcelain = makePorcelain([{ path: '/project', branch: 'main' }]);
 
-    const result = await runTasksCli(['locate', 'main-task'], {
+    const result = await runTasksCli(['teleport', 'main-task'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
     });
@@ -233,7 +234,7 @@ describe('tasks locate — success cases', () => {
     const store = makeStore({ tasks: [t] });
     const porcelain = makePorcelain([{ path: '/tmp/wt-json', branch: 'tasks/json' }]);
 
-    const result = await runTasksCli(['locate', 'json-task', '--json'], {
+    const result = await runTasksCli(['teleport', 'json-task', '--json'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
     });
@@ -247,7 +248,7 @@ describe('tasks locate — success cases', () => {
     const store = makeStore({ tasks: [t] });
     const porcelain = makePorcelain([{ path: '/tmp/wt-claude', branch: 'tasks/claude' }]);
 
-    const result = await runTasksCli(['locate', 'claude-task'], {
+    const result = await runTasksCli(['teleport', 'claude-task'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
       environment: { CLAUDECODE: '1' },
@@ -262,7 +263,7 @@ describe('tasks locate — success cases', () => {
     const store = makeStore({ tasks: [t] });
     const porcelain = makePorcelain([{ path: '/tmp/wt-codex', branch: 'tasks/codex' }]);
 
-    const result = await runTasksCli(['locate', 'codex-task'], {
+    const result = await runTasksCli(['teleport', 'codex-task'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
       environment: { CODEX_MANAGED_BY_BUN: '1' },
@@ -281,7 +282,7 @@ describe('tasks locate — success cases', () => {
       { path: '/tmp/wt-linked', branch: 'tasks/abc12345' },
     ]);
 
-    const result = await runTasksCli(['locate', 'multi-task'], {
+    const result = await runTasksCli(['teleport', 'multi-task'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
     });
@@ -295,7 +296,7 @@ describe('tasks locate — success cases', () => {
     const store = makeStore({ tasks: [t] });
     const porcelain = makePorcelain([{ path: '/tmp/wt-slash', branch: 'feature/multi/level' }]);
 
-    const result = await runTasksCli(['locate', 'slash-task'], {
+    const result = await runTasksCli(['teleport', 'slash-task'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
     });
@@ -305,7 +306,7 @@ describe('tasks locate — success cases', () => {
   });
 });
 
-describe('tasks locate — path-only output', () => {
+describe('tasks teleport — shell-function advisory', () => {
   const setup = (): { store: ReturnType<typeof makeStore>; porcelain: string } => {
     const t = task('adv-task', { branch: 'tasks/adv' });
     return {
@@ -314,9 +315,9 @@ describe('tasks locate — path-only output', () => {
     };
   };
 
-  it('prints the bare path on stdout with empty stderr', async () => {
+  it('--print prints the bare path with empty stderr', async () => {
     const { store, porcelain } = setup();
-    const result = await runTasksCli(['locate', 'adv-task'], {
+    const result = await runTasksCli(['teleport', 'adv-task', '--print'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
     });
@@ -324,25 +325,45 @@ describe('tasks locate — path-only output', () => {
     expect(result.stderr).toBe('');
   });
 
-  it('stays path-only regardless of the environment', async () => {
+  it('bare (no marker) prints the path on stdout and an advisory on stderr', async () => {
     const { store, porcelain } = setup();
-    const result = await runTasksCli(['locate', 'adv-task'], {
+    const result = await runTasksCli(['teleport', 'adv-task'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
       environment: {},
+    });
+    expect(result.stdout).toBe('/tmp/wt-adv\n');
+    expect(result.stderr).toContain('cannot change your shell directory');
+    expect(result.stderr).toContain('tasks setup --shell');
+  });
+
+  it('suppresses the advisory when TASKS_TELEPORT_SHELL marks the function installed', async () => {
+    const { store, porcelain } = setup();
+    const result = await runTasksCli(['teleport', 'adv-task'], {
+      createStore: async () => store,
+      runner: worktreeRunner(porcelain),
+      environment: { TASKS_TELEPORT_SHELL: '1' },
     });
     expect(result.stdout).toBe('/tmp/wt-adv\n');
     expect(result.stderr).toBe('');
   });
 });
 
-describe('tasks locate — locate_no_branch', () => {
+describe('TELEPORT_SHELL_SNIPPET', () => {
+  it('calls teleport with --print and exports the installed marker', () => {
+    expect(TELEPORT_SHELL_SNIPPET).toContain('export TASKS_TELEPORT_SHELL=1');
+    expect(TELEPORT_SHELL_SNIPPET).toContain('command tasks teleport "$@" --print');
+    expect(TELEPORT_SHELL_SNIPPET).toContain('command tasks teleport "$task_id" --print');
+  });
+});
+
+describe('tasks teleport — teleport_no_branch', () => {
   const noBranchTask = task('no-branch-task', { branch: null });
   const store = makeStore({ tasks: [noBranchTask] });
   const runner = worktreeRunner('');
 
   it('emits human error to stderr when no --json', async () => {
-    const result = await runTasksCli(['locate', 'no-branch-task'], {
+    const result = await runTasksCli(['teleport', 'no-branch-task'], {
       createStore: async () => store,
       runner,
       isStdoutTty: true,
@@ -355,18 +376,18 @@ describe('tasks locate — locate_no_branch', () => {
   });
 
   it('emits JSON envelope when --json', async () => {
-    const result = await runTasksCli(['locate', 'no-branch-task', '--json'], {
+    const result = await runTasksCli(['teleport', 'no-branch-task', '--json'], {
       createStore: async () => store,
       runner,
     });
 
     expect(result.exitCode).toBe(1);
     const parsed = JSON.parse(result.stderr);
-    expect(parsed.error.code).toBe('locate_no_branch');
+    expect(parsed.error.code).toBe('teleport_no_branch');
   });
 
   it('emits JSON envelope under CLAUDECODE=1', async () => {
-    const result = await runTasksCli(['locate', 'no-branch-task'], {
+    const result = await runTasksCli(['teleport', 'no-branch-task'], {
       createStore: async () => store,
       runner,
       environment: { CLAUDECODE: '1' },
@@ -374,11 +395,11 @@ describe('tasks locate — locate_no_branch', () => {
 
     expect(result.exitCode).toBe(1);
     const parsed = JSON.parse(result.stderr);
-    expect(parsed.error.code).toBe('locate_no_branch');
+    expect(parsed.error.code).toBe('teleport_no_branch');
   });
 
   it('emits JSON envelope under CODEX_MANAGED_BY_BUN=1', async () => {
-    const result = await runTasksCli(['locate', 'no-branch-task'], {
+    const result = await runTasksCli(['teleport', 'no-branch-task'], {
       createStore: async () => store,
       runner,
       environment: { CODEX_MANAGED_BY_BUN: '1' },
@@ -386,18 +407,18 @@ describe('tasks locate — locate_no_branch', () => {
 
     expect(result.exitCode).toBe(1);
     const parsed = JSON.parse(result.stderr);
-    expect(parsed.error.code).toBe('locate_no_branch');
+    expect(parsed.error.code).toBe('teleport_no_branch');
   });
 });
 
-describe('tasks locate — locate_no_worktree', () => {
+describe('tasks teleport — teleport_no_worktree', () => {
   const t = task('orphan-task', { branch: 'tasks/orphan' });
   const store = makeStore({ tasks: [t] });
   const emptyPorcelain = makePorcelain([{ path: '/project', branch: 'main' }]);
   const runner = worktreeRunner(emptyPorcelain);
 
   it('emits human error naming the task id and branch', async () => {
-    const result = await runTasksCli(['locate', 'orphan-task'], {
+    const result = await runTasksCli(['teleport', 'orphan-task'], {
       createStore: async () => store,
       runner,
       isStdoutTty: true,
@@ -410,24 +431,24 @@ describe('tasks locate — locate_no_worktree', () => {
     expect(result.stdout).toBe('');
   });
 
-  it('emits JSON envelope with locate_no_worktree when --json', async () => {
-    const result = await runTasksCli(['locate', 'orphan-task', '--json'], {
+  it('emits JSON envelope with teleport_no_worktree when --json', async () => {
+    const result = await runTasksCli(['teleport', 'orphan-task', '--json'], {
       createStore: async () => store,
       runner,
     });
 
     expect(result.exitCode).toBe(1);
     const parsed = JSON.parse(result.stderr);
-    expect(parsed.error.code).toBe('locate_no_worktree');
+    expect(parsed.error.code).toBe('teleport_no_worktree');
   });
 });
 
-describe('tasks locate — locate_worktree_lookup_failed', () => {
+describe('tasks teleport — teleport_worktree_lookup_failed', () => {
   const t = task('fail-task', { branch: 'tasks/fail' });
   const store = makeStore({ tasks: [t] });
 
   it('includes git error text in human stderr', async () => {
-    const result = await runTasksCli(['locate', 'fail-task'], {
+    const result = await runTasksCli(['teleport', 'fail-task'], {
       createStore: async () => store,
       runner: failingWorktreeRunner('fatal: not a git repository'),
       isStdoutTty: true,
@@ -439,20 +460,20 @@ describe('tasks locate — locate_worktree_lookup_failed', () => {
     expect(result.stdout).toBe('');
   });
 
-  it('emits JSON envelope with locate_worktree_lookup_failed when --json', async () => {
-    const result = await runTasksCli(['locate', 'fail-task', '--json'], {
+  it('emits JSON envelope with teleport_worktree_lookup_failed when --json', async () => {
+    const result = await runTasksCli(['teleport', 'fail-task', '--json'], {
       createStore: async () => store,
       runner: failingWorktreeRunner('fatal: not a git repository'),
     });
 
     expect(result.exitCode).toBe(1);
     const parsed = JSON.parse(result.stderr);
-    expect(parsed.error.code).toBe('locate_worktree_lookup_failed');
+    expect(parsed.error.code).toBe('teleport_worktree_lookup_failed');
     expect(parsed.error.message).toContain('not a git repository');
   });
 
   it('collapses multi-line stderr into a single-line message without double punctuation', async () => {
-    const result = await runTasksCli(['locate', 'fail-task', '--json'], {
+    const result = await runTasksCli(['teleport', 'fail-task', '--json'], {
       createStore: async () => store,
       runner: failingWorktreeRunner('fatal: ambiguous argument\n  hint: try git fetch'),
     });
@@ -462,31 +483,31 @@ describe('tasks locate — locate_worktree_lookup_failed', () => {
     expect(parsed.error.message).not.toMatch(/\.\./);
   });
 
-  it('emits locate_worktree_lookup_failed for a non-absolute path', async () => {
+  it('emits teleport_worktree_lookup_failed for a non-absolute path', async () => {
     const t2 = task('rel-task', { branch: 'tasks/rel' });
     const store2 = makeStore({ tasks: [t2] });
     const relPorcelain = 'worktree worktrees/rel\nHEAD abc123\nbranch refs/heads/tasks/rel\n\n';
 
-    const result = await runTasksCli(['locate', 'rel-task', '--json'], {
+    const result = await runTasksCli(['teleport', 'rel-task', '--json'], {
       createStore: async () => store2,
       runner: worktreeRunner(relPorcelain),
     });
 
     expect(result.exitCode).toBe(1);
     const parsed = JSON.parse(result.stderr);
-    expect(parsed.error.code).toBe('locate_worktree_lookup_failed');
+    expect(parsed.error.code).toBe('teleport_worktree_lookup_failed');
     expect(parsed.error.message).toContain('worktrees/rel');
   });
 });
 
-describe('tasks locate — resolver and store errors', () => {
-  // All tests that call `tasks locate current` need a real git repo so
+describe('tasks teleport — resolver and store errors', () => {
+  // All tests that call `tasks teleport current` need a real git repo so
   // currentBranchTask can call `git branch --show-current`.
   it('returns human error for current with no branch task', async () => {
     const gitRoot = await makeGitRepo('tasks/empty-branch');
     const emptyStore = makeStore({ projectRoot: gitRoot });
 
-    const result = await runTasksCli(['locate', 'current'], {
+    const result = await runTasksCli(['teleport', 'current'], {
       createStore: async () => emptyStore,
       runner: worktreeRunner(''),
       isStdoutTty: true,
@@ -502,7 +523,7 @@ describe('tasks locate — resolver and store errors', () => {
     const gitRoot = await makeGitRepo('tasks/empty-branch2');
     const emptyStore = makeStore({ projectRoot: gitRoot });
 
-    const result = await runTasksCli(['locate', 'current', '--json'], {
+    const result = await runTasksCli(['teleport', 'current', '--json'], {
       createStore: async () => emptyStore,
       runner: worktreeRunner(''),
     });
@@ -516,7 +537,7 @@ describe('tasks locate — resolver and store errors', () => {
     const gitRoot = await makeGitRepo('tasks/empty-branch3');
     const emptyStore = makeStore({ projectRoot: gitRoot });
 
-    const result = await runTasksCli(['locate', 'current'], {
+    const result = await runTasksCli(['teleport', 'current'], {
       createStore: async () => emptyStore,
       runner: worktreeRunner(''),
       environment: { CLAUDECODE: '1' },
@@ -530,7 +551,7 @@ describe('tasks locate — resolver and store errors', () => {
   it('returns human error for next on empty store', async () => {
     const emptyStore = makeStore();
 
-    const result = await runTasksCli(['locate', 'next'], {
+    const result = await runTasksCli(['teleport', 'next'], {
       createStore: async () => emptyStore,
       runner: worktreeRunner(''),
       isStdoutTty: true,
@@ -545,7 +566,7 @@ describe('tasks locate — resolver and store errors', () => {
   it('returns JSON envelope for next on empty store when --json', async () => {
     const emptyStore = makeStore();
 
-    const result = await runTasksCli(['locate', 'next', '--json'], {
+    const result = await runTasksCli(['teleport', 'next', '--json'], {
       createStore: async () => emptyStore,
       runner: worktreeRunner(''),
     });
@@ -558,7 +579,7 @@ describe('tasks locate — resolver and store errors', () => {
   it('returns human error for unknown UUID', async () => {
     const emptyStore = makeStore();
 
-    const result = await runTasksCli(['locate', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'], {
+    const result = await runTasksCli(['teleport', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'], {
       createStore: async () => emptyStore,
       runner: worktreeRunner(''),
       isStdoutTty: true,
@@ -573,10 +594,13 @@ describe('tasks locate — resolver and store errors', () => {
   it('returns JSON envelope for unknown UUID when --json', async () => {
     const emptyStore = makeStore();
 
-    const result = await runTasksCli(['locate', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', '--json'], {
-      createStore: async () => emptyStore,
-      runner: worktreeRunner(''),
-    });
+    const result = await runTasksCli(
+      ['teleport', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', '--json'],
+      {
+        createStore: async () => emptyStore,
+        runner: worktreeRunner(''),
+      },
+    );
 
     expect(result.exitCode).toBe(1);
     const parsed = JSON.parse(result.stderr);
@@ -590,7 +614,7 @@ describe('tasks locate — resolver and store errors', () => {
     const t2 = task('task-2', { branch });
     const ambiguousStore = makeStore({ tasks: [t1, t2], projectRoot: gitRoot });
 
-    const result = await runTasksCli(['locate', 'current', '--json'], {
+    const result = await runTasksCli(['teleport', 'current', '--json'], {
       createStore: async () => ambiguousStore,
       runner: worktreeRunner('', branch),
     });
@@ -601,10 +625,10 @@ describe('tasks locate — resolver and store errors', () => {
   });
 });
 
-describe('tasks locate — missing argument', () => {
+describe('tasks teleport — missing argument', () => {
   it('returns JSON envelope for missing positional', async () => {
     const store = makeStore();
-    const result = await runTasksCli(['locate'], {
+    const result = await runTasksCli(['teleport'], {
       createStore: async () => store,
       runner: worktreeRunner(''),
     });

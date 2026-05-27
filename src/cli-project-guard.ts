@@ -10,7 +10,7 @@ import type { TaskStore } from './types.js';
  * one project's task rows while operating on another's filesystem, so they are
  * guarded by {@link guardProjectWorkingTree}.
  */
-const filesystemDependentCommands = new Set(['start', 'pipeline', 'locate']);
+const filesystemDependentCommands = new Set(['start', 'pipeline', 'teleport']);
 
 /**
  * Skills that always launch an agent in the current working tree — there is no

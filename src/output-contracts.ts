@@ -87,7 +87,7 @@ const pureCommandContracts: Record<string, OutputContract> = {
   start: { kind: 'jsonData', shape: 'start-result' },
   'agent-hook': { kind: 'jsonData', shape: 'start-result' },
   pipeline: { kind: 'bespoke' },
-  locate: { kind: 'bespoke' },
+  teleport: { kind: 'bespoke' },
   completions: { kind: 'rawText' },
   'completions-data': { kind: 'rawText' },
   // `plan` keeps a rawText contract because `tasks prompt plan` delegates its
