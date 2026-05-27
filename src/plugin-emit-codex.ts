@@ -1,7 +1,11 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { format } from 'prettier';
-import { pluginManifestSchema } from './plugin-manifest.js';
+import {
+  codexMarketplaceSchema,
+  pluginManifestSchema,
+  validateOrThrow,
+} from './plugin-manifest.js';
 import type { PluginSpec } from './plugin-spec.js';
 
 const formatJson = (value: unknown): Promise<string> =>
@@ -31,9 +35,20 @@ const buildHooks = (spec: PluginSpec): Record<string, unknown> => {
   return { hooks: byEvent };
 };
 
-/** Writes the Codex plugin tree to `<root>/.codex-plugin/`. */
+/**
+ * Writes the Codex plugin tree under `<root>/.codex-plugin/`.
+ *
+ * `.codex-plugin/` is the Codex *marketplace root*: it holds
+ * `.agents/plugins/marketplace.json` plus a `plugins/<name>/` directory for each
+ * plugin. The plugin itself lives at `plugins/<name>/.codex-plugin/` so that the
+ * marketplace `source.path` (`./plugins/<name>`) resolves to a directory that
+ * contains a `.codex-plugin/plugin.json` — the layout `codex plugin add`
+ * requires. A self-referential `source.path` of `.` is rejected by Codex, which
+ * is why the plugin is nested under `plugins/` rather than living at the root.
+ */
 export const emit = async (spec: PluginSpec, repoRoot: string): Promise<void> => {
-  const pluginRoot = join(repoRoot, '.codex-plugin');
+  const marketplaceRoot = join(repoRoot, '.codex-plugin');
+  const pluginRoot = join(marketplaceRoot, 'plugins', spec.name, '.codex-plugin');
 
   const manifest = {
     name: spec.name,
@@ -50,16 +65,10 @@ export const emit = async (spec: PluginSpec, repoRoot: string): Promise<void> =>
     interface: spec.codexInterface,
   };
 
-  const parsed = pluginManifestSchema.safeParse(manifest);
-  if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map((i) => ` - ${i.path.join('.')}: ${i.message}`)
-      .join('\n');
-    throw new Error(`Codex plugin manifest validation failed:\n${issues}`);
-  }
+  const validManifest = validateOrThrow(pluginManifestSchema, 'Codex plugin manifest', manifest);
 
   mkdirSync(pluginRoot, { recursive: true });
-  await Bun.write(join(pluginRoot, 'plugin.json'), await formatJson(parsed.data));
+  await Bun.write(join(pluginRoot, 'plugin.json'), await formatJson(validManifest));
 
   // MCP server config (Codex uses a flat server map)
   const mcpConfig: Record<string, unknown> = {
@@ -93,4 +102,30 @@ export const emit = async (spec: PluginSpec, repoRoot: string): Promise<void> =>
       `${buildFrontmatter(agent.name, agent.description)}${body}`,
     );
   }
+
+  // Codex marketplace manifest. Codex loads marketplaces from
+  // `<marketplace-root>/.agents/plugins/marketplace.json` and resolves each
+  // plugin's `source.path` relative to that root. Here the marketplace root is
+  // `.codex-plugin/`, and the plugin sits at `./plugins/<name>` (which contains
+  // its own `.codex-plugin/plugin.json`).
+  const marketplace = {
+    name: `${spec.name}-local`,
+    interface: { displayName: spec.codexInterface.displayName },
+    plugins: [
+      {
+        name: spec.name,
+        source: { source: 'local' as const, path: `./plugins/${spec.name}` },
+        policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+        category: spec.codexInterface.category,
+      },
+    ],
+  };
+  const validMarketplace = validateOrThrow(
+    codexMarketplaceSchema,
+    'Codex marketplace manifest',
+    marketplace,
+  );
+  const marketplaceDir = join(marketplaceRoot, '.agents', 'plugins');
+  mkdirSync(marketplaceDir, { recursive: true });
+  await Bun.write(join(marketplaceDir, 'marketplace.json'), await formatJson(validMarketplace));
 };

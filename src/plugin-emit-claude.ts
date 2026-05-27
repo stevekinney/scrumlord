@@ -1,8 +1,15 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { format } from 'prettier';
-import { claudePluginManifestSchema } from './plugin-manifest.js';
+import {
+  claudeMarketplaceSchema,
+  claudePluginManifestSchema,
+  validateOrThrow,
+} from './plugin-manifest.js';
 import type { PluginSpec } from './plugin-spec.js';
+
+/** JSON Schema URL for editor autocomplete on the Claude plugin manifest. */
+const CLAUDE_MANIFEST_SCHEMA_URL = 'https://json.schemastore.org/claude-code-plugin-manifest.json';
 
 const formatJson = (value: unknown): Promise<string> =>
   format(JSON.stringify(value), { parser: 'json' });
@@ -58,7 +65,9 @@ export const emit = async (spec: PluginSpec, repoRoot: string): Promise<void> =>
   const pluginRoot = join(repoRoot, '.claude-plugin');
 
   const manifest = {
+    $schema: CLAUDE_MANIFEST_SCHEMA_URL,
     name: spec.name,
+    displayName: spec.codexInterface.displayName,
     version: spec.version,
     description: spec.description,
     author: spec.author,
@@ -72,16 +81,14 @@ export const emit = async (spec: PluginSpec, repoRoot: string): Promise<void> =>
     mcpServers: './.mcp.json',
   };
 
-  const parsed = claudePluginManifestSchema.safeParse(manifest);
-  if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map((i) => ` - ${i.path.join('.')}: ${i.message}`)
-      .join('\n');
-    throw new Error(`Claude plugin manifest validation failed:\n${issues}`);
-  }
+  const validManifest = validateOrThrow(
+    claudePluginManifestSchema,
+    'Claude plugin manifest',
+    manifest,
+  );
 
   mkdirSync(pluginRoot, { recursive: true });
-  await Bun.write(join(pluginRoot, 'plugin.json'), await formatJson(parsed.data));
+  await Bun.write(join(pluginRoot, 'plugin.json'), await formatJson(validManifest));
 
   // MCP server config (Claude wraps in mcpServers envelope)
   const mcpConfig = {
@@ -117,19 +124,28 @@ export const emit = async (spec: PluginSpec, repoRoot: string): Promise<void> =>
     );
   }
 
-  // Local marketplace entry
+  // Local marketplace entry. Claude requires a top-level `owner` object and has
+  // no `interface`/`policy` fields (those are Codex-only).
   const marketplace = {
-    name: 'scrumlord-local',
-    owner: { name: 'Steve Kinney', email: 'hello@stevekinney.net' },
-    interface: { displayName: 'Scrumlord' },
+    $schema: 'https://json.schemastore.org/claude-code-plugin-marketplace.json',
+    name: `${spec.name}-local`,
+    description: spec.description,
+    owner: spec.author,
     plugins: [
       {
         name: spec.name,
-        source: { source: 'local', path: './.claude-plugin' },
-        policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
-        category: 'Productivity',
+        // Plugin root == marketplace root == repo root (the dir containing
+        // `.claude-plugin/`). Claude resolves relative sources from there.
+        source: './',
+        description: spec.description,
+        category: spec.codexInterface.category,
       },
     ],
   };
-  await Bun.write(join(pluginRoot, 'marketplace.json'), await formatJson(marketplace));
+  const validMarketplace = validateOrThrow(
+    claudeMarketplaceSchema,
+    'Claude marketplace manifest',
+    marketplace,
+  );
+  await Bun.write(join(pluginRoot, 'marketplace.json'), await formatJson(validMarketplace));
 };

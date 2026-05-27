@@ -1,12 +1,13 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-plugin-marketplace.json",
   "name": "scrumlord-local",
+  "description": "A Bun-first task graph CLI and library.",
   "owner": { "name": "Steve Kinney", "email": "hello@stevekinney.net" },
-  "interface": { "displayName": "Scrumlord" },
   "plugins": [
     {
       "name": "scrumlord",
-      "source": { "source": "local", "path": "./.claude-plugin" },
-      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "source": "./",
+      "description": "A Bun-first task graph CLI and library.",
       "category": "Productivity"
     }
   ]

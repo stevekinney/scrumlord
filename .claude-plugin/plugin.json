@@ -6,6 +6,8 @@
   "homepage": "https://github.com/stevekinney/scrumlord",
   "repository": "https://github.com/stevekinney/scrumlord",
   "license": "MIT",
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "displayName": "Scrumlord",
   "skills": "./skills/",
   "agents": "./agents/",
   "hooks": "./hooks/hooks.json",
