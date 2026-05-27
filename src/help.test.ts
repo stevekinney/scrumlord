@@ -11,7 +11,6 @@ const expectedTopics = [
   'current',
   'peek',
   'remaining',
-  'plan',
   'repository',
   'session',
   'progress',
@@ -36,18 +35,20 @@ const expectedTopics = [
   'blockers',
   'blockers add',
   'blockers remove',
-  'cleanup',
   'overview',
   'setup',
   'setup status',
   'agent-hook',
   'pr',
   'search',
-  'next',
-  'resolve',
-  'sync',
-  'audit',
-  'merge',
+  'prompt',
+  'prompt next',
+  'prompt plan',
+  'prompt resolve',
+  'prompt sync',
+  'prompt audit',
+  'prompt merge',
+  'prompt cleanup',
   'teleport',
   'completions',
 ];
@@ -95,25 +96,24 @@ describe('renderHelp', () => {
     expect(renderHelp(['unknown'], 'never')).toBeNull();
   });
 
-  it('renders cleanup help with new flags', () => {
-    const help = renderHelp(['cleanup'], 'never');
+  it('renders prompt cleanup help with graph flags', () => {
+    const help = renderHelp(['prompt', 'cleanup'], 'never');
     expect(help).toContain('--recover-orphans');
     expect(help).toContain('--orphans-only');
     expect(help).toContain('--dry-run');
-    expect(help).toContain('--prompt');
-    expect(help).toContain('tasks cleanup --prompt | claude --print');
-    expect(help).toContain('tasks cleanup --orphans-only');
-    expect(help).toContain('tasks cleanup 30 --recover-orphans --dry-run');
+    expect(help).toContain('--print');
+    expect(help).toContain('tasks prompt cleanup --orphans-only --dry-run');
+    expect(help).toContain('tasks prompt cleanup --cli claude');
   });
 });
 
 describe('renderHelp — teleport', () => {
-  it('renders teleport help with usage, argument, and quoted example', () => {
+  it('renders teleport help with usage, argument, and shell-function example', () => {
     const help = renderHelp(['teleport'], 'never');
     expect(help).not.toBeNull();
     expect(help).toContain('tasks teleport <task-id>');
-    expect(help).toContain('<task-id>: Task ID');
-    expect(help).toContain('cd "$(tasks teleport current)"');
+    expect(help).toContain('<task-id>: UUID');
+    expect(help).toContain('cd "$(tasks teleport current --print)"');
   });
 
   it('renders setup help listing --shell mode', () => {

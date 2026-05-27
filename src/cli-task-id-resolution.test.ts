@@ -257,13 +257,14 @@ describe('resolveTaskId — case sensitivity and whitespace', () => {
 });
 
 describe('resolveTaskId — missing argument gate (every positional task-id command)', () => {
+  // `tags` is intentionally excluded: with no positional it lists the project's
+  // tags (and `--all` lists across projects), so it does not require a task id.
   const positionalTaskIdCommands = [
     'get',
     'session',
     'start',
     'delete',
     'update',
-    'tags',
     'blockers',
     'blocked-by',
     'blocking',

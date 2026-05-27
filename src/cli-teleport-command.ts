@@ -8,11 +8,23 @@ import { ScrumlordError } from './errors.js';
 import { findWorktreeForBranch } from './git-status.js';
 import type { TaskStore } from './types.js';
 
-const successPath = (path: string): CliResult => ({
+const successPath = (path: string, advisory: string): CliResult => ({
   exitCode: 0,
   stdout: `${path}\n`,
-  stderr: '',
+  stderr: advisory,
 });
+
+/**
+ * One-line stderr advisory shown when teleport runs *without* `--print` and the
+ * `tasks-teleport` shell function does not appear to be installed (its
+ * `TASKS_TELEPORT_SHELL` marker is absent). The binary cannot change the parent
+ * shell's directory itself; only the shell function can. The marker is advisory,
+ * not proof — a false positive/negative just shows or hides this one line.
+ */
+const SHELL_FUNCTION_ADVISORY =
+  'note: `tasks teleport` cannot change your shell directory itself. ' +
+  'Use the `tasks-teleport` shell function (install it with `tasks setup --shell`), ' +
+  'or `cd "$(tasks teleport <id> --print)"`.\n';
 
 /** Collapses whitespace, trims, and strips trailing punctuation from git stderr. */
 const normalizeStderr = (raw: string): string =>
@@ -26,6 +38,7 @@ const resolveWorktreePath = async (
   taskId: string,
   branch: string,
   runner: CommandRunner,
+  advisory: string,
 ): Promise<CliResult> => {
   const lookup = await findWorktreeForBranch(projectRoot, branch, runner);
 
@@ -54,14 +67,20 @@ const resolveWorktreePath = async (
     );
   }
 
-  return successPath(lookup.path);
+  return successPath(lookup.path, advisory);
 };
 
 /**
- * Locates the existing git worktree for a task and prints its absolute path.
- * On success, stdout is path-only (newline-terminated) so shells can
- * `cd "$(tasks teleport <id>)"`. On error, formatting is handled by the
- * shared CLI output boundary.
+ * Locates the existing git worktree for a task and prints its absolute path on
+ * stdout (path-only, newline-terminated) so a shell can `cd "$(…)"`.
+ *
+ * With `--print` the binary stays silent on stderr — this is the path the
+ * installed `tasks-teleport` shell function consumes. Without `--print`, and
+ * when the shell function's `TASKS_TELEPORT_SHELL` marker is absent, it adds a
+ * one-line advisory on stderr: a child process cannot change the parent shell's
+ * directory, so the shell function (or an explicit `cd "$(…)"`) is required. The
+ * advisory never touches stdout, so `cd "$(…)"` and JSON consumers are
+ * unaffected. Errors use the shared CLI output boundary (`--json` forces JSON).
  */
 export const runTeleportCommand = async (
   store: TaskStore,
@@ -80,15 +99,25 @@ export const runTeleportCommand = async (
     throw new ScrumlordError('teleport_no_branch', `Task ${task.id} has no branch set.`);
   }
 
+  // When the caller passes an explicit environment, trust it exclusively (keeps
+  // tests hermetic against an ambient marker); otherwise read the real env.
+  const environment = options.environment ?? Bun.env;
+  const shellFunctionInstalled = environment['TASKS_TELEPORT_SHELL'] !== undefined;
+  const advisory =
+    parsed.flags.has('print') || shellFunctionInstalled ? '' : SHELL_FUNCTION_ADVISORY;
+
   const runner: CommandRunner = options.runner ?? runCommand;
-  return resolveWorktreePath(store.projectRoot, task.id, task.branch, runner);
+  return resolveWorktreePath(store.projectRoot, task.id, task.branch, runner, advisory);
 };
 
 export const TELEPORT_SHELL_SNIPPET = [
   '# Added by `tasks setup --shell`. Cd into the worktree for a task.',
+  '# Marks the shell function as installed so the bare `tasks teleport` binary',
+  "# skips its can't-change-your-directory advisory.",
+  'export TASKS_TELEPORT_SHELL=1',
   'tasks-teleport() {',
   '  local destination',
-  '  destination="$(command tasks teleport "$@")" || return $?',
+  '  destination="$(command tasks teleport "$@" --print)" || return $?',
   '  [ -n "$destination" ] || return 1',
   '  cd "$destination"',
   '}',
@@ -102,7 +131,7 @@ export const TELEPORT_SHELL_SNIPPET = [
   '  local status=$?',
   '  local task_id="${@: -1}"',
   '  local destination',
-  '  destination="$(command tasks teleport "$task_id" 2>/dev/null)" || return $status',
+  '  destination="$(command tasks teleport "$task_id" --print 2>/dev/null)" || return $status',
   '  [ -n "$destination" ] && cd "$destination"',
   '  return $status',
   '}',

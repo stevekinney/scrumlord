@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { commandSpecifications } from './cli-arguments.js';
 import {
   contractForInvocation,
+  internalDelegationContractCommands,
   knownContractCommands,
   rejectJsonOnNonDataContract,
   renderReadiness,
@@ -113,16 +114,21 @@ const expectedContracts: ReadonlyArray<{
   },
   { command: 'pipeline', flags: new Set(), expected: { kind: 'bespoke' } },
   { command: 'teleport', flags: new Set(), expected: { kind: 'bespoke' } },
-  { command: 'plan', flags: new Set(), expected: { kind: 'rawText' } },
   { command: 'completions', flags: new Set(), expected: { kind: 'rawText' } },
   { command: 'completions-data', flags: new Set(), expected: { kind: 'rawText' } },
-  { command: 'next', flags: new Set(), expected: { kind: 'rawText' } },
-  { command: 'resolve', flags: new Set(), expected: { kind: 'rawText' } },
-  { command: 'sync', flags: new Set(), expected: { kind: 'rawText' } },
-  { command: 'audit', flags: new Set(), expected: { kind: 'rawText' } },
-  { command: 'merge', flags: new Set(), expected: { kind: 'rawText' } },
-  { command: 'cleanup', flags: new Set(), expected: { kind: 'jsonData', shape: 'cleanup' } },
-  { command: 'cleanup', flags: new Set(['worktrees']), expected: { kind: 'rawText' } },
+  // `tasks prompt <skill>`: pure skills are rawText; plan delegates to plan's
+  // rawText contract; cleanup store mode resolves the cleanup shape.
+  { command: 'prompt', flags: new Set(['skill:next']), expected: { kind: 'rawText' } },
+  { command: 'prompt', flags: new Set(['skill:resolve']), expected: { kind: 'rawText' } },
+  { command: 'prompt', flags: new Set(['skill:sync']), expected: { kind: 'rawText' } },
+  { command: 'prompt', flags: new Set(['skill:audit']), expected: { kind: 'rawText' } },
+  { command: 'prompt', flags: new Set(['skill:merge']), expected: { kind: 'rawText' } },
+  { command: 'prompt', flags: new Set(['skill:plan']), expected: { kind: 'rawText' } },
+  {
+    command: 'prompt',
+    flags: new Set(['skill:cleanup']),
+    expected: { kind: 'jsonData', shape: 'cleanup' },
+  },
   { command: 'pr', flags: new Set(), expected: { kind: 'jsonData', shape: 'pr-status' } },
   { command: 'pr', flags: new Set(['url']), expected: { kind: 'rawText' } },
   { command: 'pr', flags: new Set(['open']), expected: { kind: 'silent' } },
@@ -203,43 +209,32 @@ describe('contract / parser drift', () => {
     // still accept --json — both honor the resolved outputMode and emit a
     // JSON envelope when it is `'json'`. Pure rawText commands have no JSON
     // form and are excluded.
-    const exclusions = new Set<string>([
-      'plan',
-      'completions',
-      'completions-data',
-      'next',
-      'resolve',
-      'sync',
-      'audit',
-      'merge',
-    ]);
+    const exclusions = new Set<string>(['completions', 'completions-data']);
     for (const command of knownContractCommands) {
       if (exclusions.has(command)) continue;
       const spec = commandSpecifications[command];
       const supportsJson = spec?.booleanFlags?.includes('json') ?? false;
-      // `repository` and `pr` and `setup` are mixed-form; --json must still
-      // appear in their spec because at least one invocation is jsonData.
+      // `repository`, `pr`, `setup`, and `prompt` are mixed-form; --json must
+      // still appear in their spec because at least one invocation is jsonData.
       expect({ command, supportsJson }).toEqual({ command, supportsJson: true });
     }
   });
 
   it('pure rawText commands do not accept --json', () => {
-    const rawTextCommands = [
-      'plan',
-      'completions',
-      'completions-data',
-      'next',
-      'resolve',
-      'sync',
-      'audit',
-      'merge',
-    ];
+    const rawTextCommands = ['completions', 'completions-data'];
     for (const cmd of rawTextCommands) {
       const spec = commandSpecifications[cmd];
       expect({ cmd, supportsJson: spec?.booleanFlags?.includes('json') ?? false }).toEqual({
         cmd,
         supportsJson: false,
       });
+    }
+  });
+
+  it('internal-delegation contracts (plan, cleanup) have no top-level parser spec', () => {
+    for (const command of internalDelegationContractCommands) {
+      expect(commandSpecifications[command]).toBeUndefined();
+      expect(knownContractCommands.has(command)).toBe(false);
     }
   });
 });

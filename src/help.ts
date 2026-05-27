@@ -165,17 +165,6 @@ const topics: HelpTopic[] = [
     examples: ['tasks remaining'],
   },
   {
-    path: ['plan'],
-    summary: 'Emit a Markdown prompt directing an agent to author task plans.',
-    usage: 'tasks plan [task-id]',
-    description:
-      'Without a task id, emits a prompt directing an agent to author plans for every available unplanned task. With a task id, scopes the prompt to that single task. Accepts a UUID, a unique UUID prefix, "current" (the active task on the current Git branch), or "next" (the next claimable task). The command does not plan inline — it prints a prompt to stdout for an agent to consume.',
-    arguments: [
-      '[task-id]: Optional. Task ID. Accepts a UUID, a unique UUID prefix, "current" (the active task on the current Git branch), or "next" (the next claimable task).',
-    ],
-    examples: ['tasks plan', 'tasks plan current', 'tasks plan next', 'tasks plan 8f7d6a'],
-  },
-  {
     path: ['repository'],
     summary: 'Show the current GitHub repository.',
     usage: 'tasks repository [--url] [--json]',
@@ -475,11 +464,14 @@ const topics: HelpTopic[] = [
   },
   {
     path: ['tags'],
-    summary: 'List tags for a task.',
-    usage: 'tasks tags <task-id>',
-    description: `Returns the normalized tags on a task.`,
-    arguments: [requiredTaskIdArgument],
-    examples: ['tasks tags current', 'tasks tags 8f7d6a'],
+    summary: 'List tags for a task, the current project, or all projects.',
+    usage: 'tasks tags [task-id] [--all]',
+    description: `With a task id, returns that task's normalized tags. With no argument, lists every distinct tag in the current project. With --all (and no task id), lists distinct tags across every project in the shared database.`,
+    arguments: ['[task-id]: Optional. UUID, unique prefix, "current", or "next".'],
+    options: [
+      { name: '--all', description: 'List tags across all projects (only with no task id).' },
+    ],
+    examples: ['tasks tags', 'tasks tags --all', 'tasks tags current', 'tasks tags 8f7d6a'],
   },
   {
     path: ['tags', 'add'],
@@ -526,51 +518,6 @@ const topics: HelpTopic[] = [
     examples: [
       'tasks blockers remove current prerequisite-id',
       'tasks blockers remove feature-id prerequisite-id',
-    ],
-  },
-  {
-    path: ['cleanup'],
-    summary:
-      'Remove old completed tasks, recover orphaned in-progress tasks, or emit an agent prompt.',
-    usage:
-      'tasks cleanup [<days>] [--hard] [--recover-orphans] [--orphans-only] [--dry-run] [--prompt]',
-    description:
-      'Modes are mutually exclusive: (1) with <days>, soft-deletes aged completed tasks (use --hard to physically remove); (2) with --recover-orphans, additionally demotes in-progress tasks whose branch is missing locally and on origin back to ready, clearing branch/session; (3) with --orphans-only, runs only orphan recovery (omit <days>); (4) with --prompt, prints a Markdown prompt an agent can run for a deep cleanup pass and exits without writing. --dry-run pairs with any mutation mode and reports what would change without writing. Use --dry-run before --recover-orphans the first time. Note: orphan detection checks local refs and origin only; branches present only on a non-origin remote will be incorrectly classified as missing.',
-    arguments: [
-      '<days>: Non-negative integer age threshold. Required for modes 1 and 2; rejected for modes 3 and 4.',
-    ],
-    options: [
-      {
-        name: '--hard',
-        description: 'Physically remove matching aged tasks and cascade related rows.',
-      },
-      {
-        name: '--recover-orphans',
-        description: 'Also demote in-progress tasks with missing branches back to ready.',
-      },
-      {
-        name: '--orphans-only',
-        description: 'Run only orphan recovery; do not delete aged tasks. Omit <days>.',
-      },
-      {
-        name: '--dry-run',
-        description:
-          'Report findings without writing. Strongly recommended before --recover-orphans.',
-      },
-      {
-        name: '--prompt',
-        description:
-          'Emit a Markdown prompt for an agent to perform deep cleanup. Cannot combine with mutation flags.',
-      },
-    ],
-    examples: [
-      'tasks cleanup 30',
-      'tasks cleanup 30 --hard',
-      'tasks cleanup 30 --recover-orphans --dry-run',
-      'tasks cleanup 30 --recover-orphans',
-      'tasks cleanup --orphans-only --dry-run',
-      'tasks cleanup --orphans-only',
-      'tasks cleanup --prompt | claude --print',
     ],
   },
   {
@@ -758,106 +705,192 @@ const topics: HelpTopic[] = [
     ],
   },
   {
-    path: ['next'],
-    summary: 'Claim and start work on the next available task.',
-    usage: 'tasks next [--start] [--cli <claude|codex>]',
+    path: ['prompt'],
+    summary: 'Emit or launch a workflow skill (next, plan, resolve, sync, audit, merge, cleanup).',
+    usage: 'tasks prompt <skill> [--print] [--cli <claude|codex>] [skill options]',
     description:
-      "In print mode (no --start), resolves the next available task read-only and emits the `next` workflow skill prompt seeded with that task's id and title. Prints no output when no task is available. In start mode (--start), claims the task, materializes a dedicated worktree at tmp/worktrees/tasks/<task-id>, and launches the agent with the `next` skill prompt.",
+      'Runs one of the workflow skills under a single namespace. --print emits the rendered prompt to stdout; --cli <claude|codex> (or SCRUMLORD_CLI) launches that agent against it. For the pure skills (next, resolve, sync, audit, merge) a bare invocation launches the agent when SCRUMLORD_CLI is set. plan and cleanup keep their store behavior: bare "tasks prompt plan" emits planning prompts, and "tasks prompt cleanup" needs a graph selector, --print, or --cli. --cli is mutually exclusive with --print and the store/output flags. See "tasks prompt <skill> --help" for each skill.',
+    arguments: ['<skill>: One of next, plan, resolve, sync, audit, merge, cleanup.'],
     options: [
-      { name: '--start', description: 'Claim the next task and launch the agent.' },
+      {
+        name: '--print',
+        description: 'Emit the rendered prompt to stdout instead of launching an agent.',
+      },
       {
         name: '--cli',
         value: '<claude|codex>',
-        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
-      },
-    ],
-    examples: ['tasks next', 'tasks next --start --cli claude'],
-  },
-  {
-    path: ['resolve'],
-    summary: 'Emit or run the resolve workflow skill.',
-    usage: 'tasks resolve [--start] [--cli <claude|codex>] [--all]',
-    description:
-      'In print mode (no --start), prints the `resolve` workflow skill prompt to stdout. With --start, launches the agent to run the skill.',
-    options: [
-      { name: '--start', description: 'Launch the agent to run the resolve skill.' },
-      { name: '--all', description: 'Operate on all matching tasks.' },
-      {
-        name: '--cli',
-        value: '<claude|codex>',
-        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
-      },
-    ],
-    examples: ['tasks resolve', 'tasks resolve --start --cli claude'],
-  },
-  {
-    path: ['sync'],
-    summary: 'Emit or run the sync workflow skill.',
-    usage: 'tasks sync [--start] [--cli <claude|codex>]',
-    description:
-      'In print mode (no --start), prints the `sync` workflow skill prompt to stdout. With --start, launches the agent to run the skill.',
-    options: [
-      { name: '--start', description: 'Launch the agent to run the sync skill.' },
-      {
-        name: '--cli',
-        value: '<claude|codex>',
-        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
-      },
-    ],
-    examples: ['tasks sync', 'tasks sync --start --cli claude'],
-  },
-  {
-    path: ['audit'],
-    summary: 'Emit or run the audit workflow skill.',
-    usage: 'tasks audit [--start] [--cli <claude|codex>]',
-    description:
-      'In print mode (no --start), prints the `audit` workflow skill prompt to stdout. With --start, launches the agent to run the skill.',
-    options: [
-      { name: '--start', description: 'Launch the agent to run the audit skill.' },
-      {
-        name: '--cli',
-        value: '<claude|codex>',
-        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
-      },
-    ],
-    examples: ['tasks audit', 'tasks audit --start --cli claude'],
-  },
-  {
-    path: ['merge'],
-    summary: 'Emit or run the merge workflow skill.',
-    usage: 'tasks merge [--start] [--cli <claude|codex>]',
-    description:
-      'In print mode (no --start), prints the `merge` workflow skill prompt to stdout. With --start, launches the agent to run the skill.',
-    options: [
-      { name: '--start', description: 'Launch the agent to run the merge skill.' },
-      {
-        name: '--cli',
-        value: '<claude|codex>',
-        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
-      },
-    ],
-    examples: ['tasks merge', 'tasks merge --start --cli claude'],
-  },
-  {
-    path: ['teleport'],
-    summary: 'Print the worktree path for a task (for shell `cd`).',
-    usage: 'tasks teleport <task-id> [--json]',
-    description:
-      'Resolves <task-id> (UUID, unique UUID prefix, "current", or "next") and prints the absolute path of its existing git worktree on stdout, newline-terminated. Designed for `cd "$(tasks teleport current)"` — always quote the command substitution. Never creates a worktree. On error, uses the shared CLI output mode: interactive terminals get a human-readable message, while --json, agents, CI, and non-TTY consumers get the standard JSON error envelope. --json affects error output only; success output is always the raw path.',
-    arguments: [
-      '<task-id>: Task ID. Accepts a UUID, a unique UUID prefix, "current" (the active task on the current Git branch), or "next" (the next claimable task).',
-    ],
-    options: [
-      {
-        name: '--json',
-        description:
-          'Force the error envelope to JSON, regardless of environment. Does not affect success output.',
+        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI. Conflicts with --print.',
       },
     ],
     examples: [
-      'cd "$(tasks teleport current)"',
-      'cd "$(tasks teleport next)"',
-      'tasks setup --shell >> ~/.zshrc   # install the tasks-teleport and tasks-start helpers',
+      'tasks prompt resolve --print',
+      'tasks prompt next --cli claude',
+      'tasks prompt plan current',
+      'tasks prompt cleanup 30 --dry-run',
+    ],
+  },
+  {
+    path: ['prompt', 'next'],
+    summary: 'Claim and start work on the next available task.',
+    usage: 'tasks prompt next [--print] [--cli <claude|codex>]',
+    description:
+      'With --print, resolves the next available task read-only and emits the next skill prompt seeded with its id and title (no output when none is available). Otherwise claims the task, materializes a dedicated worktree at tmp/worktrees/tasks/<task-id>, and launches the agent.',
+    options: [
+      { name: '--print', description: 'Emit the prompt instead of launching.' },
+      {
+        name: '--cli',
+        value: '<claude|codex>',
+        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
+      },
+    ],
+    examples: ['tasks prompt next --print', 'tasks prompt next --cli claude'],
+  },
+  {
+    path: ['prompt', 'plan'],
+    summary: 'Emit a Markdown prompt directing an agent to author task plans.',
+    usage: 'tasks prompt plan [task-id] [--all] [--print] [--cli <claude|codex>]',
+    description:
+      'Store mode (default): with no argument, emits a prompt to author plans for every available unplanned task; with a task id, scopes to that task. --print is identical to the bare form (output-style only). --cli launches the plan skill instead. Accepts a UUID, a unique UUID prefix, "current", or "next". plan has no JSON form.',
+    arguments: ['[task-id]: Optional. UUID, unique prefix, "current", or "next".'],
+    options: [
+      { name: '--all', description: 'Scope to all unplanned tasks.' },
+      { name: '--print', description: 'Emit to stdout (default for store mode).' },
+      {
+        name: '--cli',
+        value: '<claude|codex>',
+        description: 'Launch the plan skill. Conflicts with --print.',
+      },
+    ],
+    examples: [
+      'tasks prompt plan',
+      'tasks prompt plan current',
+      'tasks prompt plan next',
+      'tasks prompt plan 8f7d6a',
+    ],
+  },
+  {
+    path: ['prompt', 'resolve'],
+    summary: 'Emit or launch the resolve workflow skill.',
+    usage: 'tasks prompt resolve [--all] [--print] [--cli <claude|codex>]',
+    description:
+      'With --print, prints the resolve skill prompt. Otherwise launches the agent to run it. --all scopes to all matching tasks (valid in either mode).',
+    options: [
+      { name: '--all', description: 'Operate on all matching tasks.' },
+      { name: '--print', description: 'Emit the prompt instead of launching.' },
+      {
+        name: '--cli',
+        value: '<claude|codex>',
+        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
+      },
+    ],
+    examples: [
+      'tasks prompt resolve --print',
+      'tasks prompt resolve --cli claude',
+      'tasks prompt resolve --all --cli claude',
+    ],
+  },
+  {
+    path: ['prompt', 'sync'],
+    summary: 'Emit or launch the sync workflow skill.',
+    usage: 'tasks prompt sync [--print] [--cli <claude|codex>]',
+    description:
+      'With --print, prints the sync skill prompt. Otherwise launches the agent to run it.',
+    options: [
+      { name: '--print', description: 'Emit the prompt instead of launching.' },
+      {
+        name: '--cli',
+        value: '<claude|codex>',
+        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
+      },
+    ],
+    examples: ['tasks prompt sync --print', 'tasks prompt sync --cli claude'],
+  },
+  {
+    path: ['prompt', 'audit'],
+    summary: 'Emit or launch the audit workflow skill.',
+    usage: 'tasks prompt audit [--print] [--cli <claude|codex>]',
+    description:
+      'With --print, prints the audit skill prompt. Otherwise launches the agent to run it.',
+    options: [
+      { name: '--print', description: 'Emit the prompt instead of launching.' },
+      {
+        name: '--cli',
+        value: '<claude|codex>',
+        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
+      },
+    ],
+    examples: ['tasks prompt audit --print', 'tasks prompt audit --cli claude'],
+  },
+  {
+    path: ['prompt', 'merge'],
+    summary: 'Emit or launch the merge workflow skill.',
+    usage: 'tasks prompt merge [--print] [--cli <claude|codex>]',
+    description:
+      'With --print, prints the merge skill prompt. Otherwise launches the agent to run it.',
+    options: [
+      { name: '--print', description: 'Emit the prompt instead of launching.' },
+      {
+        name: '--cli',
+        value: '<claude|codex>',
+        description: 'Agent CLI to launch. Defaults to SCRUMLORD_CLI.',
+      },
+    ],
+    examples: ['tasks prompt merge --print', 'tasks prompt merge --cli claude'],
+  },
+  {
+    path: ['prompt', 'cleanup'],
+    summary: 'Prune the task graph, or emit/launch the worktree-cleanup skill.',
+    usage:
+      'tasks prompt cleanup [<days>] [--hard] [--recover-orphans] [--orphans-only] [--dry-run] [--print] [--cli <claude|codex>]',
+    description:
+      'Graph mode requires a selector: <days> soft-deletes aged completed tasks (--hard physically removes), --orphans-only runs only orphan recovery, --recover-orphans adds orphan recovery to aged cleanup. --dry-run previews any graph mode. With no selector, --print emits the worktree-cleanup skill prompt and --cli launches it; bare with no selector errors missing_mode. --cli conflicts with every selector/modifier. Orphan detection checks local refs and origin only.',
+    arguments: [
+      '<days>: Non-negative integer age threshold. Required for aged/aged-and-orphans graph modes.',
+    ],
+    options: [
+      { name: '--hard', description: 'Physically remove matching aged tasks.' },
+      {
+        name: '--recover-orphans',
+        description: 'Also demote in-progress tasks with missing branches back to ready.',
+      },
+      { name: '--orphans-only', description: 'Run only orphan recovery; omit <days>.' },
+      { name: '--dry-run', description: 'Report findings without writing.' },
+      { name: '--print', description: 'With no selector, emit the worktree-cleanup skill prompt.' },
+      {
+        name: '--cli',
+        value: '<claude|codex>',
+        description: 'Launch the cleanup skill. Conflicts with graph flags.',
+      },
+    ],
+    examples: [
+      'tasks prompt cleanup 30',
+      'tasks prompt cleanup 30 --hard',
+      'tasks prompt cleanup --orphans-only --dry-run',
+      'tasks prompt cleanup --print',
+      'tasks prompt cleanup --cli claude',
+    ],
+  },
+  {
+    path: ['teleport'],
+    summary: 'Resolve a task worktree path; cd via the tasks-teleport shell function.',
+    usage: 'tasks teleport <task-id> [--print] [--json]',
+    description:
+      'Resolves <task-id> (UUID, unique prefix, "current", or "next") and prints the absolute path of its existing git worktree on stdout, newline-terminated. A child process cannot change the parent shell directory, so the actual cd happens in the tasks-teleport shell function (install with "tasks setup --shell"). With --print the binary stays silent on stderr — this is the path the shell function consumes. Without --print, and when the shell function is not installed, a one-line advisory is written to stderr (stdout stays path-only). Never creates a worktree. On error, --json forces the JSON error envelope; success output is always the raw path.',
+    arguments: ['<task-id>: UUID, unique UUID prefix, "current", or "next".'],
+    options: [
+      {
+        name: '--print',
+        description: 'Print the bare path only; suppress the shell-function advisory.',
+      },
+      {
+        name: '--json',
+        description: 'Force the error envelope to JSON. Does not affect success output.',
+      },
+    ],
+    examples: [
+      'tasks setup --shell >> ~/.zshrc   # install tasks-teleport, then: tasks-teleport current',
+      'cd "$(tasks teleport current --print)"',
+      'cd "$(tasks teleport next --print)"',
     ],
   },
   {

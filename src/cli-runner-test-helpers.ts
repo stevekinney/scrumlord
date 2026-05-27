@@ -225,6 +225,10 @@ export const fakeStore = (calls: string[]): TaskStore => ({
     calls.push('allTags');
     return [];
   },
+  allTagsAcrossProjects() {
+    calls.push('allTagsAcrossProjects');
+    return [];
+  },
   ...emptyProgressStoreMethods,
   close() {
     calls.push('close');

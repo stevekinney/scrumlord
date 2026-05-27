@@ -114,6 +114,33 @@ describe('cross-project isolation', () => {
     b2.close();
   });
 
+  it('allTagsAcrossProjects spans every project; allTags stays scoped', async () => {
+    const ctx = await seedTwoProjects();
+
+    const a = await ctx.storeA();
+    a.create({ id: 'a-1', title: 'Alpha task', tags: ['Alpha', 'shared'] });
+    const aDeleted = a.create({ id: 'a-2', title: 'Alpha deleted', tags: ['gone'] });
+    a.delete(aDeleted.id);
+    a.close();
+
+    const b = await ctx.storeB();
+    b.create({ id: 'b-1', title: 'Beta task', tags: ['beta', 'shared'] });
+    b.close();
+
+    const a2 = await ctx.storeA();
+    // Scoped view sees only this project's live tags (normalized to lowercase).
+    expect(a2.allTags()).toEqual(['alpha', 'shared']);
+    // Cross-project view is sorted, deduped (shared appears once), and excludes
+    // the soft-deleted task's tag.
+    expect(a2.allTagsAcrossProjects()).toEqual(['alpha', 'beta', 'shared']);
+    a2.close();
+
+    // The same cross-project answer regardless of which project's store asks.
+    const b2 = await ctx.storeB();
+    expect(b2.allTagsAcrossProjects()).toEqual(['alpha', 'beta', 'shared']);
+    b2.close();
+  });
+
   it('refuses to mutate or depend on another project’s task by id', async () => {
     const ctx = await seedTwoProjects();
     const a = await ctx.storeA();

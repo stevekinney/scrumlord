@@ -1,8 +1,10 @@
+/* eslint-disable max-lines */
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runTasksCli } from './cli-runner';
+import { TELEPORT_SHELL_SNIPPET } from './cli-teleport-command';
 import type { CommandResult } from './command-runner';
 import { emptyProgressStoreMethods } from './test-progress-store-methods';
 import type { Task, TaskStore } from './types';
@@ -170,7 +172,7 @@ describe('tasks teleport — success cases', () => {
     const store = makeStore({ tasks: [t] });
     const porcelain = makePorcelain([{ path: '/tmp/wt-abc', branch: 'tasks/abc12345' }]);
 
-    const result = await runTasksCli(['teleport', 'abc12345'], {
+    const result = await runTasksCli(['teleport', 'abc12345', '--print'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
     });
@@ -187,7 +189,7 @@ describe('tasks teleport — success cases', () => {
     const store = makeStore({ tasks: [t], projectRoot: gitRoot });
     const porcelain = makePorcelain([{ path: '/tmp/wt-current', branch }]);
 
-    const result = await runTasksCli(['teleport', 'current'], {
+    const result = await runTasksCli(['teleport', 'current', '--print'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain, branch),
     });
@@ -202,7 +204,7 @@ describe('tasks teleport — success cases', () => {
     const store = makeStore({ tasks: [t] });
     const porcelain = makePorcelain([{ path: '/tmp/wt-next', branch: 'tasks/next' }]);
 
-    const result = await runTasksCli(['teleport', 'next'], {
+    const result = await runTasksCli(['teleport', 'next', '--print'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
     });
@@ -301,6 +303,57 @@ describe('tasks teleport — success cases', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe('/tmp/wt-slash\n');
+  });
+});
+
+describe('tasks teleport — shell-function advisory', () => {
+  const setup = (): { store: ReturnType<typeof makeStore>; porcelain: string } => {
+    const t = task('adv-task', { branch: 'tasks/adv' });
+    return {
+      store: makeStore({ tasks: [t] }),
+      porcelain: makePorcelain([{ path: '/tmp/wt-adv', branch: 'tasks/adv' }]),
+    };
+  };
+
+  it('--print prints the bare path with empty stderr', async () => {
+    const { store, porcelain } = setup();
+    const result = await runTasksCli(['teleport', 'adv-task', '--print'], {
+      createStore: async () => store,
+      runner: worktreeRunner(porcelain),
+    });
+    expect(result.stdout).toBe('/tmp/wt-adv\n');
+    expect(result.stderr).toBe('');
+  });
+
+  it('bare (no marker) prints the path on stdout and an advisory on stderr', async () => {
+    const { store, porcelain } = setup();
+    const result = await runTasksCli(['teleport', 'adv-task'], {
+      createStore: async () => store,
+      runner: worktreeRunner(porcelain),
+      environment: {},
+    });
+    expect(result.stdout).toBe('/tmp/wt-adv\n');
+    expect(result.stderr).toContain('cannot change your shell directory');
+    expect(result.stderr).toContain('tasks setup --shell');
+  });
+
+  it('suppresses the advisory when TASKS_TELEPORT_SHELL marks the function installed', async () => {
+    const { store, porcelain } = setup();
+    const result = await runTasksCli(['teleport', 'adv-task'], {
+      createStore: async () => store,
+      runner: worktreeRunner(porcelain),
+      environment: { TASKS_TELEPORT_SHELL: '1' },
+    });
+    expect(result.stdout).toBe('/tmp/wt-adv\n');
+    expect(result.stderr).toBe('');
+  });
+});
+
+describe('TELEPORT_SHELL_SNIPPET', () => {
+  it('calls teleport with --print and exports the installed marker', () => {
+    expect(TELEPORT_SHELL_SNIPPET).toContain('export TASKS_TELEPORT_SHELL=1');
+    expect(TELEPORT_SHELL_SNIPPET).toContain('command tasks teleport "$@" --print');
+    expect(TELEPORT_SHELL_SNIPPET).toContain('command tasks teleport "$task_id" --print');
   });
 });
 

@@ -819,6 +819,19 @@ export class SqliteTaskStore implements TaskStore {
       .filter((tag) => !tag.includes('\n'));
   }
 
+  allTagsAcrossProjects(): string[] {
+    return this.#database
+      .query<{ tag: string }, QueryBindings>(
+        `SELECT DISTINCT tag FROM task_tags
+         INNER JOIN tasks ON tasks.id = task_tags.task_id
+         WHERE tasks.deleted = 0
+         ORDER BY tag`,
+      )
+      .all({})
+      .map((row) => row.tag)
+      .filter((tag) => !tag.includes('\n'));
+  }
+
   close(): void {
     this.#database.close(false);
   }

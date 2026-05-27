@@ -229,5 +229,7 @@ export type TaskStore = {
   allIds(): string[];
   /** Returns all distinct tag names across non-deleted tasks, sorted ascending. Tags containing newlines are excluded. Used by shell completions. */
   allTags(): string[];
+  /** Like {@link allTags}, but spanning every project in the shared database rather than just the current one. Same sort, dedup, and newline filtering. */
+  allTagsAcrossProjects(): string[];
   close(): void;
 };
