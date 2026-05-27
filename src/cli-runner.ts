@@ -31,6 +31,7 @@ import {
 import { runSetupBoundaryCommand } from './cli-setup-commands.js';
 import {
   runTaskStoreCommand,
+  shiftedPromptParsed,
   taskStoreCommands,
   validateStoreCommandInput,
 } from './cli-store-commands.js';
@@ -62,21 +63,21 @@ const dataSuccess = (parsed: ParsedArguments, value: unknown, options: CliOption
 /** Returns a CLI result whose stdout is the raw string plus newline — no JSON wrapping. */
 const rawString = (value: string): CliResult => ({ exitCode: 0, stdout: `${value}\n`, stderr: '' });
 const emptySuccess = (): CliResult => ({ exitCode: 0, stdout: '', stderr: '' });
-const storeCommands = new Set([
-  ...taskStoreCommands,
-  'overview',
-  'pr',
-  'start',
-  'agent-hook',
-  'pipeline',
-  'completions-data',
-  'teleport',
-  'next',
-  'resolve',
-  'sync',
-  'audit',
-  'merge',
-]);
+const storeCommands = new Set(
+  [
+    ...taskStoreCommands,
+    'overview',
+    'pr',
+    'start',
+    'agent-hook',
+    'pipeline',
+    'completions-data',
+    'teleport',
+    'prompt',
+    // `plan` and `cleanup` keep their store handlers (reused by `tasks prompt`), but
+    // are no longer valid as top-level commands — only `tasks prompt plan|cleanup`.
+  ].filter((command) => command !== 'plan' && command !== 'cleanup'),
+);
 
 const renderHelpResult = (parsed: ParsedArguments, options: CliOptions): CliResult => {
   const path = helpPath(parsed);
@@ -445,11 +446,59 @@ type OpenedStoreHandler = (
   options: CliOptions,
 ) => Promise<CliResult> | CliResult;
 
-/** Builds an {@link OpenedStoreHandler} that dispatches to a workflow skill. */
-const workflowHandler =
-  (config: Parameters<typeof runWorkflowCommand>[3]): OpenedStoreHandler =>
-  (store, parsedArgs, opts) =>
-    runWorkflowCommand(store, parsedArgs, opts, config);
+/** Workflow-skill prompt configs for the launch/print path, keyed by skill name. */
+const workflowConfigForSkill: Record<string, Parameters<typeof runWorkflowCommand>[3]> = {
+  resolve: { skillName: 'resolve', renderPrompt: renderResolvePrompt },
+  sync: { skillName: 'sync', renderPrompt: renderSyncPrompt },
+  audit: { skillName: 'audit', renderPrompt: renderAuditPrompt },
+  merge: { skillName: 'merge', renderPrompt: renderMergePrompt },
+  plan: { skillName: 'plan', renderPrompt: renderPlanWorkflowPrompt },
+  cleanup: { skillName: 'cleanup', renderPrompt: renderCleanupWorkflowPrompt },
+};
+
+/**
+ * Dispatches `tasks prompt <skill> …`. Input is already validated by
+ * {@link validateStoreCommandInput}, so this only routes:
+ *
+ * - `next` → claim-and-launch / print via {@link runNextCommand}.
+ * - `resolve`/`sync`/`audit`/`merge` → {@link runWorkflowCommand} (pure skills).
+ * - `plan`/`cleanup` → store/print mode runs the existing plan/cleanup store
+ *   handler (formatted like the old top-level command); `--cli` launches the
+ *   skill, and `cleanup --print` with no selector prints the skill prompt.
+ */
+const runPromptCommand: OpenedStoreHandler = async (store, parsed, options) => {
+  const skill = parsed.positionals[0]!;
+  const shifted = shiftedPromptParsed(parsed);
+
+  if (skill === 'next') return await runNextCommand(store, shifted, options);
+
+  const launching = parsed.flags.has('cli');
+
+  // Pure skills: always the workflow launch/print path.
+  if (skill === 'resolve' || skill === 'sync' || skill === 'audit' || skill === 'merge') {
+    return await runWorkflowCommand(store, shifted, options, workflowConfigForSkill[skill]!);
+  }
+
+  // plan / cleanup: launch path, or the cleanup no-selector print form, go through
+  // the workflow runner; everything else is the store/print path.
+  if (launching) {
+    return await runWorkflowCommand(store, shifted, options, workflowConfigForSkill[skill]!);
+  }
+  if (skill === 'cleanup' && parsed.flags.has('print') && !cleanupHasSelector(shifted)) {
+    // No graph selector → `--print` emits the cleanup skill prompt, not graph output.
+    return await runWorkflowCommand(store, shifted, options, workflowConfigForSkill['cleanup']!);
+  }
+
+  // Store/print mode: run the underlying plan/cleanup handler and format its result
+  // exactly as the former top-level command did.
+  return storeCommandResult(shifted, await runStoreCommand(store, shifted, options), options);
+};
+
+/** True when a shifted cleanup invocation carries a graph selector (days / orphans). */
+const cleanupHasSelector = (shifted: ParsedArguments): boolean =>
+  shifted.positionals.length > 0 ||
+  shifted.flags.has('orphans-only') ||
+  shifted.flags.has('recover-orphans');
 
 /** Direct command → handler table (no flag gating needed). */
 const directStoreHandlers: Record<string, OpenedStoreHandler> = {
@@ -457,21 +506,11 @@ const directStoreHandlers: Record<string, OpenedStoreHandler> = {
   pipeline: runPipelineCommand,
   teleport: runTeleportCommand,
   'completions-data': (store, parsedArgs) => runCompletionsDataCommand(store, parsedArgs),
-  next: runNextCommand,
-  resolve: workflowHandler({ skillName: 'resolve', renderPrompt: renderResolvePrompt }),
-  sync: workflowHandler({ skillName: 'sync', renderPrompt: renderSyncPrompt }),
-  audit: workflowHandler({ skillName: 'audit', renderPrompt: renderAuditPrompt }),
-  merge: workflowHandler({ skillName: 'merge', renderPrompt: renderMergePrompt }),
+  prompt: runPromptCommand,
 };
 
 /** Flag-gated alternate dispatch: `[command, flag] → handler`. */
 const flagGatedHandlers: Array<[command: string, flag: string, handler: OpenedStoreHandler]> = [
-  [
-    'cleanup',
-    'worktrees',
-    workflowHandler({ skillName: 'cleanup', renderPrompt: renderCleanupWorkflowPrompt }),
-  ],
-  ['plan', 'start', workflowHandler({ skillName: 'plan', renderPrompt: renderPlanWorkflowPrompt })],
   ['pr', 'sync', runPullRequestSyncCommand],
   [
     'overview',
@@ -516,6 +555,13 @@ const removedCommandHints: Record<string, string> = {
   'clear-branch': "Use 'tasks clear branch' instead.",
   'clear-plan': "Use 'tasks clear plan' instead.",
   'clear-session': "Use 'tasks clear session' instead.",
+  next: "Use 'tasks prompt next' instead.",
+  resolve: "Use 'tasks prompt resolve' instead.",
+  sync: "Use 'tasks prompt sync' instead.",
+  audit: "Use 'tasks prompt audit' instead.",
+  merge: "Use 'tasks prompt merge' instead.",
+  plan: "Use 'tasks prompt plan' instead.",
+  cleanup: "Use 'tasks prompt cleanup' instead.",
 };
 
 const parseErrorMode = (

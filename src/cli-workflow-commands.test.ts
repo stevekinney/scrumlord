@@ -60,7 +60,7 @@ describe('runWorkflowCommand', () => {
         },
       };
 
-      const result = await runWorkflowCommand(store, parsedWith({}), options, {
+      const result = await runWorkflowCommand(store, parsedWith({ print: ['true'] }), options, {
         skillName: 'plan',
         renderPrompt: () => 'PLAN PROMPT BODY',
       });
@@ -72,7 +72,7 @@ describe('runWorkflowCommand', () => {
 
   it('passes the resolved store, parsed args, and options to renderPrompt', async () => {
     await withStore(async (store) => {
-      const parsed = parsedWith({});
+      const parsed = parsedWith({ print: ['true'] });
       const options: CliOptions = {};
       let seen: { store: unknown; parsed: unknown; options: unknown } | undefined;
 
@@ -90,7 +90,7 @@ describe('runWorkflowCommand', () => {
     });
   });
 
-  it('launches the agent with the rendered prompt in start mode', async () => {
+  it('launches the agent with the rendered prompt in launch mode', async () => {
     await withStore(async (store) => {
       const invocations: AgentInvocation[] = [];
       const options: CliOptions = {
@@ -102,7 +102,7 @@ describe('runWorkflowCommand', () => {
         },
       };
 
-      const result = await runWorkflowCommand(store, parsedWith({ start: ['true'] }), options, {
+      const result = await runWorkflowCommand(store, parsedWith({}), options, {
         skillName: 'plan',
         renderPrompt: () => 'PLAN PROMPT BODY',
       });
@@ -114,7 +114,7 @@ describe('runWorkflowCommand', () => {
     });
   });
 
-  it('resolves the provider from the --cli flag in start mode', async () => {
+  it('resolves the provider from the --cli flag in launch mode', async () => {
     await withStore(async (store) => {
       const invocations: AgentInvocation[] = [];
       const options: CliOptions = {
@@ -125,7 +125,7 @@ describe('runWorkflowCommand', () => {
         },
       };
 
-      await runWorkflowCommand(store, parsedWith({ start: ['true'], cli: ['codex'] }), options, {
+      await runWorkflowCommand(store, parsedWith({ cli: ['codex'] }), options, {
         skillName: 'plan',
         renderPrompt: () => 'BODY',
       });
@@ -135,7 +135,7 @@ describe('runWorkflowCommand', () => {
     });
   });
 
-  it('throws provider_cli_not_found when the executable is missing in start mode', async () => {
+  it('throws provider_cli_not_found when the executable is missing in launch mode', async () => {
     await withStore(async (store) => {
       const options: CliOptions = {
         environment: { SCRUMLORD_CLI: 'claude' },
@@ -145,7 +145,7 @@ describe('runWorkflowCommand', () => {
 
       let caught: unknown;
       try {
-        await runWorkflowCommand(store, parsedWith({ start: ['true'] }), options, {
+        await runWorkflowCommand(store, parsedWith({}), options, {
           skillName: 'plan',
           renderPrompt: () => 'BODY',
         });

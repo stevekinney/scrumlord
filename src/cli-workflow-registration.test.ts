@@ -178,7 +178,7 @@ describe('renderCleanupWorkflowPrompt', () => {
 describe('runNextCommand', () => {
   it('returns empty output when no task is available (print mode)', async () => {
     await withStore(async (store) => {
-      const result = await runNextCommand(store, parsedWith('next'), {});
+      const result = await runNextCommand(store, parsedWith('next', { print: ['true'] }), {});
       expect(result).toEqual({ exitCode: 0, stdout: '', stderr: '' });
     });
   });
@@ -187,7 +187,7 @@ describe('runNextCommand', () => {
     await withStore(async (store) => {
       store.create({ title: 'Build the thing' });
 
-      const result = await runNextCommand(store, parsedWith('next'), {});
+      const result = await runNextCommand(store, parsedWith('next', { print: ['true'] }), {});
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe('');
       expect(result.stdout).toContain('Build the thing');
@@ -208,12 +208,12 @@ describe('runNextCommand', () => {
         },
       };
 
-      await runNextCommand(store, parsedWith('next'), options);
+      await runNextCommand(store, parsedWith('next', { print: ['true'] }), options);
       expect(launched).toBe(false);
     });
   });
 
-  it('returns empty output in start mode when no task is available', async () => {
+  it('returns empty output in launch mode when no task is available', async () => {
     await withStore(async (store) => {
       let launched = false;
       const options: CliOptions = {
@@ -226,13 +226,13 @@ describe('runNextCommand', () => {
         },
       };
 
-      const result = await runNextCommand(store, parsedWith('next', { start: ['true'] }), options);
+      const result = await runNextCommand(store, parsedWith('next'), options);
       expect(result).toEqual({ exitCode: 0, stdout: '', stderr: '' });
       expect(launched).toBe(false);
     });
   });
 
-  it('claims the task and launches the agent in start mode', async () => {
+  it('claims the task and launches the agent in launch mode', async () => {
     await withStore(async (store) => {
       const task = store.create({ title: 'Claimable task' });
       const invocations: AgentInvocation[] = [];
@@ -248,7 +248,7 @@ describe('runNextCommand', () => {
         },
       };
 
-      const result = await runNextCommand(store, parsedWith('next', { start: ['true'] }), options);
+      const result = await runNextCommand(store, parsedWith('next'), options);
 
       expect(result.exitCode).toBe(5);
       expect(result.stdout).toBe('');
@@ -261,7 +261,7 @@ describe('runNextCommand', () => {
     });
   });
 
-  it('uses tmp/worktrees/tasks/<task-id> as the worktree directory in start mode', async () => {
+  it('uses tmp/worktrees/tasks/<task-id> as the worktree directory in launch mode', async () => {
     await withStore(async (store) => {
       store.create({ title: 'Worktree task' });
       const invocations: AgentInvocation[] = [];
@@ -277,7 +277,7 @@ describe('runNextCommand', () => {
         },
       };
 
-      await runNextCommand(store, parsedWith('next', { start: ['true'] }), options);
+      await runNextCommand(store, parsedWith('next'), options);
 
       // Worktree path is tmp/worktrees/tasks/<shortId>, where shortId is an 8-char hash.
       // Use a suffix match to tolerate macOS /var → /private/var symlink resolution.
@@ -285,7 +285,7 @@ describe('runNextCommand', () => {
     });
   });
 
-  it('resolves provider from --cli flag in start mode', async () => {
+  it('resolves provider from --cli flag in launch mode', async () => {
     await withStore(async (store) => {
       store.create({ title: 'A task' });
       const invocations: AgentInvocation[] = [];
@@ -300,14 +300,14 @@ describe('runNextCommand', () => {
         },
       };
 
-      await runNextCommand(store, parsedWith('next', { start: ['true'], cli: ['codex'] }), options);
+      await runNextCommand(store, parsedWith('next', { cli: ['codex'] }), options);
 
       // Codex invocations include --cd flag
       expect(invocations[0]?.command).toContain('--cd');
     });
   });
 
-  it('throws provider_cli_not_found when the executable is missing in start mode', async () => {
+  it('throws provider_cli_not_found when the executable is missing in launch mode', async () => {
     await withStore(async (store) => {
       store.create({ title: 'Task for missing provider test' });
       const options: CliOptions = {
@@ -319,7 +319,7 @@ describe('runNextCommand', () => {
 
       let caught: unknown;
       try {
-        await runNextCommand(store, parsedWith('next', { start: ['true'] }), options);
+        await runNextCommand(store, parsedWith('next'), options);
       } catch (error) {
         caught = error;
       }
@@ -333,22 +333,22 @@ describe('runNextCommand', () => {
 // CLI-level routing via runTasksCli
 // ---------------------------------------------------------------------------
 
-describe('tasks next (CLI routing)', () => {
-  it('exits 0 with empty output when no task is available', async () => {
+describe('tasks prompt next (CLI routing)', () => {
+  it('exits 0 with empty output when no task is available (print mode)', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
 
-    const result = await runTasksCli(['next'], { cwd: root });
+    const result = await runTasksCli(['prompt', 'next', '--print'], { cwd: root });
     expect(result).toEqual({ exitCode: 0, stdout: '', stderr: '' });
   });
 
-  it('exits 0 with prompt output when a task exists', async () => {
+  it('exits 0 with prompt output when a task exists (print mode)', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
 
     await runTasksCli(['create', '--title', 'Alpha Task'], { cwd: root });
 
-    const result = await runTasksCli(['next'], { cwd: root });
+    const result = await runTasksCli(['prompt', 'next', '--print'], { cwd: root });
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe('');
     expect(result.stdout).toContain('Alpha Task');
@@ -356,155 +356,94 @@ describe('tasks next (CLI routing)', () => {
   });
 });
 
-describe('tasks resolve (CLI routing)', () => {
-  it('exits 0 and emits the resolve prompt in print mode', async () => {
-    const root = await temporaryDirectory();
-    await initializeGit(root);
-
-    const result = await runTasksCli(['resolve'], { cwd: root });
-    expect(result.exitCode).toBe(0);
-    expect(result.stderr).toBe('');
-    expect(result.stdout).toContain('resolve');
-    expect(result.stdout.endsWith('\n')).toBe(true);
+/** Drives a pure-skill launch and returns the captured invocations. */
+const launchPureSkill = async (
+  skill: string,
+  extraArgs: string[] = [],
+): Promise<AgentInvocation[]> => {
+  const root = await temporaryDirectory();
+  await initializeGit(root);
+  await writeGitignore(root);
+  const invocations: AgentInvocation[] = [];
+  await runTasksCli(['prompt', skill, '--cli', 'claude', ...extraArgs], {
+    cwd: root,
+    which: () => '/bin/provider',
+    runAgentInvocation: async (invocation) => {
+      invocations.push(invocation);
+      return 0;
+    },
   });
+  return invocations;
+};
 
-  it('launches the agent in start mode', async () => {
-    const root = await temporaryDirectory();
-    await initializeGit(root);
-    await writeGitignore(root);
-    const invocations: AgentInvocation[] = [];
+for (const skill of ['resolve', 'sync', 'audit', 'merge'] as const) {
+  describe('tasks prompt ' + skill + ' (CLI routing)', () => {
+    it('exits 0 and emits the prompt in print mode', async () => {
+      const root = await temporaryDirectory();
+      await initializeGit(root);
 
-    const result = await runTasksCli(['resolve', '--start'], {
-      cwd: root,
-      environment: { SCRUMLORD_CLI: 'claude' },
-      which: () => '/bin/provider',
-      runAgentInvocation: async (invocation) => {
-        invocations.push(invocation);
-        return 3;
-      },
+      const result = await runTasksCli(['prompt', skill, '--print'], { cwd: root });
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(result.stdout).toContain(skill);
+      expect(result.stdout.endsWith('\n')).toBe(true);
     });
 
-    expect(result.exitCode).toBe(3);
-    expect(invocations).toHaveLength(1);
-    expect(invocations[0]?.command[0]).toBe('/bin/provider');
-  });
-});
-
-describe('tasks sync (CLI routing)', () => {
-  it('exits 0 and emits the sync prompt in print mode', async () => {
-    const root = await temporaryDirectory();
-    await initializeGit(root);
-
-    const result = await runTasksCli(['sync'], { cwd: root });
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('sync');
-    expect(result.stdout.endsWith('\n')).toBe(true);
-  });
-
-  it('launches the agent in start mode', async () => {
-    const root = await temporaryDirectory();
-    await initializeGit(root);
-    await writeGitignore(root);
-    const invocations: AgentInvocation[] = [];
-
-    await runTasksCli(['sync', '--start'], {
-      cwd: root,
-      environment: { SCRUMLORD_CLI: 'claude' },
-      which: () => '/bin/provider',
-      runAgentInvocation: async (invocation) => {
-        invocations.push(invocation);
-        return 0;
-      },
+    it('launches the agent with --cli', async () => {
+      const invocations = await launchPureSkill(skill);
+      expect(invocations).toHaveLength(1);
+      expect(invocations[0]?.command[0]).toBe('/bin/provider');
     });
 
+    it('rejects --print combined with --cli (conflicting_mode)', async () => {
+      const root = await temporaryDirectory();
+      await initializeGit(root);
+      const result = await runTasksCli(['prompt', skill, '--print', '--cli', 'claude'], {
+        cwd: root,
+        which: () => '/bin/provider',
+        runAgentInvocation: async () => 0,
+      });
+      expect(JSON.parse(result.stderr).error.code).toBe('conflicting_mode');
+    });
+  });
+}
+
+describe('tasks prompt resolve --all (scope flag)', () => {
+  it('launches scoped to all without conflicting with --cli', async () => {
+    const invocations = await launchPureSkill('resolve', ['--all']);
     expect(invocations).toHaveLength(1);
   });
 });
 
-describe('tasks audit (CLI routing)', () => {
-  it('exits 0 and emits the audit prompt in print mode', async () => {
+describe('tasks prompt plan (CLI routing)', () => {
+  it('emits the plan batch prompt in store mode (no --cli)', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
 
-    const result = await runTasksCli(['audit'], { cwd: root });
+    const result = await runTasksCli(['prompt', 'plan'], { cwd: root });
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('audit');
-    expect(result.stdout.endsWith('\n')).toBe(true);
-  });
-
-  it('launches the agent in start mode', async () => {
-    const root = await temporaryDirectory();
-    await initializeGit(root);
-    await writeGitignore(root);
-    const invocations: AgentInvocation[] = [];
-
-    await runTasksCli(['audit', '--start'], {
-      cwd: root,
-      environment: { SCRUMLORD_CLI: 'claude' },
-      which: () => '/bin/provider',
-      runAgentInvocation: async (invocation) => {
-        invocations.push(invocation);
-        return 0;
-      },
-    });
-
-    expect(invocations).toHaveLength(1);
-  });
-});
-
-describe('tasks merge (CLI routing)', () => {
-  it('exits 0 and emits the merge prompt in print mode', async () => {
-    const root = await temporaryDirectory();
-    await initializeGit(root);
-
-    const result = await runTasksCli(['merge'], { cwd: root });
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('merge');
-    expect(result.stdout.endsWith('\n')).toBe(true);
-  });
-
-  it('launches the agent in start mode', async () => {
-    const root = await temporaryDirectory();
-    await initializeGit(root);
-    await writeGitignore(root);
-    const invocations: AgentInvocation[] = [];
-
-    await runTasksCli(['merge', '--start'], {
-      cwd: root,
-      environment: { SCRUMLORD_CLI: 'claude' },
-      which: () => '/bin/provider',
-      runAgentInvocation: async (invocation) => {
-        invocations.push(invocation);
-        return 0;
-      },
-    });
-
-    expect(invocations).toHaveLength(1);
-  });
-});
-
-describe('tasks plan --start (CLI routing)', () => {
-  it('emits the plan workflow prompt in print mode when --start is absent', async () => {
-    // Regression: existing plan behavior must be unchanged when --start is absent.
-    // The regular plan command returns the plan-prompt Markdown, not the workflow prompt.
-    const root = await temporaryDirectory();
-    await initializeGit(root);
-
-    const result = await runTasksCli(['plan'], { cwd: root });
-    expect(result.exitCode).toBe(0);
-    // Should contain the plan batch prompt (existing behavior), NOT the workflow prompt
+    // Store mode returns the plan-prompt Markdown, not the workflow prompt.
     expect(result.stdout).toContain('# Task Plan Authoring');
   });
 
-  it('launches the agent with the plan workflow prompt in start mode', async () => {
+  it('--print is byte-identical to the bare store form', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    await runTasksCli(['create', '--title', 'Plannable'], { cwd: root });
+
+    const bare = await runTasksCli(['prompt', 'plan'], { cwd: root });
+    const printed = await runTasksCli(['prompt', 'plan', '--print'], { cwd: root });
+    expect(printed.stdout).toBe(bare.stdout);
+  });
+
+  it('launches the plan workflow prompt with --cli', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
     await writeGitignore(root);
     const invocations: AgentInvocation[] = [];
 
-    const result = await runTasksCli(['plan', '--start'], {
+    const result = await runTasksCli(['prompt', 'plan', '--cli', 'claude'], {
       cwd: root,
-      environment: { SCRUMLORD_CLI: 'claude' },
       which: () => '/bin/provider',
       runAgentInvocation: async (invocation) => {
         invocations.push(invocation);
@@ -514,41 +453,64 @@ describe('tasks plan --start (CLI routing)', () => {
 
     expect(result.exitCode).toBe(0);
     expect(invocations).toHaveLength(1);
-    // The prompt should reference the plan skill
     expect(invocations[0]?.command.join(' ')).toContain('plan');
+  });
+
+  it('rejects --print combined with --cli (conflicting_mode)', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const result = await runTasksCli(['prompt', 'plan', '--print', '--cli', 'claude'], {
+      cwd: root,
+      which: () => '/bin/provider',
+      runAgentInvocation: async () => 0,
+    });
+    expect(JSON.parse(result.stderr).error.code).toBe('conflicting_mode');
+  });
+
+  it('rejects --json (plan has no JSON form)', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const result = await runTasksCli(['prompt', 'plan', '--json'], { cwd: root });
+    expect(JSON.parse(result.stderr).error.code).toBe('json_not_supported');
   });
 });
 
-describe('tasks cleanup --worktrees (CLI routing)', () => {
-  it('preserves existing cleanup behavior when --worktrees is absent', async () => {
+describe('tasks prompt cleanup (CLI routing)', () => {
+  it('runs aged graph cleanup with a <days> selector', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
 
-    // Regular cleanup with no tasks just reports nothing deleted
-    const result = await runTasksCli(['cleanup', '30'], { cwd: root });
+    const result = await runTasksCli(['prompt', 'cleanup', '30'], { cwd: root });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('Aged cleanup:');
   });
 
-  it('emits the cleanup workflow prompt in print mode with --worktrees', async () => {
+  it('emits the cleanup skill prompt with --print and no selector', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
 
-    const result = await runTasksCli(['cleanup', '--worktrees'], { cwd: root });
+    const result = await runTasksCli(['prompt', 'cleanup', '--print'], { cwd: root });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('cleanup');
     expect(result.stdout.endsWith('\n')).toBe(true);
   });
 
-  it('launches the agent in start mode with --worktrees --start', async () => {
+  it('errors missing_mode with no selector, --print, or --cli', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+
+    const result = await runTasksCli(['prompt', 'cleanup'], { cwd: root });
+    expect(JSON.parse(result.stderr).error.code).toBe('missing_mode');
+  });
+
+  it('launches the cleanup skill with --cli', async () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
     await writeGitignore(root);
     const invocations: AgentInvocation[] = [];
 
-    const result = await runTasksCli(['cleanup', '--worktrees', '--start'], {
+    const result = await runTasksCli(['prompt', 'cleanup', '--cli', 'claude'], {
       cwd: root,
-      environment: { SCRUMLORD_CLI: 'claude' },
       which: () => '/bin/provider',
       runAgentInvocation: async (invocation) => {
         invocations.push(invocation);
@@ -558,5 +520,16 @@ describe('tasks cleanup --worktrees (CLI routing)', () => {
 
     expect(result.exitCode).toBe(0);
     expect(invocations).toHaveLength(1);
+  });
+
+  it('rejects a selector combined with --cli (conflicting_mode)', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const result = await runTasksCli(['prompt', 'cleanup', '30', '--cli', 'claude'], {
+      cwd: root,
+      which: () => '/bin/provider',
+      runAgentInvocation: async () => 0,
+    });
+    expect(JSON.parse(result.stderr).error.code).toBe('conflicting_mode');
   });
 });

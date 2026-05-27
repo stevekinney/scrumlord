@@ -1,7 +1,14 @@
 /* eslint-disable max-lines */
 import { resolveTaskSession } from './agent-providers.js';
 import { providerFromStartCommand } from './cli-agent-commands.js';
-import { flag, flagList, required, type ParsedArguments } from './cli-arguments.js';
+import {
+  flag,
+  flagList,
+  promptSkills,
+  required,
+  type ParsedArguments,
+  type PromptSkill,
+} from './cli-arguments.js';
 import { resolveTaskId } from './cli-task-id.js';
 import { searchTasks, type SearchQuery, type SearchTasksOptions } from './task-search.js';
 import { planBatchPrompt, planTaskPrompt } from './plan-prompt.js';
@@ -456,6 +463,11 @@ const storeCommandHandlers: Record<string, StoreCommandHandler> = {
         required(parsed.positionals.slice(2), 'tag'),
       );
     }
+    // No positional: list distinct tags — for the current project, or across every
+    // project with `--all`.
+    if (parsed.positionals.length === 0) {
+      return parsed.flags.has('all') ? store.allTagsAcrossProjects() : store.allTags();
+    }
     return taskTags(store, await resolveTaskId(store, required(parsed.positionals, 'task id')));
   },
   blockers: async (store, parsed) => {
@@ -601,6 +613,126 @@ const validateProgressAddFlags = (flags: Map<string, string[]>): void => {
   }
 };
 
+/**
+ * Returns a `ParsedArguments` for a `tasks prompt <skill> …` invocation as if the
+ * skill were a top-level command: `command` becomes the skill and the leading skill
+ * positional is dropped, so the existing plan/cleanup logic (which reads
+ * `positionals[0]` as its own argument) works unchanged.
+ */
+export const shiftedPromptParsed = (parsed: ParsedArguments): ParsedArguments => ({
+  command: parsed.positionals[0],
+  positionals: parsed.positionals.slice(1),
+  flags: parsed.flags,
+});
+
+/** Flags each prompt skill accepts, beyond the always-allowed `--print`/`--cli`. */
+const promptSkillExtraFlags: Record<PromptSkill, readonly string[]> = {
+  next: [],
+  resolve: ['all'],
+  sync: [],
+  audit: [],
+  merge: [],
+  plan: ['all'],
+  cleanup: ['json', 'orphans-only', 'recover-orphans', 'hard', 'dry-run'],
+};
+
+/** Store-execution/output flags that conflict with `--cli` (agent-launch mode). */
+const promptStoreExecutionFlags: Record<PromptSkill, readonly string[]> = {
+  next: [],
+  resolve: [],
+  sync: [],
+  audit: [],
+  merge: [],
+  plan: [],
+  cleanup: ['json', 'orphans-only', 'recover-orphans', 'hard', 'dry-run'],
+};
+
+const isPromptSkill = (value: string | undefined): value is PromptSkill =>
+  value !== undefined && (promptSkills as readonly string[]).includes(value);
+
+/**
+ * Validates a `tasks prompt <skill> …` invocation: the skill must be known, only
+ * its allowed flags may appear, and the `--cli` agent-launch switch is mutually
+ * exclusive with `--print` and every store-execution/output flag (scope flags
+ * `--all`/`<id>` are allowed in both modes). Cleanup store mode reuses today's
+ * `cleanupModeFrom` selector rules; the no-selector `--print`/`--cli` agent path is
+ * exempt from "selector required".
+ */
+/** Rejects flags a prompt skill does not accept, and a stray positional for the pure skills. */
+const assertPromptFlagsAndArity = (parsed: ParsedArguments, skill: PromptSkill): void => {
+  const allowed = new Set(['print', 'cli', 'help', 'project', ...promptSkillExtraFlags[skill]]);
+  for (const name of parsed.flags.keys()) {
+    if (!allowed.has(name)) {
+      throw new ScrumlordError('unknown_flag', `Unknown flag for prompt ${skill}: --${name}.`);
+    }
+  }
+  // Only plan and cleanup take a positional beyond the skill name.
+  const positionalSkills = new Set<PromptSkill>(['plan', 'cleanup']);
+  if (!positionalSkills.has(skill) && parsed.positionals.length > 1) {
+    throw new ScrumlordError('unexpected_argument', `prompt ${skill} takes no further argument.`);
+  }
+};
+
+/** Validates the `--cli` agent-launch path: no output/store flags, then resolve the provider. */
+const assertPromptLaunchMode = (
+  parsed: ParsedArguments,
+  skill: PromptSkill,
+  options: CliOptions,
+): void => {
+  // `--print` (output-style) always conflicts with `--cli`; per-skill store/output flags too.
+  const conflict = ['print', ...promptStoreExecutionFlags[skill]].find((name) =>
+    parsed.flags.has(name),
+  );
+  if (conflict) {
+    throw new ScrumlordError(
+      'conflicting_mode',
+      `prompt ${skill} --cli launches an agent and cannot be combined with --${conflict}.`,
+    );
+  }
+  if (skill === 'cleanup' && parsed.positionals.length > 1) {
+    throw new ScrumlordError(
+      'conflicting_mode',
+      'prompt cleanup --cli launches an agent and cannot be combined with <days>.',
+    );
+  }
+  providerFromStartCommand(parsed, options);
+};
+
+/** Validates `prompt cleanup` store/print mode: a graph selector is required unless `--print`. */
+const assertPromptCleanupStoreMode = (parsed: ParsedArguments): void => {
+  const shifted = shiftedPromptParsed(parsed);
+  const hasSelector =
+    shifted.positionals.length > 0 ||
+    parsed.flags.has('orphans-only') ||
+    parsed.flags.has('recover-orphans');
+  if (!hasSelector) {
+    if (parsed.flags.has('print')) return; // emit the cleanup skill prompt
+    throw new ScrumlordError(
+      'missing_mode',
+      'prompt cleanup needs a graph selector (<days>/--orphans-only/--recover-orphans), ' +
+        '--print to emit the skill prompt, or --cli to launch an agent.',
+    );
+  }
+  cleanupModeFrom(shifted);
+};
+
+const validatePromptInput = (parsed: ParsedArguments, options: CliOptions): void => {
+  const skill = parsed.positionals[0];
+  if (!isPromptSkill(skill)) {
+    throw new ScrumlordError(
+      'unknown_prompt_skill',
+      `Unknown prompt skill: ${skill ?? '(none)'}. Valid skills: ${promptSkills.join(', ')}.`,
+    );
+  }
+  assertPromptFlagsAndArity(parsed, skill);
+
+  if (parsed.flags.has('cli')) {
+    assertPromptLaunchMode(parsed, skill, options);
+    return;
+  }
+  if (skill === 'cleanup') assertPromptCleanupStoreMode(parsed);
+};
+
 const storeCommandInputValidators: Partial<Record<string, StoreCommandInputValidator>> = {
   create: (parsed) => {
     createInputFromFlags(parsed.flags);
@@ -643,16 +775,24 @@ const storeCommandInputValidators: Partial<Record<string, StoreCommandInputValid
   },
   tags: (parsed) => {
     const subcommand = tagsSubcommandFrom(parsed);
-    if (subcommand === 'list' && parsed.positionals.length !== 1) {
+    if (subcommand === 'list' && parsed.positionals.length > 1) {
       throw new ScrumlordError(
         'invalid_tags_subcommand',
-        'tasks tags expects <task-id>, add <task-id> <tag>, or remove <task-id> <tag>.',
+        'tasks tags expects no argument, <task-id>, add <task-id> <tag>, or remove <task-id> <tag>.',
+      );
+    }
+    // `--all` only scopes the no-positional project-wide listing; it is meaningless
+    // for a single task's tags or for add/remove.
+    if (parsed.flags.has('all') && parsed.positionals.length !== 0) {
+      throw new ScrumlordError(
+        'invalid_tags_subcommand',
+        'tasks tags --all lists every tag across projects and takes no other argument.',
       );
     }
     if ((subcommand === 'add' || subcommand === 'remove') && parsed.positionals.length !== 3) {
       throw new ScrumlordError(
         'invalid_tags_subcommand',
-        'tasks tags expects <task-id>, add <task-id> <tag>, or remove <task-id> <tag>.',
+        'tasks tags expects no argument, <task-id>, add <task-id> <tag>, or remove <task-id> <tag>.',
       );
     }
   },
@@ -682,9 +822,7 @@ const storeCommandInputValidators: Partial<Record<string, StoreCommandInputValid
       );
     }
   },
-  cleanup: (parsed) => {
-    if (!parsed.flags.has('worktrees')) cleanupModeFrom(parsed);
-  },
+  prompt: (parsed, options) => validatePromptInput(parsed, options),
   start: (parsed, options) => {
     providerFromStartCommand(parsed, options);
   },

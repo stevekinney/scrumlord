@@ -107,8 +107,8 @@ describe('runTasksCli', () => {
       expect(() => JSON.parse(result.stdout)).not.toThrow();
     }
 
-    // Cleanup returns text, not JSON
-    const cleanupResult = await runTasksCli(['cleanup', '12'], options);
+    // Cleanup returns text, not JSON — now under the prompt namespace.
+    const cleanupResult = await runTasksCli(['prompt', 'cleanup', '12'], options);
     expect(cleanupResult.exitCode).toBe(0);
     expect(cleanupResult.stderr).toBe('');
     expect(cleanupResult.stdout).toContain('Aged cleanup:');
@@ -269,7 +269,7 @@ describe('runTasksCli', () => {
       message: 'tagged expects at least 1 argument.',
     });
 
-    const invalidCleanupResult = await runTasksCli(['cleanup', '1.5'], { createStore });
+    const invalidCleanupResult = await runTasksCli(['prompt', 'cleanup', '1.5'], { createStore });
     expect(JSON.parse(invalidCleanupResult.stderr).error).toEqual({
       code: 'invalid_cleanup_days',
       message: 'Cleanup days must be a non-negative integer.',

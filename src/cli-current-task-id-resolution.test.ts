@@ -229,6 +229,24 @@ describe('resolveTaskId — `current` token', () => {
     expect(JSON.parse(result.stdout)).toEqual(['listed-tag']);
   });
 
+  it('tags with no argument lists every distinct tag in the project', async () => {
+    const root = await workspaceRoot();
+    const { currentId } = await seedTasks(root);
+
+    await runTasksCli(['tags', 'add', currentId, 'beta'], { cwd: root });
+    await runTasksCli(['tags', 'add', currentId, 'alpha'], { cwd: root });
+    const result = await runTasksCli(['tags'], { cwd: root });
+    expect(JSON.parse(result.stdout)).toEqual(['alpha', 'beta']);
+  });
+
+  it('tags --all rejects a task-id argument', async () => {
+    const root = await workspaceRoot();
+    await seedTasks(root);
+
+    const result = await runTasksCli(['tags', 'current', '--all'], { cwd: root });
+    expect(JSON.parse(result.stderr).error.code).toBe('invalid_tags_subcommand');
+  });
+
   it('blockers add current <uuid> adds the specified task as blocker of the current task', async () => {
     const root = await workspaceRoot();
     const { currentId } = await seedTasks(root);

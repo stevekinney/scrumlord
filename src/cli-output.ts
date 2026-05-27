@@ -32,6 +32,11 @@ const contractFlagsForParsed = (parsed: ParsedArguments): Set<string> => {
   if (parsed.command === 'tags' || parsed.command === 'blockers') {
     addSyntheticSubcommandFlag(flags, parsed.positionals[0], new Set(['add', 'remove']));
   }
+  if (parsed.command === 'prompt' && parsed.positionals[0]) {
+    // The skill name lives in positionals; surface it as `skill:<name>` so the
+    // contract helper can dispatch on it the same way subcommands do.
+    flags.add(`skill:${parsed.positionals[0]}`);
+  }
   return flags;
 };
 

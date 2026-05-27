@@ -11,6 +11,7 @@ export type PositionalKind =
   | 'tag'
   | 'tag-action'
   | 'blocker-action'
+  | 'skill-name'
   | 'status'
   | 'priority'
   | 'shell'
@@ -19,6 +20,19 @@ export type PositionalKind =
   | 'free-text';
 
 export type PositionalVariant = readonly PositionalKind[];
+
+/** The workflow skills reachable via `tasks prompt <skill>`. */
+export const promptSkills = [
+  'next',
+  'plan',
+  'resolve',
+  'sync',
+  'audit',
+  'merge',
+  'cleanup',
+] as const;
+
+export type PromptSkill = (typeof promptSkills)[number];
 
 export type CommandSpecification = {
   valueFlags?: readonly string[];
@@ -112,9 +126,10 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
     positionalVariants: [['tag']],
   }),
   tags: withJsonFlag({
-    minPositionals: 1,
+    minPositionals: 0,
     maxPositionals: 3,
-    positionalVariants: [['task-id'], ['tag-action', 'task-id', 'tag']],
+    booleanFlags: ['all'],
+    positionalVariants: [[], ['task-id'], ['tag-action', 'task-id', 'tag']],
   }),
   blockers: withJsonFlag({
     minPositionals: 1,
@@ -168,20 +183,6 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
     booleanFlags: ['hard'],
     positionalVariants: [['task-id']],
   }),
-  cleanup: withJsonFlag({
-    minPositionals: 0,
-    maxPositionals: 1,
-    booleanFlags: [
-      'hard',
-      'recover-orphans',
-      'orphans-only',
-      'dry-run',
-      'prompt',
-      'worktrees',
-      'start',
-    ],
-    valueFlags: ['cli'],
-  }),
   search: withJsonFlag({
     minPositionals: 0,
     maxPositionals: 1,
@@ -189,23 +190,26 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
     booleanFlags: ['all', ...listingBooleanFlags],
     positionalVariants: [[], ['free-text']],
   }),
-  next: { minPositionals: 0, maxPositionals: 0, valueFlags: ['cli'], booleanFlags: ['start'] },
-  plan: {
-    minPositionals: 0,
-    maxPositionals: 1,
-    positionalVariants: [[], ['task-id']],
-    booleanFlags: ['start', 'all'],
+  prompt: {
+    // The first positional is the skill name; an optional second positional is
+    // the plan task-id (or cleanup's <days>). The parser only counts positionals
+    // — the per-skill validator interprets slot 2 and enforces the per-skill flag
+    // subset and the --cli/output mode rule.
+    minPositionals: 1,
+    maxPositionals: 2,
+    positionalVariants: [['skill-name'], ['skill-name', 'task-id'], ['skill-name', 'free-text']],
     valueFlags: ['cli'],
+    booleanFlags: [
+      'print',
+      'all',
+      'json',
+      // cleanup graph selectors/modifiers (validated to cleanup only)
+      'orphans-only',
+      'recover-orphans',
+      'hard',
+      'dry-run',
+    ],
   },
-  resolve: {
-    minPositionals: 0,
-    maxPositionals: 0,
-    valueFlags: ['cli'],
-    booleanFlags: ['start', 'all'],
-  },
-  sync: { minPositionals: 0, maxPositionals: 0, valueFlags: ['cli'], booleanFlags: ['start'] },
-  audit: { minPositionals: 0, maxPositionals: 0, valueFlags: ['cli'], booleanFlags: ['start'] },
-  merge: { minPositionals: 0, maxPositionals: 0, valueFlags: ['cli'], booleanFlags: ['start'] },
   create: withJsonFlag({
     ...noPositionals,
     valueFlags: [
@@ -242,7 +246,7 @@ export const commandSpecifications: Record<string, CommandSpecification> = {
     ],
     positionalVariants: [['task-id']],
   }),
-  teleport: { ...onePositional, booleanFlags: ['json'] },
+  teleport: { ...onePositional, booleanFlags: ['print', 'json'] },
   setup: withJsonFlag({
     minPositionals: 0,
     maxPositionals: 1,
@@ -299,16 +303,32 @@ const flagKind = (
   return 'unknown';
 };
 
+/**
+ * Flags removed during a command move, keyed by `command/first-positional/flag`,
+ * mapping to a migration hint thrown *before* the generic `unknown_flag`. Keying
+ * on the first positional keeps the hint scoped: `tasks prompt cleanup --prompt`
+ * gets the cleanup-specific message, while `tasks prompt resolve --prompt` falls
+ * through to the generic unknown-flag error.
+ */
+const removedFlagHints: Record<string, string> = {
+  'prompt/cleanup/prompt':
+    'The --prompt cleanup flag was removed; use <days>/--orphans-only/--recover-orphans for ' +
+    'graph cleanup, or --print to emit the skill prompt.',
+};
+
 const parseFlag = (
   command: string | undefined,
   specification: CommandSpecification | undefined,
   flags: Map<string, string[]>,
   value: string,
   next: string | undefined,
+  firstPositional: string | undefined,
 ): number => {
   const equalsIndex = value.indexOf('=');
   const inlineValue = equalsIndex === -1 ? undefined : value.slice(equalsIndex + 1);
   const name = value.slice(2, equalsIndex === -1 ? undefined : equalsIndex);
+  const removedHint = removedFlagHints[`${command}/${firstPositional}/${name}`];
+  if (removedHint) throw new ScrumlordError('removed_flag', removedHint);
   const kind = flagKind(specification, name);
   if (kind === 'unknown') {
     throw new ScrumlordError('unknown_flag', `Unknown flag for ${command}: --${name}.`);
@@ -351,7 +371,7 @@ export const parseArguments = (argv: string[]): ParsedArguments => {
       continue;
     }
 
-    index += parseFlag(command, specification, flags, value, rest[index + 1]);
+    index += parseFlag(command, specification, flags, value, rest[index + 1], positionals[0]);
   }
 
   return { command, positionals, flags };
@@ -379,12 +399,19 @@ const blockersHelpPath = (positionals: string[]): string[] => {
   return ['blockers'];
 };
 
+const promptHelpPath = (positionals: string[]): string[] => {
+  const skill = positionals[0];
+  if (skill && (promptSkills as readonly string[]).includes(skill)) return ['prompt', skill];
+  return ['prompt'];
+};
+
 export const helpPath = (parsed: ParsedArguments): string[] => {
   if (parsed.command === 'help') return parsed.positionals;
   if (parsed.command === 'setup' && parsed.positionals[0] === 'status') return ['setup', 'status'];
   if (parsed.command === 'progress') return progressHelpPath(parsed.positionals);
   if (parsed.command === 'tags') return tagsHelpPath(parsed.positionals);
   if (parsed.command === 'blockers') return blockersHelpPath(parsed.positionals);
+  if (parsed.command === 'prompt') return promptHelpPath(parsed.positionals);
   return [parsed.command ?? ''];
 };
 

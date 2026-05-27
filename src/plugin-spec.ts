@@ -128,7 +128,7 @@ export const scrumlordPluginSpec: PluginSpec = {
     {
       name: 'next',
       description:
-        'Work the next available task end-to-end from inside its worktree: plan it (gated by plan-review) if unplanned, implement it, and open a pull request via committee-review, leaving the task in-review. Trigger on "work the next task" or "tasks next".',
+        'Work the next available task end-to-end from inside its worktree: plan it (gated by plan-review) if unplanned, implement it, and open a pull request via committee-review, leaving the task in-review. Trigger on "work the next task" or "tasks prompt next".',
       sourcePath: join(srcSkillsDir, 'next.md'),
     },
     {
@@ -164,7 +164,7 @@ export const scrumlordPluginSpec: PluginSpec = {
     {
       name: 'cleanup',
       description:
-        'Remove git worktrees for completed tasks whose pull requests have merged, skipping anything still in flight or with uncommitted changes. Trigger on "clean up worktrees" or "tasks cleanup --worktrees".',
+        'Remove git worktrees for completed tasks whose pull requests have merged, skipping anything still in flight or with uncommitted changes. Trigger on "clean up worktrees" or "tasks prompt cleanup".',
       sourcePath: join(srcSkillsDir, 'cleanup-worktrees.md'),
     },
   ],

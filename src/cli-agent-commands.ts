@@ -493,15 +493,15 @@ export type WorkflowCommandConfig = {
 };
 
 /**
- * Dispatch helper for workflow skill commands (plan-review, committee-review,
- * address-pr, etc.). Behaviour depends on whether `--start` is present:
+ * Dispatch helper for workflow skill commands reached via `tasks prompt <skill>`.
+ * Behaviour depends on whether `--print` is present:
  *
- * - **Print mode** (no `--start`): calls `renderPrompt` and returns the
- *   rendered prompt as a raw string result. No provider resolution, no
- *   worktree materialisation, no agent spawn.
+ * - **Print mode** (`--print`): calls `renderPrompt` and returns the rendered
+ *   prompt as a raw string result. No provider resolution, no worktree
+ *   materialisation, no agent spawn.
  *
- * - **Start mode** (`--start` present): resolves the provider via the same
- *   seam used by `startTask` (`--cli` flag / `SCRUMLORD_CLI` env), builds a
+ * - **Launch mode** (no `--print`): resolves the provider via the same seam used
+ *   by `startTask` (`--cli` flag / `SCRUMLORD_CLI` env), builds a
  *   `buildSkillInvocation`, runs it via the injected (or real) agent spawner,
  *   and returns the exit code.
  */
@@ -514,7 +514,7 @@ export const runWorkflowCommand = async (
   const context: WorkflowPromptContext = { store, parsed, options };
   const prompt = config.renderPrompt(context);
 
-  if (!parsed.flags.has('start')) {
+  if (parsed.flags.has('print')) {
     return { exitCode: 0, stdout: `${prompt}\n`, stderr: '' };
   }
 
@@ -575,10 +575,10 @@ export const renderCleanupWorkflowPrompt = (_context: WorkflowPromptContext): st
   'Run the `cleanup` workflow skill.';
 
 /**
- * Handles the `next` command. In print mode (no `--start`), resolves the next
- * task read-only and emits the skill prompt seeded with its id and title; exits
- * 0 with no output when no task is available. In start mode, claims the task,
- * materializes a dedicated worktree at `tmp/worktrees/tasks/<task-id>`, and
+ * Handles `tasks prompt next`. In print mode (`--print`), resolves the next task
+ * read-only and emits the skill prompt seeded with its id and title; exits 0 with
+ * no output when no task is available. In launch mode (no `--print`), claims the
+ * task, materializes a dedicated worktree at `tmp/worktrees/tasks/<task-id>`, and
  * launches the agent with the `next` skill prompt.
  */
 export const runNextCommand = async (
@@ -586,7 +586,7 @@ export const runNextCommand = async (
   parsed: ParsedArguments,
   options: CliOptions,
 ): Promise<CliResult> => {
-  if (!parsed.flags.has('start')) {
+  if (parsed.flags.has('print')) {
     const task = store.next();
     if (!task) return { exitCode: 0, stdout: '', stderr: '' };
     const prompt = renderNextPrompt(task.id, task.title);
