@@ -20,7 +20,7 @@ import { runOverviewWatchCommand } from './cli-overview-watch.js';
 import { runPipelineCommand } from './cli-pipeline-command.js';
 import { parsePollInteger, parsePollNumber, validatePullRequestFlags } from './cli-pr-flags.js';
 import { runPullRequestWatchCommand } from './cli-pr-watch.js';
-import { runLocateCommand } from './cli-locate-command.js';
+import { runTeleportCommand } from './cli-teleport-command.js';
 import {
   helpPath,
   isHelpRequest,
@@ -72,7 +72,7 @@ const storeCommands = new Set(
     'agent-hook',
     'pipeline',
     'completions-data',
-    'locate',
+    'teleport',
     'prompt',
     // `plan` and `cleanup` keep their store handlers (reused by `tasks prompt`), but
     // are no longer valid as top-level commands — only `tasks prompt plan|cleanup`.
@@ -504,7 +504,7 @@ const cleanupHasSelector = (shifted: ParsedArguments): boolean =>
 const directStoreHandlers: Record<string, OpenedStoreHandler> = {
   start: runStartCommand,
   pipeline: runPipelineCommand,
-  locate: runLocateCommand,
+  teleport: runTeleportCommand,
   'completions-data': (store, parsedArgs) => runCompletionsDataCommand(store, parsedArgs),
   prompt: runPromptCommand,
 };
