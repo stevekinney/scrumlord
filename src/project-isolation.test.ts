@@ -114,6 +114,33 @@ describe('cross-project isolation', () => {
     b2.close();
   });
 
+  it('allTagsAcrossProjects spans every project; allTags stays scoped', async () => {
+    const ctx = await seedTwoProjects();
+
+    const a = await ctx.storeA();
+    a.create({ id: 'a-1', title: 'Alpha task', tags: ['Alpha', 'shared'] });
+    const aDeleted = a.create({ id: 'a-2', title: 'Alpha deleted', tags: ['gone'] });
+    a.delete(aDeleted.id);
+    a.close();
+
+    const b = await ctx.storeB();
+    b.create({ id: 'b-1', title: 'Beta task', tags: ['beta', 'shared'] });
+    b.close();
+
+    const a2 = await ctx.storeA();
+    // Scoped view sees only this project's live tags (normalized to lowercase).
+    expect(a2.allTags()).toEqual(['alpha', 'shared']);
+    // Cross-project view is sorted, deduped (shared appears once), and excludes
+    // the soft-deleted task's tag.
+    expect(a2.allTagsAcrossProjects()).toEqual(['alpha', 'beta', 'shared']);
+    a2.close();
+
+    // The same cross-project answer regardless of which project's store asks.
+    const b2 = await ctx.storeB();
+    expect(b2.allTagsAcrossProjects()).toEqual(['alpha', 'beta', 'shared']);
+    b2.close();
+  });
+
   it('refuses to mutate or depend on another project’s task by id', async () => {
     const ctx = await seedTwoProjects();
     const a = await ctx.storeA();
@@ -278,9 +305,9 @@ describe('--project working-tree guard', () => {
     await runTasksCli(['available'], { cwd: rootA, homeDirectory: home });
     await runTasksCli(['available'], { cwd: rootB, homeDirectory: home });
 
-    // A teleport (filesystem-dependent) from rootA but scoped to project beta
+    // A locate (filesystem-dependent) from rootA but scoped to project beta
     // must be refused rather than operating across working trees.
-    const result = await runTasksCli(['teleport', 'whatever', '--project', 'octo/beta'], {
+    const result = await runTasksCli(['locate', 'whatever', '--project', 'octo/beta'], {
       cwd: rootA,
       homeDirectory: home,
     });
@@ -306,6 +333,88 @@ describe('--project working-tree guard', () => {
     });
     expect(result.exitCode).toBe(0);
     expect(taskIds(JSON.parse(result.stdout))).toEqual(['beta-1']);
+  });
+
+  it('rejects prompt next --project pointing at a different project', async () => {
+    const home = await tempDir('guard-home-');
+    const rootA = await tempDir('guard-a-');
+    const rootB = await tempDir('guard-b-');
+    await initRepoWithRemote(rootA, 'octo/alpha');
+    await initRepoWithRemote(rootB, 'octo/beta');
+
+    await runTasksCli(['available'], { cwd: rootA, homeDirectory: home });
+    await runTasksCli(['available'], { cwd: rootB, homeDirectory: home });
+
+    // `prompt next` materialises a worktree — must reject a mismatched --project.
+    const result = await runTasksCli(['prompt', 'next', '--project', 'octo/beta'], {
+      cwd: rootA,
+      homeDirectory: home,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stderr).error.code).toBe('project_root_mismatch');
+  });
+
+  it('rejects prompt plan --cli when --project points at a different project', async () => {
+    const home = await tempDir('guard-home-');
+    const rootA = await tempDir('guard-a-');
+    const rootB = await tempDir('guard-b-');
+    await initRepoWithRemote(rootA, 'octo/alpha');
+    await initRepoWithRemote(rootB, 'octo/beta');
+
+    await runTasksCli(['available'], { cwd: rootA, homeDirectory: home });
+    await runTasksCli(['available'], { cwd: rootB, homeDirectory: home });
+
+    // `prompt plan --cli` launches an agent in the working tree — must reject a mismatched --project.
+    const result = await runTasksCli(
+      ['prompt', 'plan', '--cli', 'claude', '--project', 'octo/beta'],
+      {
+        cwd: rootA,
+        homeDirectory: home,
+      },
+    );
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stderr).error.code).toBe('project_root_mismatch');
+  });
+
+  it('rejects prompt resolve --project pointing at a different project', async () => {
+    const home = await tempDir('guard-home-');
+    const rootA = await tempDir('guard-a-');
+    const rootB = await tempDir('guard-b-');
+    await initRepoWithRemote(rootA, 'octo/alpha');
+    await initRepoWithRemote(rootB, 'octo/beta');
+
+    await runTasksCli(['available'], { cwd: rootA, homeDirectory: home });
+    await runTasksCli(['available'], { cwd: rootB, homeDirectory: home });
+
+    // `prompt resolve` always launches an agent — must reject a mismatched --project.
+    const result = await runTasksCli(['prompt', 'resolve', '--project', 'octo/beta'], {
+      cwd: rootA,
+      homeDirectory: home,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stderr).error.code).toBe('project_root_mismatch');
+  });
+
+  it('allows prompt plan --print with a cross-project --project (database-only path)', async () => {
+    const home = await tempDir('guard-home-');
+    const rootA = await tempDir('guard-a-');
+    const rootB = await tempDir('guard-b-');
+    await initRepoWithRemote(rootA, 'octo/alpha');
+    await initRepoWithRemote(rootB, 'octo/beta');
+
+    await runTasksCli(['available'], { cwd: rootA, homeDirectory: home });
+    await runTasksCli(['available'], { cwd: rootB, homeDirectory: home });
+
+    // `prompt plan --print` only reads the database — no filesystem work, so no guard.
+    const result = await runTasksCli(['prompt', 'plan', '--print', '--project', 'octo/beta'], {
+      cwd: rootA,
+      homeDirectory: home,
+    });
+    // The guard must not fire; any non-zero exit must not be a project_root_mismatch.
+    if (result.exitCode !== 0 && result.stderr) {
+      const error = JSON.parse(result.stderr);
+      expect(error?.error?.code).not.toBe('project_root_mismatch');
+    }
   });
 });
 

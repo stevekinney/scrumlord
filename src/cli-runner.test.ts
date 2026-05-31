@@ -40,7 +40,7 @@ describe('runTasksCli', () => {
       ['priority', '3'],
       ['status', 'in-progress'],
       ['session', 'task-id'],
-      ['peek'],
+      ['next'],
       ['remaining'],
       [
         'create',
@@ -107,8 +107,8 @@ describe('runTasksCli', () => {
       expect(() => JSON.parse(result.stdout)).not.toThrow();
     }
 
-    // Cleanup returns text, not JSON
-    const cleanupResult = await runTasksCli(['cleanup', '12'], options);
+    // Cleanup returns text, not JSON — now under the prompt namespace.
+    const cleanupResult = await runTasksCli(['prompt', 'cleanup', '12'], options);
     expect(cleanupResult.exitCode).toBe(0);
     expect(cleanupResult.stderr).toBe('');
     expect(cleanupResult.stdout).toContain('Aged cleanup:');
@@ -178,6 +178,30 @@ describe('runTasksCli', () => {
       },
     );
     expect(JSON.parse(removedRemoveBlockerResult.stderr).error.code).toBe('unknown_command');
+
+    // `update --blocked-by` is a common wrong reach: blockers are graph edges,
+    // not a last-write-wins attribute, so they live on the `blockers` command.
+    // The parser redirects with a specific hint instead of a generic unknown-flag.
+    const misdirectedBlockedBy = await runTasksCli(
+      ['update', 'task-id', '--blocked-by', 'blocker-id'],
+      { createStore },
+    );
+    expect(misdirectedBlockedBy.exitCode).toBe(1);
+    expect(JSON.parse(misdirectedBlockedBy.stderr).error.code).toBe('misdirected_flag');
+    expect(JSON.parse(misdirectedBlockedBy.stderr).error.message).toContain('tasks blockers add');
+
+    // The same redirect covers the singular/plural typos a user might guess.
+    const misdirectedBlocker = await runTasksCli(['update', 'task-id', '--blocker', 'blocker-id'], {
+      createStore,
+    });
+    expect(JSON.parse(misdirectedBlocker.stderr).error.code).toBe('misdirected_flag');
+
+    // `update --tag` is the same instinct for the other collection-valued edge.
+    const misdirectedTag = await runTasksCli(['update', 'task-id', '--tag', 'frontend'], {
+      createStore,
+    });
+    expect(JSON.parse(misdirectedTag.stderr).error.code).toBe('misdirected_flag');
+    expect(JSON.parse(misdirectedTag.stderr).error.message).toContain('tasks tags add');
 
     const unknownPullRequestPositionalResult = await runTasksCli(['pr', 'checks'], { createStore });
     expect(JSON.parse(unknownPullRequestPositionalResult.stderr).error.code).toBe(
@@ -269,7 +293,7 @@ describe('runTasksCli', () => {
       message: 'tagged expects at least 1 argument.',
     });
 
-    const invalidCleanupResult = await runTasksCli(['cleanup', '1.5'], { createStore });
+    const invalidCleanupResult = await runTasksCli(['prompt', 'cleanup', '1.5'], { createStore });
     expect(JSON.parse(invalidCleanupResult.stderr).error).toEqual({
       code: 'invalid_cleanup_days',
       message: 'Cleanup days must be a non-negative integer.',

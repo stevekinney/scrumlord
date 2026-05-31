@@ -1,10 +1,10 @@
-import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { CommandRunner } from './command-runner.js';
 import { runCommand as defaultRunner } from './command-runner.js';
 import { ScrumlordError } from './errors.js';
+import { TASK_ID_PREFIX_LENGTH } from './task-id-prefix.js';
 import type { AgentProvider } from './types.js';
 
 export type BaseBranch = { name: string; ref: string };
@@ -100,16 +100,18 @@ export const repoCommonDir = async (
 };
 
 /**
- * Derives the deterministic per-task branch name and short identifier from the
- * repository's common-dir path and the task id. Two checkouts that share a name
- * but differ in path produce different short-ids.
+ * Derives the per-task branch name and short identifier directly from the task
+ * id. The short id is the task UUID's first `TASK_ID_PREFIX_LENGTH` characters
+ * (lowercased) — the same prefix shown in `tasks list` and accepted by
+ * `resolveTaskId` — so a branch name like `tasks/<shortId>` is traceable
+ * straight back to its task.
+ *
+ * This helper is a pure function of the task id; it never inspects stored
+ * branches. Reuse of an existing stored branch is decided in
+ * `setupTaskWorktree`, not here.
  */
-export const deriveBranchAndShortId = (
-  repoCommonDirectory: string,
-  taskId: string,
-): { branch: string; shortId: string } => {
-  const hash = createHash('sha256').update(`${repoCommonDirectory}:${taskId}`).digest('hex');
-  const shortId = hash.slice(0, 8);
+export const deriveBranchAndShortId = (taskId: string): { branch: string; shortId: string } => {
+  const shortId = taskId.toLowerCase().slice(0, TASK_ID_PREFIX_LENGTH);
   return { branch: `tasks/${shortId}`, shortId };
 };
 
@@ -191,6 +193,30 @@ export const ensureTaskWorktree = async (
   log?.(`creating worktree at ${directory} from ${base.ref}`);
   await runGit(['git', 'worktree', 'add', '-b', branch, directory, base.ref], projectRoot, runner);
   return { worktree: directory, created: true };
+};
+
+/**
+ * True when `branch` already exists in this repository as a local head, a
+ * remote-tracking ref, or a checked-out worktree. Used by the start path to
+ * detect an unowned `tasks/<shortId>` branch before claiming it for a task — a
+ * branch existing in git is not the same as a task owning it.
+ */
+export const branchExistsInGit = async (
+  projectRoot: string,
+  branch: string,
+  runner: CommandRunner = defaultRunner,
+): Promise<boolean> => {
+  const local = await runner(
+    ['git', 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`],
+    projectRoot,
+  );
+  if (local.exitCode === 0) return true;
+  const remote = await runner(
+    ['git', 'show-ref', '--verify', '--quiet', `refs/remotes/origin/${branch}`],
+    projectRoot,
+  );
+  if (remote.exitCode === 0) return true;
+  return (await worktreeForExactBranch(projectRoot, branch, runner)) !== null;
 };
 
 const worktreeForExactBranch = async (

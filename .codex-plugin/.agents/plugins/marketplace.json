@@ -1,0 +1,12 @@
+{
+  "name": "scrumlord-local",
+  "interface": { "displayName": "Scrumlord" },
+  "plugins": [
+    {
+      "name": "scrumlord",
+      "source": { "source": "local", "path": "./plugins/scrumlord" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

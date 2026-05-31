@@ -4,26 +4,36 @@ import { assertProjectMatchesWorkingTree } from './project-identity.js';
 import type { TaskStore } from './types.js';
 
 /**
- * Commands that touch the filesystem or git for the *current* working tree
- * (plan paths, worktrees, PR state, agent launches). Running these with a
- * `--project` selector that points at a different repository would mutate one
- * project's task rows while operating on another's filesystem, so they are
+ * Commands that unconditionally touch the filesystem or git for the *current*
+ * working tree (plan paths, worktrees, PR state, agent launches). Running these
+ * with a `--project` selector that points at a different repository would mutate
+ * one project's task rows while operating on another's filesystem, so they are
  * guarded by {@link guardProjectWorkingTree}.
  */
-const filesystemDependentCommands = new Set([
-  'start',
-  'pipeline',
-  'teleport',
-  'next',
-  'resolve',
-  'sync',
-  'audit',
-  'merge',
-]);
+const filesystemDependentCommands = new Set(['start', 'pipeline', 'locate']);
+
+/**
+ * Skills that always launch an agent in the current working tree — there is no
+ * database-only path for them, so `--project` for another repo must be rejected.
+ */
+const alwaysFilesystemPromptSkills = new Set(['next', 'resolve', 'sync', 'audit', 'merge']);
+
+/**
+ * `prompt next`/`resolve`/`sync`/`audit`/`merge` are always filesystem-dependent
+ * (they unconditionally launch an agent via `runWorkflowCommand`).
+ * `prompt plan --cli` and `prompt cleanup --cli` launch an agent in the working
+ * tree and are only filesystem-dependent when `--cli` is present;
+ * the `--print`/store modes are purely database operations.
+ */
+const isPromptFilesystemDependent = (parsed: ParsedArguments): boolean => {
+  if (parsed.command !== 'prompt') return false;
+  const skill = parsed.positionals[0];
+  if (skill && alwaysFilesystemPromptSkills.has(skill)) return true;
+  if ((skill === 'plan' || skill === 'cleanup') && parsed.flags.has('cli')) return true;
+  return false;
+};
 
 const filesystemDependentByFlag: Array<[command: string, flag: string]> = [
-  ['plan', 'start'],
-  ['cleanup', 'worktrees'],
   ['pr', 'sync'],
   ['overview', 'sync'],
   ['complete', 'sync'],
@@ -31,6 +41,7 @@ const filesystemDependentByFlag: Array<[command: string, flag: string]> = [
 
 const isFilesystemDependent = (parsed: ParsedArguments): boolean => {
   if (parsed.command && filesystemDependentCommands.has(parsed.command)) return true;
+  if (isPromptFilesystemDependent(parsed)) return true;
   return filesystemDependentByFlag.some(
     ([command, flag]) => parsed.command === command && parsed.flags.has(flag),
   );

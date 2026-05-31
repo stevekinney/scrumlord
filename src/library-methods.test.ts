@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import * as packageRoot from './index';
+import { storeCommandLibraryMethods, taskStoreCommands } from './cli-store-commands';
 import {
   absoluteTaskPlanPath,
   addTaskBlocker,
@@ -288,10 +290,33 @@ describe('library command equivalents', () => {
     expect(methods.every((method) => typeof method === 'function')).toBe(true);
     expect(agentProviders).toEqual(['claude', 'codex']);
     expect(skillTargets).toEqual(['codex', 'claude']);
-    expect(helpTopics).toContain('peek');
+    expect(helpTopics).toContain('next');
     expect(ScrumlordError.name).toBe('ScrumlordError');
     expect(nextTask).toBe(next);
     expect(remainingTasks).toBe(remaining);
+  });
+
+  // This is the real parity guard. The hand-maintained list above is a sanity
+  // check on the surface; these two tests are what fail when a `tasks <command>`
+  // is added without a matching package-root export. The expectation is derived
+  // from `storeCommandLibraryMethods`, so the only way to keep the suite green is
+  // to wire the new command to a real library function and export it.
+  it('keeps the command→library map in lockstep with the store commands', () => {
+    const mappedCommands = new Set(Object.keys(storeCommandLibraryMethods));
+    const storeCommands = new Set(taskStoreCommands);
+    // Every store command must declare a library equivalent...
+    const unmapped = [...storeCommands].filter((command) => !mappedCommands.has(command));
+    // ...and the map must not name commands that no longer exist.
+    const stale = [...mappedCommands].filter((command) => !storeCommands.has(command));
+    expect({ unmapped, stale }).toEqual({ unmapped: [], stale: [] });
+  });
+
+  it('exports every library method that backs a store command', () => {
+    const expected = [...new Set(Object.values(storeCommandLibraryMethods).flat())].toSorted();
+    const missing = expected.filter(
+      (name) => typeof (packageRoot as Record<string, unknown>)[name] !== 'function',
+    );
+    expect(missing).toEqual([]);
   });
 
   it('exports companion types for root-level functions', () => {

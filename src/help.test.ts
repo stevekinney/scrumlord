@@ -9,9 +9,8 @@ const expectedTopics = [
   'completed',
   'complete',
   'current',
-  'peek',
+  'next',
   'remaining',
-  'plan',
   'repository',
   'session',
   'progress',
@@ -36,19 +35,21 @@ const expectedTopics = [
   'blockers',
   'blockers add',
   'blockers remove',
-  'cleanup',
   'overview',
   'setup',
   'setup status',
   'agent-hook',
   'pr',
   'search',
-  'next',
-  'resolve',
-  'sync',
-  'audit',
-  'merge',
-  'teleport',
+  'prompt',
+  'prompt next',
+  'prompt plan',
+  'prompt resolve',
+  'prompt sync',
+  'prompt audit',
+  'prompt merge',
+  'prompt cleanup',
+  'locate',
   'completions',
 ];
 
@@ -95,25 +96,24 @@ describe('renderHelp', () => {
     expect(renderHelp(['unknown'], 'never')).toBeNull();
   });
 
-  it('renders cleanup help with new flags', () => {
-    const help = renderHelp(['cleanup'], 'never');
+  it('renders prompt cleanup help with graph flags', () => {
+    const help = renderHelp(['prompt', 'cleanup'], 'never');
     expect(help).toContain('--recover-orphans');
     expect(help).toContain('--orphans-only');
     expect(help).toContain('--dry-run');
-    expect(help).toContain('--prompt');
-    expect(help).toContain('tasks cleanup --prompt | claude --print');
-    expect(help).toContain('tasks cleanup --orphans-only');
-    expect(help).toContain('tasks cleanup 30 --recover-orphans --dry-run');
+    expect(help).toContain('--print');
+    expect(help).toContain('tasks prompt cleanup --orphans-only --dry-run');
+    expect(help).toContain('tasks prompt cleanup --cli claude');
   });
 });
 
-describe('renderHelp — teleport', () => {
-  it('renders teleport help with usage, argument, and quoted example', () => {
-    const help = renderHelp(['teleport'], 'never');
+describe('renderHelp — locate', () => {
+  it('renders locate help with usage, argument, and cd example', () => {
+    const help = renderHelp(['locate'], 'never');
     expect(help).not.toBeNull();
-    expect(help).toContain('tasks teleport <task-id>');
-    expect(help).toContain('<task-id>: Task ID');
-    expect(help).toContain('cd "$(tasks teleport current)"');
+    expect(help).toContain('tasks locate <task-id>');
+    expect(help).toContain('<task-id>: UUID');
+    expect(help).toContain('cd "$(tasks locate current)"');
   });
 
   it('renders setup help listing --shell mode', () => {

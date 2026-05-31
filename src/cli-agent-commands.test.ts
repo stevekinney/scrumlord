@@ -8,6 +8,15 @@ import type { CommandRunner } from './command-runner';
 import { createTaskStore } from './database-open';
 import { taskStartRunner as startRunner } from './test-runner-mocks';
 
+const caught = async (action: () => Promise<unknown>): Promise<unknown> => {
+  try {
+    await action();
+  } catch (error) {
+    return error;
+  }
+  throw new Error('Expected the action to throw, but it resolved.');
+};
+
 const temporaryDirectories: string[] = [];
 
 const temporaryDirectory = async (): Promise<string> => {
@@ -291,6 +300,84 @@ describe('startTask phase resolution and worktree setup', () => {
       });
       // Codex worktree path should still be derived; invocation includes --cd to some path.
       expect(invocations[0]).toContain('--cd');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('names a never-started task branch after its own uuid prefix', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const store = await createTaskStore({ cwd: root });
+    const task = store.create({ id: '3f9c1a2b-e29b-41d4-a716-446655440000', title: 'Fresh' });
+
+    try {
+      await startTask(store, task.id, {
+        provider: 'codex',
+        which: () => '/bin/provider',
+        runner: startRunner(),
+        runAgentInvocation: async () => 0,
+        stderr: () => {},
+      });
+      // Branch and worktree both carry the task's own short id, not an opaque hash.
+      expect(store.getTask(task.id)?.branch).toBe('tasks/3f9c1a2b');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('refuses to claim a branch already owned by a different task (prefix collision)', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const store = await createTaskStore({ cwd: root });
+    // Two distinct ids that share an 8-char prefix.
+    const owner = store.create({ id: '3f9c1a2b-0000-0000-0000-000000000001', title: 'Owner' });
+    store.update(owner.id, { branch: 'tasks/3f9c1a2b' });
+    const collider = store.create({
+      id: '3f9c1a2b-0000-0000-0000-000000000002',
+      title: 'Collider',
+    });
+
+    try {
+      const error = await caught(() =>
+        startTask(store, collider.id, {
+          provider: 'codex',
+          which: () => '/bin/provider',
+          runner: startRunner(),
+          runAgentInvocation: async () => 0,
+          stderr: () => {},
+        }),
+      );
+      expect(error).toMatchObject({ code: 'task_branch_prefix_collision' });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('refuses to claim a tasks/<prefix> branch that exists in git but no task owns', async () => {
+    const root = await temporaryDirectory();
+    await initializeGit(root);
+    const store = await createTaskStore({ cwd: root });
+    const task = store.create({ id: '3f9c1a2b-e29b-41d4-a716-446655440000', title: 'Fresh' });
+
+    try {
+      const error = await caught(() =>
+        startTask(store, task.id, {
+          provider: 'codex',
+          which: () => '/bin/provider',
+          // The derived branch already exists as a local head, owned by nobody.
+          runner: startRunner({
+            'git show-ref --verify --quiet refs/heads/tasks/3f9c1a2b': () => ({
+              exitCode: 0,
+              stdout: '',
+              stderr: '',
+            }),
+          }),
+          runAgentInvocation: async () => 0,
+          stderr: () => {},
+        }),
+      );
+      expect(error).toMatchObject({ code: 'task_branch_unowned' });
     } finally {
       store.close();
     }

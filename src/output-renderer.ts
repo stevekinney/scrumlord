@@ -2,6 +2,7 @@
 import { createTheme, type ColorMode, type Theme } from './color.js';
 import { formatJson } from './output-json.js';
 import { renderReadiness, type DataShape } from './output-contracts.js';
+import { TASK_ID_PREFIX_LENGTH } from './task-id-prefix.js';
 import type { PullRequestStatusReport, ReviewComment } from './github.js';
 import type { PullRequestOverviewItem } from './tasks-overview.js';
 import type {
@@ -202,7 +203,7 @@ const STATUS_WIDTH = Math.max(
   ...['draft', 'ready', 'in-progress', 'in-review', 'completed'].map((s) => s.length),
 );
 const MAX_LIST_ROWS = 50;
-const ID_PREFIX_LENGTH = 8;
+const ID_PREFIX_LENGTH = TASK_ID_PREFIX_LENGTH;
 
 const renderTaskRow = (
   task: Task,

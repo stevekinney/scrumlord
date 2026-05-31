@@ -32,14 +32,14 @@ const resolveWorktreePath = async (
   if (lookup.kind === 'failed') {
     const detail = normalizeStderr(lookup.stderr) || 'unknown error';
     throw new ScrumlordError(
-      'teleport_worktree_lookup_failed',
+      'locate_worktree_lookup_failed',
       `Could not list git worktrees: ${detail}`,
     );
   }
 
   if (lookup.kind === 'not_found') {
     throw new ScrumlordError(
-      'teleport_no_worktree',
+      'locate_no_worktree',
       `No worktree found for task ${taskId} on branch ${branch}.`,
     );
   }
@@ -49,7 +49,7 @@ const resolveWorktreePath = async (
   // contract and any consumer that records the path.
   if (!isAbsolute(lookup.path)) {
     throw new ScrumlordError(
-      'teleport_worktree_lookup_failed',
+      'locate_worktree_lookup_failed',
       `Could not list git worktrees: git returned a non-absolute path (${lookup.path}).`,
     );
   }
@@ -58,12 +58,14 @@ const resolveWorktreePath = async (
 };
 
 /**
- * Locates the existing git worktree for a task and prints its absolute path.
- * On success, stdout is path-only (newline-terminated) so shells can
- * `cd "$(tasks teleport <id>)"`. On error, formatting is handled by the
- * shared CLI output boundary.
+ * Locates the existing git worktree for a task and prints its absolute path on
+ * stdout (path-only, newline-terminated) so a shell can `cd "$(…)"`.
+ *
+ * The path is the only output: a child process cannot change the parent shell's
+ * directory, so callers wrap this in `cd "$(tasks locate <id>)"`. Never creates
+ * a worktree. Errors use the shared CLI output boundary (`--json` forces JSON).
  */
-export const runTeleportCommand = async (
+export const runLocateCommand = async (
   store: TaskStore,
   parsed: ParsedArguments,
   options: CliOptions,
@@ -77,24 +79,15 @@ export const runTeleportCommand = async (
   }
 
   if (!task.branch) {
-    throw new ScrumlordError('teleport_no_branch', `Task ${task.id} has no branch set.`);
+    throw new ScrumlordError('locate_no_branch', `Task ${task.id} has no branch set.`);
   }
 
   const runner: CommandRunner = options.runner ?? runCommand;
   return resolveWorktreePath(store.projectRoot, task.id, task.branch, runner);
 };
 
-export const TELEPORT_SHELL_SNIPPET = [
-  '# Added by `tasks setup --shell`. Cd into the worktree for a task.',
-  'tasks-teleport() {',
-  '  local destination',
-  '  destination="$(command tasks teleport "$@")" || return $?',
-  '  [ -n "$destination" ] || return 1',
-  '  cd "$destination"',
-  '}',
-  '# Optional convenience alias — uncomment if you want it:',
-  "# alias tt='tasks-teleport'",
-  '',
+export const TASKS_START_SHELL_SNIPPET = [
+  '# Added by `tasks setup --shell`.',
   '# Wraps `tasks start` so the shell follows the agent into the task worktree.',
   '# After the agent exits, cds into the worktree (when one exists).',
   'tasks-start() {',
@@ -102,7 +95,7 @@ export const TELEPORT_SHELL_SNIPPET = [
   '  local status=$?',
   '  local task_id="${@: -1}"',
   '  local destination',
-  '  destination="$(command tasks teleport "$task_id" 2>/dev/null)" || return $status',
+  '  destination="$(command tasks locate "$task_id" 2>/dev/null)" || return $status',
   '  [ -n "$destination" ] && cd "$destination"',
   '  return $status',
   '}',

@@ -18,12 +18,13 @@ import { ScrumlordError } from './errors.js';
 import { currentGitBranch } from './git-status.js';
 import type { CliOptions, CliResult } from './cli-types.js';
 import type { AgentProvider, Task, TaskStore } from './types.js';
+import { TASK_ID_PREFIX_LENGTH } from './task-id-prefix.js';
 import { isReservedTaskBranch, parseAgentProvider } from './validation.js';
 import {
+  branchExistsInGit,
   checkProviderCapabilities,
   deriveBranchAndShortId,
   ensureTaskWorktree,
-  repoCommonDir,
   resolveBaseBranch,
   scrumlordWorktreePath,
 } from './worktree.js';
@@ -203,10 +204,40 @@ type WorktreeSetup = {
   created: 'created' | 'reused' | 'skipped';
 };
 
-const shortIdFromBranch = (branch: string, commonDir: string, taskId: string): string => {
-  const match = /^tasks\/([0-9a-f]{8})$/.exec(branch);
+const TASK_BRANCH_PATTERN = new RegExp(`^tasks/([0-9a-f]{${TASK_ID_PREFIX_LENGTH}})$`);
+
+const shortIdFromBranch = (branch: string, taskId: string): string => {
+  const match = TASK_BRANCH_PATTERN.exec(branch);
   if (match) return match[1]!;
-  return deriveBranchAndShortId(commonDir, taskId).shortId;
+  return deriveBranchAndShortId(taskId).shortId;
+};
+
+/**
+ * Guards a freshly derived `tasks/<shortId>` branch before it is claimed for a
+ * never-started task. Two distinct task UUIDs can share an 8-char prefix, and a
+ * `tasks/<shortId>` branch may already exist in git with no owning task — in
+ * both cases reusing the branch would silently attach this task to unrelated
+ * contents. Repo membership is not task ownership, so we fail loudly instead.
+ */
+const assertBranchUnclaimed = async (
+  store: TaskStore,
+  task: Task,
+  branch: string,
+  runner: CommandRunner,
+): Promise<void> => {
+  const owner = store.withBranch(branch).find((other) => other.id !== task.id);
+  if (owner) {
+    throw new ScrumlordError(
+      'task_branch_prefix_collision',
+      `Branch ${branch} is already owned by task ${owner.id}; it collides with the short id of task ${task.id}.`,
+    );
+  }
+  if (await branchExistsInGit(store.projectRoot, branch, runner)) {
+    throw new ScrumlordError(
+      'task_branch_unowned',
+      `Branch ${branch} already exists in git but is not owned by any task. Refusing to claim it for task ${task.id}.`,
+    );
+  }
 };
 
 const noWorktreeSetup = async (
@@ -237,7 +268,7 @@ const noWorktreeSetup = async (
 /**
  * Materializes (or reuses) a Scrumlord-managed worktree for the task, regardless
  * of provider. The agent is always launched in a dedicated worktree so the
- * shell wrapper can teleport into it after the session.
+ * shell wrapper can cd into it after the session.
  */
 const setupTaskWorktree = async (
   store: TaskStore,
@@ -246,10 +277,12 @@ const setupTaskWorktree = async (
   runner: CommandRunner,
 ): Promise<WorktreeSetup> => {
   if (options.noWorktree) return noWorktreeSetup(store, task, options, runner);
-  const common = await repoCommonDir(store.projectRoot, runner);
   const derived = task.branch
-    ? { branch: task.branch, shortId: shortIdFromBranch(task.branch, common, task.id) }
-    : deriveBranchAndShortId(common, task.id);
+    ? { branch: task.branch, shortId: shortIdFromBranch(task.branch, task.id) }
+    : deriveBranchAndShortId(task.id);
+  // A never-started task adopts a brand-new derived branch — make sure that name
+  // is not already spoken for by another task or by a stray git branch.
+  if (!task.branch) await assertBranchUnclaimed(store, task, derived.branch, runner);
   const directory =
     options.worktreeDirectory ?? (await scrumlordWorktreePath(store.projectRoot, derived.shortId));
   const base = await resolveBaseBranch(store.projectRoot, runner);
@@ -460,15 +493,15 @@ export type WorkflowCommandConfig = {
 };
 
 /**
- * Dispatch helper for workflow skill commands (plan-review, committee-review,
- * address-pr, etc.). Behaviour depends on whether `--start` is present:
+ * Dispatch helper for workflow skill commands reached via `tasks prompt <skill>`.
+ * Behaviour depends on whether `--print` is present:
  *
- * - **Print mode** (no `--start`): calls `renderPrompt` and returns the
- *   rendered prompt as a raw string result. No provider resolution, no
- *   worktree materialisation, no agent spawn.
+ * - **Print mode** (`--print`): calls `renderPrompt` and returns the rendered
+ *   prompt as a raw string result. No provider resolution, no worktree
+ *   materialisation, no agent spawn.
  *
- * - **Start mode** (`--start` present): resolves the provider via the same
- *   seam used by `startTask` (`--cli` flag / `SCRUMLORD_CLI` env), builds a
+ * - **Launch mode** (no `--print`): resolves the provider via the same seam used
+ *   by `startTask` (`--cli` flag / `SCRUMLORD_CLI` env), builds a
  *   `buildSkillInvocation`, runs it via the injected (or real) agent spawner,
  *   and returns the exit code.
  */
@@ -481,7 +514,7 @@ export const runWorkflowCommand = async (
   const context: WorkflowPromptContext = { store, parsed, options };
   const prompt = config.renderPrompt(context);
 
-  if (!parsed.flags.has('start')) {
+  if (parsed.flags.has('print')) {
     return { exitCode: 0, stdout: `${prompt}\n`, stderr: '' };
   }
 
@@ -542,10 +575,10 @@ export const renderCleanupWorkflowPrompt = (_context: WorkflowPromptContext): st
   'Run the `cleanup` workflow skill.';
 
 /**
- * Handles the `next` command. In print mode (no `--start`), resolves the next
- * task read-only and emits the skill prompt seeded with its id and title; exits
- * 0 with no output when no task is available. In start mode, claims the task,
- * materializes a dedicated worktree at `tmp/worktrees/tasks/<task-id>`, and
+ * Handles `tasks prompt next`. In print mode (`--print`), resolves the next task
+ * read-only and emits the skill prompt seeded with its id and title; exits 0 with
+ * no output when no task is available. In launch mode (no `--print`), claims the
+ * task, materializes a dedicated worktree at `tmp/worktrees/tasks/<task-id>`, and
  * launches the agent with the `next` skill prompt.
  */
 export const runNextCommand = async (
@@ -553,7 +586,7 @@ export const runNextCommand = async (
   parsed: ParsedArguments,
   options: CliOptions,
 ): Promise<CliResult> => {
-  if (!parsed.flags.has('start')) {
+  if (parsed.flags.has('print')) {
     const task = store.next();
     if (!task) return { exitCode: 0, stdout: '', stderr: '' };
     const prompt = renderNextPrompt(task.id, task.title);

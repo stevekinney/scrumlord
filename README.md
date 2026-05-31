@@ -120,7 +120,7 @@ All flags use kebab case. Tags are trimmed and lowercased before storage. `branc
 
 ### Agent Sessions
 
-- `tasks start <task-id> --cli <claude|codex>`: Start (or resume) a task in an agent CLI. Use `current` or `next` as the task-id to resolve by branch or queue position. Scrumlord materializes a per-task worktree at `<projectRoot>/tmp/worktrees/tasks/<short-id>` on a `tasks/<short-id>` branch and launches the provider with `cwd` set to that worktree, regardless of provider. A task is never associated with an integration branch such as `main`. The agent receives a JSON payload with `worktree`, `branch`, and `phase` (`start | resume-planning | resume-implementation`), and a system prompt that names the four-phase workflow: plan → implement → `committee-review` (which opens the PR) → `address-pr` (which drives it to merge). When the task is already in-progress with a recorded provider+session, `start` reattaches the existing session via the provider's native resume command instead of re-claiming. Pass `--no-worktree` to skip worktree creation (refused on the resolved base branch unless `--force`); pass `--quiet` to suppress the pre-launch status line. If `--cli` is omitted, Scrumlord uses `SCRUMLORD_CLI`; if neither is present, it fails before launching anything. When invoked through the `tasks-start` shell function (installed by `tasks setup --shell`), the shell follows the agent into the task worktree after the session exits.
+- `tasks start <task-id> --cli <claude|codex>`: Start (or resume) a task in an agent CLI. Use `current` or `next` as the task-id to resolve by branch or queue position. Scrumlord materializes a per-task worktree at `<projectRoot>/tmp/worktrees/tasks/<short-id>` on a `tasks/<short-id>` branch and launches the provider with `cwd` set to that worktree, regardless of provider. The `<short-id>` is the task's own UUID prefix (the first 8 characters shown in `tasks list`), so a branch name maps straight back to its task. A task is never associated with an integration branch such as `main`. The agent receives a JSON payload with `worktree`, `branch`, and `phase` (`start | resume-planning | resume-implementation`), and a system prompt that names the four-phase workflow: plan → implement → `committee-review` (which opens the PR) → `address-pr` (which drives it to merge). When the task is already in-progress with a recorded provider+session, `start` reattaches the existing session via the provider's native resume command instead of re-claiming. Pass `--no-worktree` to skip worktree creation (refused on the resolved base branch unless `--force`); pass `--quiet` to suppress the pre-launch status line. If `--cli` is omitted, Scrumlord uses `SCRUMLORD_CLI`; if neither is present, it fails before launching anything. When invoked through the `tasks-start` shell function (installed by `tasks setup --shell`), the shell follows the agent into the task worktree after the session exits.
 - `tasks pipeline --cli <claude|codex>`: Drain the ready queue serially. For each task it claims atomically via `claimNext`, materializes the worktree at `<projectRoot>/tmp/worktrees/tasks/<short-id>`, delegates the per-task run to the agent CLI (the Claude prompt invokes the `next-task` skill; the Codex prompt inlines the four-phase workflow), polls the task's pull request to merge, and continues to the next task. A single global lockfile at `tmp/pipeline.lock` prevents concurrent pipelines on the same checkout; stale lockfiles (dead PID or older than 6 hours) are reaped automatically. Flags: `--max <n>` caps claim attempts; `--recover` runs the recovery sweep and exits (annotate-only by default; pair with `--apply` to mutate); `--recover-then-run` sweeps first and refuses to drain while any task is in `resumable` state; `--resume <task-id>` resumes a single in-flight task; `--dry-run` previews would-be claims without mutating anything; `--quiet` suppresses progress lines (errors still emit); `--json` emits the structured summary on stdout. Exit codes: `0` success, `1` stuck, `2` argument/capability error, `3` lock held, `4` manual recovery verdicts present, `5` runtime git/GitHub failure during drain, `130/143` SIGINT/SIGTERM.
 - `tasks session <task-id>`: Return the task session report as JSON.
 - `tasks current`: Show the task for the current branch when you need to inspect the inferred ID directly.
@@ -240,6 +240,79 @@ The server registers typed `scrumlord_` tools for the task graph:
 - Mutation tools: `scrumlord_create_task`, `scrumlord_update_task`, `scrumlord_delete_task`, `scrumlord_archive_task`, `scrumlord_restore_task`, tag, status, branch, parent, blocker, plan, session, progress, and cleanup mutations.
 
 MCP tool errors return `isError: true` with structured content shaped as `{ "error": { "code": "...", "message": "..." } }`.
+
+## Plugin
+
+Scrumlord ships as a plugin for both Claude Code and the Codex CLI. The plugin bundles the workflow skills, the `scrumlord-task-manager` subagent, lifecycle hooks that inject current-branch task context into every session, and the MCP server. It does _not_ bundle the `tasks` binary: the hooks call `tasks` on your `PATH`, so install the CLI globally first.
+
+```bash
+bun add -g scrumlord
+```
+
+> [!NOTE]
+> The two plugin trees under `.claude-plugin/` and `.codex-plugin/` are generated. They are emitted from `src/plugin-spec.ts` by the emitters in `src/plugin-emit-claude.ts` and `src/plugin-emit-codex.ts` (`bun run plugin:build`). Never hand-edit them — change the spec and rebuild. `bun run plugin:check` guards against drift and, when the `claude` CLI is on `PATH`, runs `claude plugin validate . --strict`.
+
+### Install In Claude Code
+
+The repository root _is_ the Claude plugin (it holds `.claude-plugin/`) and doubles as a single-plugin marketplace. Add the marketplace, then install:
+
+```bash
+claude plugin marketplace add stevekinney/scrumlord
+claude plugin install scrumlord@scrumlord-local
+```
+
+For local development against a checkout, load it without installing:
+
+```bash
+claude --plugin-dir /absolute/path/to/scrumlord
+```
+
+### Install In Codex
+
+The Codex marketplace root is `.codex-plugin/`. It contains `.agents/plugins/marketplace.json` and the plugin itself at `plugins/scrumlord/`. Add the marketplace root, then install:
+
+```bash
+codex plugin marketplace add /absolute/path/to/scrumlord/.codex-plugin
+codex plugin add scrumlord@scrumlord-local
+```
+
+### Skills
+
+Installing the plugin namespaces these skills under the plugin name (for example `/scrumlord:next` in Claude Code). They wrap the same task-graph workflow the CLI exposes:
+
+- `tasks`: Inspect and update the local task graph from inside an agent session.
+- `next`: Work the next available task end-to-end from inside its worktree — plan it (gated by `plan-review`), implement it, then open a pull request via `committee-review`.
+- `plan`: Plan every unplanned incomplete task by fanning out a subagent per task, each gated through `plan-review`.
+- `plan-review`: Adversarially review a task's drafted plan before it is associated and implemented.
+- `committee-review`: Gate pull request creation behind a multi-agent review loop, then open the pull request.
+- `address-pr`: Load a pull request, implement review feedback, resolve threads, and loop until CI is green.
+- `resolve`: Drive a task's pull request to merge-ready via the `address-pr` loop, then complete the task.
+- `merge`: Clear the merge queue — find every pull request that is genuinely ready, merge each, and complete the task.
+- `sync`: Reconcile task statuses with reality from open pull requests, worktrees, and merged diffs, then repair the dependency graph.
+- `audit`: Review recently completed work for uncaptured tasks, run the validation scripts, and file follow-up tasks.
+- `cleanup`: Remove git worktrees for completed tasks whose pull requests have merged.
+
+### Subagent
+
+The plugin provides one subagent, `scrumlord-task-manager`, restricted to the `Read`, `Grep`, `Glob`, and `Bash` tools. It breaks long documents and task lists into Scrumlord tasks, sets dependencies, and checks Scrumlord setup, mutating the graph only through the `tasks` CLI. In Claude Code it lands in `agents/`; in Codex, which has no separate agents directory, it ships as an additional skill.
+
+### Hooks
+
+The plugin registers lifecycle hooks that run `tasks agent-hook <provider>` and exit quietly when the project is not initialized for Scrumlord or the `tasks` binary is absent. The hook injects the current-branch task into the agent context, records session IDs, captures plan content on plan-exit, and synchronizes Git status after relevant Bash commands.
+
+| Event              | Matcher           | Claude | Codex |
+| ------------------ | ----------------- | :----: | :---: |
+| `SessionStart`     | `startup\|resume` |   ✅   |  ✅   |
+| `UserPromptSubmit` | _(all)_           |   ✅   |  ✅   |
+| `PostToolUse`      | `Bash`            |   ✅   |  ✅   |
+| `Stop`             | _(all)_           |   ✅   |  ✅   |
+| `PostToolUse`      | `ExitPlanMode`    |   ✅   |   —   |
+| `SessionEnd`       | _(all)_           |   ✅   |   —   |
+| `SubagentStop`     | _(all)_           |   ✅   |   —   |
+
+### Bundled MCP Server
+
+The plugin's `.mcp.json` registers the `scrumlord` MCP server via `bunx scrumlord tasks-mcp`, exposing the same typed `scrumlord_` tools documented under [MCP Server](#mcp-server) to any session where the plugin is enabled. No separate MCP configuration is needed once the plugin is installed.
 
 ## Library API
 

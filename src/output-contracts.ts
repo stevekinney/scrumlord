@@ -74,7 +74,7 @@ const pureCommandContracts: Record<string, OutputContract> = {
   search: { kind: 'jsonData', shape: 'task-list', countLabel: 'matching tasks' },
   get: { kind: 'jsonData', shape: 'single-task' },
   current: { kind: 'jsonData', shape: 'single-task' },
-  peek: { kind: 'jsonData', shape: 'single-task' },
+  next: { kind: 'jsonData', shape: 'single-task' },
   create: { kind: 'jsonData', shape: 'single-task' },
   update: { kind: 'jsonData', shape: 'single-task' },
   delete: { kind: 'jsonData', shape: 'single-task' },
@@ -87,23 +87,32 @@ const pureCommandContracts: Record<string, OutputContract> = {
   start: { kind: 'jsonData', shape: 'start-result' },
   'agent-hook': { kind: 'jsonData', shape: 'start-result' },
   pipeline: { kind: 'bespoke' },
-  teleport: { kind: 'bespoke' },
-  plan: { kind: 'rawText' },
+  locate: { kind: 'bespoke' },
   completions: { kind: 'rawText' },
   'completions-data': { kind: 'rawText' },
-  next: { kind: 'rawText' },
-  resolve: { kind: 'rawText' },
-  sync: { kind: 'rawText' },
-  audit: { kind: 'rawText' },
-  merge: { kind: 'rawText' },
+  // `plan` keeps a rawText contract because `tasks prompt plan` delegates its
+  // store/print path to the plan handler under a shifted `command: 'plan'`. It is
+  // not a top-level command — see `knownContractCommands` notes below.
+  plan: { kind: 'rawText' },
 };
 
 /**
- * Set of all command names known to the contract system. Used by the drift
- * test to assert coverage parity with the parser specifications.
+ * Commands whose contracts exist only for internal `tasks prompt <skill>`
+ * delegation (the prompt handler runs the plan/cleanup store path under a shifted
+ * `command`) and so are intentionally absent from the parser specifications and
+ * from {@link knownContractCommands}.
+ */
+export const internalDelegationContractCommands = new Set<string>(['plan', 'cleanup']);
+
+/**
+ * Set of all top-level command names known to the contract system. Used by the
+ * drift test to assert coverage parity with the parser specifications. Excludes
+ * {@link internalDelegationContractCommands}, which have no top-level spec.
  */
 export const knownContractCommands = new Set<string>([
-  ...Object.keys(pureCommandContracts),
+  ...Object.keys(pureCommandContracts).filter(
+    (command) => !internalDelegationContractCommands.has(command),
+  ),
   'pr',
   'repository',
   'setup',
@@ -111,7 +120,7 @@ export const knownContractCommands = new Set<string>([
   'tags',
   'blockers',
   'complete',
-  'cleanup',
+  'prompt',
 ]);
 
 const tagsContract = (flags: ReadonlySet<string>): OutputContract => {
@@ -173,9 +182,23 @@ const setupContract = (flags: ReadonlySet<string>): OutputContract => {
   return { kind: 'jsonData', shape: 'setup-result' };
 };
 
-const cleanupContract = (flags: ReadonlySet<string>): OutputContract => {
-  if (flags.has('worktrees')) return { kind: 'rawText' };
+const cleanupContract = (): OutputContract => {
+  // The agent-launch / print form (`--cli`/no-selector `--print`) is bespoke and
+  // never reaches this contract; the store/graph path renders the cleanup shape.
   return { kind: 'jsonData', shape: 'cleanup' };
+};
+
+/**
+ * `tasks prompt <skill>` dispatches on the skill (surfaced as a synthetic
+ * `skill:<name>` flag). The agent-launch and print paths build their own
+ * `CliResult` and never resolve a contract; only the `plan`/`cleanup` store path
+ * does, so those map to the underlying plan/cleanup contracts. Pure skills are
+ * rawText (defensive — `--json` is already rejected for them at validation).
+ */
+const promptContract = (flags: ReadonlySet<string>): OutputContract => {
+  if (flags.has('skill:plan')) return { kind: 'rawText' };
+  if (flags.has('skill:cleanup')) return cleanupContract();
+  return { kind: 'rawText' };
 };
 
 /**
@@ -183,18 +206,24 @@ const cleanupContract = (flags: ReadonlySet<string>): OutputContract => {
  * combination. Mixed-form commands (`pr`, `repository`, `setup`, `progress`)
  * are routed through per-command helpers; everything else is a static lookup.
  */
+const mixedFormContracts: Record<string, (flags: ReadonlySet<string>) => OutputContract> = {
+  pr: pullRequestContract,
+  repository: repositoryContract,
+  setup: setupContract,
+  cleanup: () => cleanupContract(),
+  prompt: promptContract,
+  progress: progressContract,
+  tags: tagsContract,
+  blockers: blockersContract,
+  complete: completeContract,
+};
+
 export const contractForInvocation = (
   command: string,
   flags: ReadonlySet<string>,
 ): OutputContract => {
-  if (command === 'pr') return pullRequestContract(flags);
-  if (command === 'repository') return repositoryContract(flags);
-  if (command === 'setup') return setupContract(flags);
-  if (command === 'cleanup') return cleanupContract(flags);
-  if (command === 'progress') return progressContract(flags);
-  if (command === 'tags') return tagsContract(flags);
-  if (command === 'blockers') return blockersContract(flags);
-  if (command === 'complete') return completeContract(flags);
+  const mixedForm = mixedFormContracts[command];
+  if (mixedForm) return mixedForm(flags);
   const contract = pureCommandContracts[command];
   if (!contract) throw new ScrumlordError('unknown_command', `Unknown command: ${command}`);
   return contract;

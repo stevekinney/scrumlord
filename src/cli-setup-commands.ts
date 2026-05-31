@@ -12,7 +12,7 @@ import { resolveProjectRoot } from './root-resolution.js';
 import { setupSkills, skillTargets, type SkillTarget } from './skills.js';
 import { setupSubagents } from './subagents.js';
 import { setupAgentPrompt } from './setup-prompt.js';
-import { TELEPORT_SHELL_SNIPPET } from './cli-teleport-command.js';
+import { TASKS_START_SHELL_SNIPPET } from './cli-locate-command.js';
 import type { ParsedArguments } from './cli-arguments.js';
 import type { CliOptions, CliResult } from './cli-types.js';
 import type { AgentProvider } from './types.js';
@@ -209,7 +209,7 @@ const runShellSetup = (parsed: ParsedArguments): CliResult => {
   if (parsed.flags.has('agent')) {
     throw new ScrumlordError('setup_shell_unexpected_flag', '--shell does not accept --agent.');
   }
-  return rawString(TELEPORT_SHELL_SNIPPET);
+  return rawString(TASKS_START_SHELL_SNIPPET);
 };
 
 const runModeDispatch = async (

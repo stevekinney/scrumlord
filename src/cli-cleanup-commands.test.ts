@@ -164,50 +164,42 @@ const fakeStore = (): TaskStore => ({
 });
 
 describe('cleanup command', () => {
-  it('parses aged, orphans-only, aged-and-orphans, prompt flags', async () => {
+  it('parses aged, orphans-only, and aged-and-orphans flags; rejects removed --prompt', async () => {
     const createStore = async () => fakeStore();
 
-    const orphansOnly = await runTasksCli(['cleanup', '--orphans-only'], { createStore });
+    const orphansOnly = await runTasksCli(['prompt', 'cleanup', '--orphans-only'], { createStore });
     expect(orphansOnly.exitCode).toBe(0);
     expect(orphansOnly.stdout).toContain('Orphan recovery:');
 
-    const orphansOnlyWithDays = await runTasksCli(['cleanup', '--orphans-only', '30'], {
+    const orphansOnlyWithDays = await runTasksCli(['prompt', 'cleanup', '--orphans-only', '30'], {
       createStore,
     });
     expect(orphansOnlyWithDays.exitCode).toBe(1);
     expect(JSON.parse(orphansOnlyWithDays.stderr).error.code).toBe('invalid_cleanup_flags');
 
-    const orphansOnlyWithHard = await runTasksCli(['cleanup', '--orphans-only', '--hard'], {
-      createStore,
-    });
+    const orphansOnlyWithHard = await runTasksCli(
+      ['prompt', 'cleanup', '--orphans-only', '--hard'],
+      {
+        createStore,
+      },
+    );
     expect(orphansOnlyWithHard.exitCode).toBe(1);
     expect(JSON.parse(orphansOnlyWithHard.stderr).error.code).toBe('invalid_cleanup_flags');
 
-    const noArgs = await runTasksCli(['cleanup'], { createStore });
+    // Bare `prompt cleanup` (no selector, no --print/--cli) now reports missing_mode.
+    const noArgs = await runTasksCli(['prompt', 'cleanup'], { createStore });
     expect(noArgs.exitCode).toBe(1);
-    expect(JSON.parse(noArgs.stderr).error.code).toBe('invalid_cleanup_flags');
+    expect(JSON.parse(noArgs.stderr).error.code).toBe('missing_mode');
 
-    const promptMode = await runTasksCli(['cleanup', '--prompt'], { createStore });
-    expect(promptMode.exitCode).toBe(0);
-    expect(promptMode.stdout).toContain('# Role');
-
-    const promptWithHard = await runTasksCli(['cleanup', '--prompt', '--hard'], { createStore });
-    expect(promptWithHard.exitCode).toBe(1);
-    expect(JSON.parse(promptWithHard.stderr).error.code).toBe('invalid_cleanup_flags');
-
-    const promptWithDays = await runTasksCli(['cleanup', '--prompt', '30'], { createStore });
-    expect(promptWithDays.exitCode).toBe(1);
-    expect(JSON.parse(promptWithDays.stderr).error.code).toBe('invalid_cleanup_flags');
-
-    const promptWithDryRun = await runTasksCli(['cleanup', '--prompt', '--dry-run'], {
-      createStore,
-    });
-    expect(promptWithDryRun.exitCode).toBe(1);
-    expect(JSON.parse(promptWithDryRun.stderr).error.code).toBe('invalid_cleanup_flags');
+    // The old `--prompt` cleanup flag is removed: it errors with a migration hint
+    // at parse time, scoped to cleanup only.
+    const removedPrompt = await runTasksCli(['prompt', 'cleanup', '--prompt'], { createStore });
+    expect(removedPrompt.exitCode).toBe(1);
+    expect(JSON.parse(removedPrompt.stderr).error.code).toBe('removed_flag');
 
     // --orphans-only + --recover-orphans should error
     const orphansOnlyWithRecover = await runTasksCli(
-      ['cleanup', '--orphans-only', '--recover-orphans'],
+      ['prompt', 'cleanup', '--orphans-only', '--recover-orphans'],
       { createStore },
     );
     expect(orphansOnlyWithRecover.exitCode).toBe(1);
@@ -217,11 +209,11 @@ describe('cleanup command', () => {
   it('dry-run renders [dry-run] prefix', async () => {
     const createStore = async () => fakeStore();
 
-    const agedDryRun = await runTasksCli(['cleanup', '30', '--dry-run'], { createStore });
+    const agedDryRun = await runTasksCli(['prompt', 'cleanup', '30', '--dry-run'], { createStore });
     expect(agedDryRun.exitCode).toBe(0);
     expect(agedDryRun.stdout).toContain('[dry-run] Aged cleanup:');
 
-    const orphansDryRun = await runTasksCli(['cleanup', '--orphans-only', '--dry-run'], {
+    const orphansDryRun = await runTasksCli(['prompt', 'cleanup', '--orphans-only', '--dry-run'], {
       createStore,
     });
     expect(orphansDryRun.exitCode).toBe(0);
@@ -230,14 +222,16 @@ describe('cleanup command', () => {
 
   it('aged mode renders deleted count', async () => {
     const createStore = async () => fakeStore();
-    const result = await runTasksCli(['cleanup', '30'], { createStore });
+    const result = await runTasksCli(['prompt', 'cleanup', '30'], { createStore });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toMatch(/Aged cleanup: deleted=\d+ \(hard=false\)/);
   });
 
   it('--recover-orphans renders both aged and orphan sections', async () => {
     const createStore = async () => fakeStore();
-    const result = await runTasksCli(['cleanup', '30', '--recover-orphans'], { createStore });
+    const result = await runTasksCli(['prompt', 'cleanup', '30', '--recover-orphans'], {
+      createStore,
+    });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('Aged cleanup:');
     expect(result.stdout).toContain('Orphan recovery:');
@@ -245,9 +239,12 @@ describe('cleanup command', () => {
 
   it('--recover-orphans --dry-run renders [dry-run] prefix on both sections', async () => {
     const createStore = async () => fakeStore();
-    const result = await runTasksCli(['cleanup', '30', '--recover-orphans', '--dry-run'], {
-      createStore,
-    });
+    const result = await runTasksCli(
+      ['prompt', 'cleanup', '30', '--recover-orphans', '--dry-run'],
+      {
+        createStore,
+      },
+    );
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('[dry-run] Aged cleanup:');
     expect(result.stdout).toContain('[dry-run] Orphan recovery:');
@@ -273,7 +270,10 @@ describe('cleanup command', () => {
       stderr: '',
     });
 
-    const result = await runTasksCli(['cleanup', '--orphans-only'], { createStore, runner });
+    const result = await runTasksCli(['prompt', 'cleanup', '--orphans-only'], {
+      createStore,
+      runner,
+    });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('Orphan recovery: recovered=1');
     expect(result.stdout).toContain('in-progress→ready');

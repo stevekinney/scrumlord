@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { runTasksCli } from './cli-runner';
-import { TELEPORT_SHELL_SNIPPET } from './cli-teleport-command';
+import { TASKS_START_SHELL_SNIPPET } from './cli-locate-command';
 import { emptyProgressStoreMethods } from './test-progress-store-methods';
 import type { Task, TaskStore } from './types';
 
@@ -74,14 +74,14 @@ describe('tasks setup --shell', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe('');
-    expect(result.stdout).toContain('tasks-teleport()');
+    expect(result.stdout).toContain('tasks-start()');
   });
 
-  it('snippet output matches TELEPORT_SHELL_SNIPPET', async () => {
+  it('snippet output matches TASKS_START_SHELL_SNIPPET', async () => {
     const result = await cli(['setup', '--shell']);
-    const expectedContent = TELEPORT_SHELL_SNIPPET.endsWith('\n')
-      ? TELEPORT_SHELL_SNIPPET
-      : `${TELEPORT_SHELL_SNIPPET}\n`;
+    const expectedContent = TASKS_START_SHELL_SNIPPET.endsWith('\n')
+      ? TASKS_START_SHELL_SNIPPET
+      : `${TASKS_START_SHELL_SNIPPET}\n`;
     expect(result.stdout).toBe(expectedContent);
   });
 

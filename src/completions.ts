@@ -14,6 +14,7 @@ const staticChoices: Partial<Record<PositionalKind, string[]>> = {
   shell: ['bash', 'zsh'],
   'tag-action': ['add', 'remove'],
   'blocker-action': ['add', 'remove'],
+  'skill-name': ['next', 'plan', 'resolve', 'sync', 'audit', 'merge', 'cleanup'],
 };
 
 /**
@@ -30,7 +31,7 @@ export const commandSummaries: Record<string, string> = {
   overview: 'Show a task status overview with PR state.',
   help: 'Show help for the CLI or a specific command.',
   current: 'Return the task assigned to the current branch.',
-  peek: 'Return the next available task.',
+  next: 'Return the next available task.',
   remaining: 'Count remaining tasks.',
   repository: 'Show the current GitHub repository.',
   pr: 'Inspect or sync the current pull request.',
@@ -50,19 +51,13 @@ export const commandSummaries: Record<string, string> = {
   pipeline: 'Run the automated pipeline.',
   'agent-hook': 'Handle an agent lifecycle hook event.',
   delete: 'Delete a task.',
-  cleanup: 'Remove old completed tasks or recover orphaned in-progress tasks.',
   search: 'Fuzzy-search tasks by title or description.',
-  plan: 'Emit a Markdown prompt directing an agent to author task plans.',
   create: 'Create a new task.',
   update: 'Update a task.',
   setup: 'Configure Scrumlord and agent integrations.',
-  teleport: 'Print the worktree path for a task (for shell cd).',
+  locate: 'Print a task worktree path to stdout for use with cd.',
   completions: 'Generate shell completion scripts.',
-  next: 'Claim and start work on the next available task.',
-  resolve: 'Emit or run the resolve workflow skill.',
-  sync: 'Emit or run the sync workflow skill.',
-  audit: 'Emit or run the audit workflow skill.',
-  merge: 'Emit or run the merge workflow skill.',
+  prompt: 'Emit or launch a workflow skill (next, plan, resolve, sync, audit, merge, cleanup).',
 };
 
 /** Backslash-escapes characters special in bash word lists and double-quoted strings. */

@@ -50,7 +50,7 @@ describe('tasks plan', () => {
   describe('no-argument form (batch)', () => {
     it('exits 0 with empty-batch message when no available unplanned tasks exist', async () => {
       const root = await projectRoot();
-      const result = await runTasksCli(['plan'], { cwd: root });
+      const result = await runTasksCli(['prompt', 'plan'], { cwd: root });
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe('');
       expect(result.stdout).toContain('There are no available, unplanned tasks.');
@@ -63,7 +63,7 @@ describe('tasks plan', () => {
       const idA = JSON.parse(a.stdout).id as string;
       const idB = JSON.parse(b.stdout).id as string;
 
-      const result = await runTasksCli(['plan'], { cwd: root });
+      const result = await runTasksCli(['prompt', 'plan'], { cwd: root });
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe('');
       expect(result.stdout).toContain(idA);
@@ -81,7 +81,7 @@ describe('tasks plan', () => {
       const unplanned = await runTasksCli(['create', '--title', 'Unplanned Task'], { cwd: root });
       const unplannedId = JSON.parse(unplanned.stdout).id as string;
 
-      const result = await runTasksCli(['plan'], { cwd: root });
+      const result = await runTasksCli(['prompt', 'plan'], { cwd: root });
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain(unplannedId);
       expect(result.stdout).not.toContain('Planned Task');
@@ -89,14 +89,14 @@ describe('tasks plan', () => {
 
     it('output ends with exactly one trailing newline', async () => {
       const root = await projectRoot();
-      const result = await runTasksCli(['plan'], { cwd: root });
+      const result = await runTasksCli(['prompt', 'plan'], { cwd: root });
       expect(result.stdout.endsWith('\n')).toBe(true);
       expect(result.stdout.endsWith('\n\n')).toBe(false);
     });
 
     it('routes correctly so the empty-batch prompt is returned rather than unknown_command', async () => {
       const root = await projectRoot();
-      const result = await runTasksCli(['plan'], { cwd: root });
+      const result = await runTasksCli(['prompt', 'plan'], { cwd: root });
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('# Task Plan Authoring — Batch');
     });
@@ -108,7 +108,7 @@ describe('tasks plan', () => {
       const created = await runTasksCli(['create', '--title', 'My Feature'], { cwd: root });
       const id = JSON.parse(created.stdout).id as string;
 
-      const result = await runTasksCli(['plan', id], { cwd: root });
+      const result = await runTasksCli(['prompt', 'plan', id], { cwd: root });
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe('');
       expect(result.stdout).toContain(`# Task Plan Authoring — \`${id}\``);
@@ -117,7 +117,7 @@ describe('tasks plan', () => {
 
     it('exits 1 with task_not_found for a non-existent UUID', async () => {
       const root = await projectRoot();
-      const result = await runTasksCli(['plan', '00000000-0000-0000-0000-000000000000'], {
+      const result = await runTasksCli(['prompt', 'plan', '00000000-0000-0000-0000-000000000000'], {
         cwd: root,
       });
       expect(result.exitCode).toBe(1);
@@ -134,14 +134,14 @@ describe('tasks plan', () => {
       );
       const id = JSON.parse(created.stdout).id as string;
 
-      const result = await runTasksCli(['plan', 'current'], { cwd: root });
+      const result = await runTasksCli(['prompt', 'plan', 'current'], { cwd: root });
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain(id);
     });
 
     it('exits 1 with current_task_not_found for "current" when no task is on the branch', async () => {
       const root = await projectRoot();
-      const result = await runTasksCli(['plan', 'current'], { cwd: root });
+      const result = await runTasksCli(['prompt', 'plan', 'current'], { cwd: root });
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe('');
       expect(JSON.parse(result.stderr).error.code).toBe('current_task_not_found');
@@ -152,14 +152,14 @@ describe('tasks plan', () => {
       const created = await runTasksCli(['create', '--title', 'Next Task'], { cwd: root });
       const id = JSON.parse(created.stdout).id as string;
 
-      const result = await runTasksCli(['plan', 'next'], { cwd: root });
+      const result = await runTasksCli(['prompt', 'plan', 'next'], { cwd: root });
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain(id);
     });
 
     it('exits 1 with next_task_not_found for "next" when no tasks are available', async () => {
       const root = await projectRoot();
-      const result = await runTasksCli(['plan', 'next'], { cwd: root });
+      const result = await runTasksCli(['prompt', 'plan', 'next'], { cwd: root });
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toBe('');
       expect(JSON.parse(result.stderr).error.code).toBe('next_task_not_found');
@@ -167,14 +167,14 @@ describe('tasks plan', () => {
 
     it('exits 1 with unexpected_argument when two positionals are given', async () => {
       const root = await projectRoot();
-      const result = await runTasksCli(['plan', 'a', 'b'], { cwd: root });
+      const result = await runTasksCli(['prompt', 'plan', 'a', 'b'], { cwd: root });
       expect(result.exitCode).toBe(1);
       expect(JSON.parse(result.stderr).error.code).toBe('unexpected_argument');
     });
 
     it('exits 1 with task_not_found for "Current" (capitalized, not a token)', async () => {
       const root = await projectRoot();
-      const result = await runTasksCli(['plan', 'Current'], { cwd: root });
+      const result = await runTasksCli(['prompt', 'plan', 'Current'], { cwd: root });
       expect(result.exitCode).toBe(1);
       expect(JSON.parse(result.stderr).error.code).toBe('task_not_found');
     });
@@ -183,34 +183,43 @@ describe('tasks plan', () => {
       const root = await projectRoot();
       const created = await runTasksCli(['create', '--title', 'Output Test'], { cwd: root });
       const id = JSON.parse(created.stdout).id as string;
-      const result = await runTasksCli(['plan', id], { cwd: root });
+      const result = await runTasksCli(['prompt', 'plan', id], { cwd: root });
       expect(result.stdout.endsWith('\n')).toBe(true);
       expect(result.stdout.endsWith('\n\n')).toBe(false);
     });
   });
 
   describe('help', () => {
-    it('tasks help plan returns a non-null string', async () => {
+    it('tasks help prompt plan returns a non-null string', async () => {
       const root = await projectRoot();
-      const result = await runTasksCli(['help', 'plan'], { cwd: root, colorMode: 'never' });
+      const result = await runTasksCli(['help', 'prompt', 'plan'], {
+        cwd: root,
+        colorMode: 'never',
+      });
       expect(result.exitCode).toBe(0);
       expect(result.stdout).not.toBe('');
     });
 
-    it('tasks plan --help returns the plan help topic', async () => {
+    it('tasks prompt plan --help returns the plan help topic', async () => {
       const root = await projectRoot();
-      const result = await runTasksCli(['plan', '--help'], { cwd: root, colorMode: 'never' });
+      const result = await runTasksCli(['prompt', 'plan', '--help'], {
+        cwd: root,
+        colorMode: 'never',
+      });
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('tasks plan [task-id]');
+      expect(result.stdout).toContain('tasks prompt plan [task-id]');
     });
 
-    it('plan help includes the four example lines', async () => {
+    it('plan help includes the example lines', async () => {
       const root = await projectRoot();
-      const result = await runTasksCli(['help', 'plan'], { cwd: root, colorMode: 'never' });
-      expect(result.stdout).toContain('tasks plan');
-      expect(result.stdout).toContain('tasks plan current');
-      expect(result.stdout).toContain('tasks plan next');
-      expect(result.stdout).toContain('tasks plan 8f7d6a');
+      const result = await runTasksCli(['help', 'prompt', 'plan'], {
+        cwd: root,
+        colorMode: 'never',
+      });
+      expect(result.stdout).toContain('tasks prompt plan');
+      expect(result.stdout).toContain('tasks prompt plan current');
+      expect(result.stdout).toContain('tasks prompt plan next');
+      expect(result.stdout).toContain('tasks prompt plan 8f7d6a');
     });
   });
 });

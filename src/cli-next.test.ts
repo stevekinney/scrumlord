@@ -35,7 +35,7 @@ describe('tasks next and remaining', () => {
     const root = await temporaryDirectory();
     await initializeGit(root);
 
-    const result = await runTasksCli(['peek'], { cwd: root });
+    const result = await runTasksCli(['next'], { cwd: root });
 
     expect(result).toEqual({ exitCode: 0, stdout: '', stderr: '' });
   });
@@ -63,7 +63,7 @@ describe('tasks next and remaining', () => {
       { cwd: root },
     );
 
-    const result = await runTasksCli(['peek'], { cwd: root });
+    const result = await runTasksCli(['next'], { cwd: root });
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe('');
