@@ -70,10 +70,16 @@ export const claudePluginManifestSchema = pluginBaseSchema.extend({
   mcpServers: z.string().optional(),
 });
 
-/** Codex local plugin source: an object envelope naming a relative path. */
+/** Codex local plugin source: an object envelope naming a relative path.
+ * The path must start with `./`; Codex rejects self-referential `.` and absolute paths. */
 const codexLocalSourceSchema = z.object({
   source: z.literal('local'),
-  path: z.string(),
+  path: z
+    .string()
+    .regex(
+      /^\.\//,
+      'Codex marketplace source path must start with "./" (not "." or an absolute path)',
+    ),
 });
 
 /** Claude local plugin source: a relative path string that must start with `./`. */

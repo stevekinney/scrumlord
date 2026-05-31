@@ -616,7 +616,7 @@ export const storeCommandLibraryMethods: Record<string, readonly string[]> = {
   priority: ['tasksWithPriority'],
   status: ['tasksWithStatus'],
   session: ['resolveTaskSession'],
-  tags: ['taskTags', 'addTaskTag', 'removeTaskTag'],
+  tags: ['taskTags', 'addTaskTag', 'removeTaskTag', 'allTags', 'allTagsAcrossProjects'],
   blockers: ['tasksBlockedBy', 'addTaskBlocker', 'removeTaskBlocker'],
   progress: ['taskProgress', 'addTaskProgress'],
   clear: ['clearTaskBranch', 'clearTaskPlan', 'clearTaskSession', 'updateTask'],

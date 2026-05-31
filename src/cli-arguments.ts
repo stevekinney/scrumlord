@@ -407,6 +407,10 @@ export const parseArguments = (argv: string[]): ParsedArguments => {
   const positionals: string[] = [];
   const flags = new Map<string, string[]>();
 
+  // Pre-scan for the first positional so redirect hints work even when flags
+  // appear before positionals (e.g. `tasks prompt --prompt cleanup`).
+  const firstPositional = rest.find((token) => !token.startsWith('--'));
+
   for (let index = 0; index < rest.length; index += 1) {
     const value = rest[index];
     if (!value?.startsWith('--')) {
@@ -414,7 +418,7 @@ export const parseArguments = (argv: string[]): ParsedArguments => {
       continue;
     }
 
-    index += parseFlag(command, specification, flags, value, rest[index + 1], positionals[0]);
+    index += parseFlag(command, specification, flags, value, rest[index + 1], firstPositional);
   }
 
   return { command, positionals, flags };

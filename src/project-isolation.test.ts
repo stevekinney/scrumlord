@@ -334,6 +334,69 @@ describe('--project working-tree guard', () => {
     expect(result.exitCode).toBe(0);
     expect(taskIds(JSON.parse(result.stdout))).toEqual(['beta-1']);
   });
+
+  it('rejects prompt next --project pointing at a different project', async () => {
+    const home = await tempDir('guard-home-');
+    const rootA = await tempDir('guard-a-');
+    const rootB = await tempDir('guard-b-');
+    await initRepoWithRemote(rootA, 'octo/alpha');
+    await initRepoWithRemote(rootB, 'octo/beta');
+
+    await runTasksCli(['available'], { cwd: rootA, homeDirectory: home });
+    await runTasksCli(['available'], { cwd: rootB, homeDirectory: home });
+
+    // `prompt next` materialises a worktree — must reject a mismatched --project.
+    const result = await runTasksCli(['prompt', 'next', '--project', 'octo/beta'], {
+      cwd: rootA,
+      homeDirectory: home,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stderr).error.code).toBe('project_root_mismatch');
+  });
+
+  it('rejects prompt plan --cli when --project points at a different project', async () => {
+    const home = await tempDir('guard-home-');
+    const rootA = await tempDir('guard-a-');
+    const rootB = await tempDir('guard-b-');
+    await initRepoWithRemote(rootA, 'octo/alpha');
+    await initRepoWithRemote(rootB, 'octo/beta');
+
+    await runTasksCli(['available'], { cwd: rootA, homeDirectory: home });
+    await runTasksCli(['available'], { cwd: rootB, homeDirectory: home });
+
+    // `prompt plan --cli` launches an agent in the working tree — must reject a mismatched --project.
+    const result = await runTasksCli(
+      ['prompt', 'plan', '--cli', 'claude', '--project', 'octo/beta'],
+      {
+        cwd: rootA,
+        homeDirectory: home,
+      },
+    );
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stderr).error.code).toBe('project_root_mismatch');
+  });
+
+  it('allows prompt plan --print with a cross-project --project (database-only path)', async () => {
+    const home = await tempDir('guard-home-');
+    const rootA = await tempDir('guard-a-');
+    const rootB = await tempDir('guard-b-');
+    await initRepoWithRemote(rootA, 'octo/alpha');
+    await initRepoWithRemote(rootB, 'octo/beta');
+
+    await runTasksCli(['available'], { cwd: rootA, homeDirectory: home });
+    await runTasksCli(['available'], { cwd: rootB, homeDirectory: home });
+
+    // `prompt plan --print` only reads the database — no filesystem work, so no guard.
+    const result = await runTasksCli(['prompt', 'plan', '--print', '--project', 'octo/beta'], {
+      cwd: rootA,
+      homeDirectory: home,
+    });
+    // The guard must not fire; any non-zero exit must not be a project_root_mismatch.
+    if (result.exitCode !== 0 && result.stderr) {
+      const error = JSON.parse(result.stderr);
+      expect(error?.error?.code).not.toBe('project_root_mismatch');
+    }
+  });
 });
 
 describe('createTaskStore failure paths', () => {

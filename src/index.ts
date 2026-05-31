@@ -25,6 +25,8 @@ import * as tasksOverviewModule from './tasks-overview.js';
 
 export const absoluteTaskPlanPath = agentProvidersModule.absoluteTaskPlanPath;
 export const addTaskBlocker = taskCommandsModule.addTaskBlocker;
+export const allTags = taskQueriesModule.allTags;
+export const allTagsAcrossProjects = taskQueriesModule.allTagsAcrossProjects;
 export const addTaskProgress = taskCommandsModule.addTaskProgress;
 export const addTaskTag = taskCommandsModule.addTaskTag;
 export const agentProviders = agentProvidersModule.agentProviders;

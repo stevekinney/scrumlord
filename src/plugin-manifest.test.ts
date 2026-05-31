@@ -206,4 +206,30 @@ describe('codexMarketplaceSchema', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it('rejects a self-referential "." source path', () => {
+    const result = codexMarketplaceSchema.safeParse({
+      ...valid,
+      plugins: [
+        {
+          ...valid.plugins[0],
+          source: { source: 'local', path: '.' },
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an absolute source path', () => {
+    const result = codexMarketplaceSchema.safeParse({
+      ...valid,
+      plugins: [
+        {
+          ...valid.plugins[0],
+          source: { source: 'local', path: '/absolute/path' },
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
 });
