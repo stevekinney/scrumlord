@@ -13,15 +13,22 @@ import type { TaskStore } from './types.js';
 const filesystemDependentCommands = new Set(['start', 'pipeline', 'locate']);
 
 /**
- * `prompt next` is always filesystem-dependent (materialises a worktree).
- * `prompt plan --cli` and `prompt cleanup --cli` launch an agent in the
- * working tree and are only filesystem-dependent when `--cli` is present;
+ * Skills that always launch an agent in the current working tree — there is no
+ * database-only path for them, so `--project` for another repo must be rejected.
+ */
+const alwaysFilesystemPromptSkills = new Set(['next', 'resolve', 'sync', 'audit', 'merge']);
+
+/**
+ * `prompt next`/`resolve`/`sync`/`audit`/`merge` are always filesystem-dependent
+ * (they unconditionally launch an agent via `runWorkflowCommand`).
+ * `prompt plan --cli` and `prompt cleanup --cli` launch an agent in the working
+ * tree and are only filesystem-dependent when `--cli` is present;
  * the `--print`/store modes are purely database operations.
  */
 const isPromptFilesystemDependent = (parsed: ParsedArguments): boolean => {
   if (parsed.command !== 'prompt') return false;
   const skill = parsed.positionals[0];
-  if (skill === 'next') return true;
+  if (skill && alwaysFilesystemPromptSkills.has(skill)) return true;
   if ((skill === 'plan' || skill === 'cleanup') && parsed.flags.has('cli')) return true;
   return false;
 };

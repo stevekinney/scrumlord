@@ -376,6 +376,25 @@ describe('--project working-tree guard', () => {
     expect(JSON.parse(result.stderr).error.code).toBe('project_root_mismatch');
   });
 
+  it('rejects prompt resolve --project pointing at a different project', async () => {
+    const home = await tempDir('guard-home-');
+    const rootA = await tempDir('guard-a-');
+    const rootB = await tempDir('guard-b-');
+    await initRepoWithRemote(rootA, 'octo/alpha');
+    await initRepoWithRemote(rootB, 'octo/beta');
+
+    await runTasksCli(['available'], { cwd: rootA, homeDirectory: home });
+    await runTasksCli(['available'], { cwd: rootB, homeDirectory: home });
+
+    // `prompt resolve` always launches an agent — must reject a mismatched --project.
+    const result = await runTasksCli(['prompt', 'resolve', '--project', 'octo/beta'], {
+      cwd: rootA,
+      homeDirectory: home,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stderr).error.code).toBe('project_root_mismatch');
+  });
+
   it('allows prompt plan --print with a cross-project --project (database-only path)', async () => {
     const home = await tempDir('guard-home-');
     const rootA = await tempDir('guard-a-');
