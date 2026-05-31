@@ -172,3 +172,112 @@ describe('tasks teleport — shell wrapper integration', () => {
     },
   );
 });
+
+describe('tasks start — shell wrapper integration', () => {
+  it.skipIf(!bash)(
+    'tasks-start cds into the worktree resolved from the last argument',
+    async () => {
+      const testRoot = await temporaryDirectory();
+      // Resolve symlinks for macOS /var → /private/var compatibility.
+      const realTestRoot = await realpath(testRoot);
+      const wtDir = join(realTestRoot, 'wt with spaces');
+      await mkdir(wtDir, { recursive: true });
+
+      const stubDir = join(testRoot, 'stub-bin');
+      await mkdir(stubDir, { recursive: true });
+      // The stub answers both subcommands the wrapper invokes: `start` exits 0
+      // with no output, `teleport` prints the worktree path. It also records the
+      // arguments `teleport` was called with so we can assert the wrapper passed
+      // the *last* positional (the task id), exercising the portable last-arg
+      // extraction in TELEPORT_SHELL_SNIPPET.
+      const argsLog = join(testRoot, 'teleport-args.txt');
+      const stubScript = join(stubDir, 'tasks');
+      await writeFile(
+        stubScript,
+        `#!/bin/bash\nif [ "$1" = "teleport" ]; then\n  printf '%s\\n' "$2" > "${argsLog.replace(/"/g, '\\"')}"\n  printf '%s\\n' "${wtDir.replace(/"/g, '\\"')}"\nfi\nexit 0\n`,
+      );
+      await chmod(stubScript, 0o755);
+
+      const snippetFile = join(testRoot, 'snippet.sh');
+      await writeFile(snippetFile, TELEPORT_SHELL_SNIPPET);
+
+      const script = [
+        `source '${snippetFile}'`,
+        'tasks-start --cli claude abc12345',
+        'status=$?',
+        'printf \'%s\\n\' "$PWD"',
+        'exit "$status"',
+      ].join('\n');
+
+      const subprocess = Bun.spawn(['bash', '-c', script], {
+        cwd: testRoot,
+        env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}` },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+
+      const [exitCode, stdout] = await Promise.all([
+        subprocess.exited,
+        new Response(subprocess.stdout).text(),
+      ]);
+
+      const lines = stdout.trim().split('\n');
+      const lastLine = lines[lines.length - 1];
+
+      // The wrapper must pass the trailing task id (not the flags) to teleport…
+      const recordedArgs = await Bun.file(argsLog).text();
+      expect(recordedArgs.trim()).toBe('abc12345');
+      // …and end up inside the resolved worktree, preserving the success exit code.
+      expect(exitCode).toBe(0);
+      expect(lastLine).toBe(wtDir);
+    },
+  );
+
+  it.skipIf(!bash)(
+    'tasks-start stays put and preserves status when no worktree exists',
+    async () => {
+      const testRoot = await temporaryDirectory();
+      const realTestRoot = await realpath(testRoot);
+
+      const stubDir = join(testRoot, 'stub-bin');
+      await mkdir(stubDir, { recursive: true });
+      // `start` exits non-zero and `teleport` finds nothing → the wrapper must not
+      // cd, and must propagate the `start` exit status.
+      const stubScript = join(stubDir, 'tasks');
+      await writeFile(
+        stubScript,
+        '#!/bin/bash\nif [ "$1" = "teleport" ]; then exit 1; fi\nexit 3\n',
+      );
+      await chmod(stubScript, 0o755);
+
+      const snippetFile = join(testRoot, 'snippet.sh');
+      await writeFile(snippetFile, TELEPORT_SHELL_SNIPPET);
+
+      const script = [
+        `source '${snippetFile}'`,
+        'tasks-start abc12345',
+        'status=$?',
+        'printf \'%s\\n\' "$PWD"',
+        'exit "$status"',
+      ].join('\n');
+
+      const subprocess = Bun.spawn(['bash', '-c', script], {
+        cwd: testRoot,
+        env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}` },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+
+      const [exitCode, stdout] = await Promise.all([
+        subprocess.exited,
+        new Response(subprocess.stdout).text(),
+      ]);
+
+      const lines = stdout.trim().split('\n');
+      const lastLine = lines[lines.length - 1];
+
+      expect(exitCode).toBe(3);
+      expect(lastLine).toBe(realTestRoot);
+    },
+  );
+});

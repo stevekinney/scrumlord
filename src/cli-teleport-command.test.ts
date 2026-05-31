@@ -223,10 +223,14 @@ describe('tasks teleport — success cases', () => {
     const result = await runTasksCli(['teleport', 'main-task'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
+      // Pin the agent-installed marker so stderr is hermetic against an ambient
+      // TASKS_TELEPORT_SHELL — the advisory branch is covered on its own below.
+      environment: { TASKS_TELEPORT_SHELL: '1' },
     });
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe('/project\n');
+    expect(result.stderr).toBe('');
   });
 
   it('returns the raw path even when --json is passed on success', async () => {
@@ -237,10 +241,12 @@ describe('tasks teleport — success cases', () => {
     const result = await runTasksCli(['teleport', 'json-task', '--json'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
+      environment: { TASKS_TELEPORT_SHELL: '1' },
     });
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe('/tmp/wt-json\n');
+    expect(result.stderr).toBe('');
   });
 
   it('returns the raw path under CLAUDECODE=1', async () => {
@@ -251,11 +257,12 @@ describe('tasks teleport — success cases', () => {
     const result = await runTasksCli(['teleport', 'claude-task'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
-      environment: { CLAUDECODE: '1' },
+      environment: { CLAUDECODE: '1', TASKS_TELEPORT_SHELL: '1' },
     });
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe('/tmp/wt-claude\n');
+    expect(result.stderr).toBe('');
   });
 
   it('returns the raw path under CODEX_MANAGED_BY_BUN=1', async () => {
@@ -266,11 +273,12 @@ describe('tasks teleport — success cases', () => {
     const result = await runTasksCli(['teleport', 'codex-task'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
-      environment: { CODEX_MANAGED_BY_BUN: '1' },
+      environment: { CODEX_MANAGED_BY_BUN: '1', TASKS_TELEPORT_SHELL: '1' },
     });
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe('/tmp/wt-codex\n');
+    expect(result.stderr).toBe('');
   });
 
   it('matches the right worktree from multi-record porcelain', async () => {
@@ -285,10 +293,12 @@ describe('tasks teleport — success cases', () => {
     const result = await runTasksCli(['teleport', 'multi-task'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
+      environment: { TASKS_TELEPORT_SHELL: '1' },
     });
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe('/tmp/wt-linked\n');
+    expect(result.stderr).toBe('');
   });
 
   it('matches a branch name containing slashes', async () => {
@@ -299,10 +309,12 @@ describe('tasks teleport — success cases', () => {
     const result = await runTasksCli(['teleport', 'slash-task'], {
       createStore: async () => store,
       runner: worktreeRunner(porcelain),
+      environment: { TASKS_TELEPORT_SHELL: '1' },
     });
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe('/tmp/wt-slash\n');
+    expect(result.stderr).toBe('');
   });
 });
 
