@@ -1,24 +1,12 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { format } from 'prettier';
 import {
   codexMarketplaceSchema,
   pluginManifestSchema,
   validateOrThrow,
 } from './plugin-manifest.js';
+import { formatJson, formatMarkdown } from './plugin-formatting.js';
 import type { PluginSpec } from './plugin-spec.js';
-
-const formatJson = (value: unknown): Promise<string> =>
-  format(JSON.stringify(value), { parser: 'json' });
-
-const formatMarkdown = (value: string): Promise<string> =>
-  format(value, {
-    parser: 'markdown',
-    singleQuote: true,
-    printWidth: 100,
-    tabWidth: 2,
-    endOfLine: 'lf',
-  });
 
 /** Builds the YAML frontmatter block for a Codex skill SKILL.md. */
 const buildFrontmatter = (name: string, description: string): string =>
