@@ -1,6 +1,6 @@
 ---
-name: cleanup
-description: Remove git worktrees for completed tasks whose pull requests have merged, skipping anything still in flight or with uncommitted changes. Trigger on "clean up worktrees" or "tasks prompt cleanup".
+name: 'cleanup'
+description: 'Remove git worktrees for completed tasks whose pull requests have merged, skipping anything still in flight or with uncommitted changes. Trigger on "clean up worktrees" or "tasks prompt cleanup".'
 ---
 
 # Clean Up Worktrees For Completed Tasks

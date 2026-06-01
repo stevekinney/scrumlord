@@ -14,9 +14,18 @@ const CLAUDE_MANIFEST_SCHEMA_URL = 'https://json.schemastore.org/claude-code-plu
 const formatJson = (value: unknown): Promise<string> =>
   format(JSON.stringify(value), { parser: 'json' });
 
+const formatMarkdown = (value: string): Promise<string> =>
+  format(value, {
+    parser: 'markdown',
+    singleQuote: true,
+    printWidth: 100,
+    tabWidth: 2,
+    endOfLine: 'lf',
+  });
+
 /** Builds the YAML frontmatter block for a Claude skill SKILL.md. */
 const buildSkillFrontmatter = (description: string): string =>
-  `---\ndescription: ${description}\n---\n\n`;
+  `---\ndescription: ${JSON.stringify(description)}\n---\n\n`;
 
 /** Builds the YAML frontmatter block for a Claude agent .md file. */
 const buildAgentFrontmatter = (agent: {
@@ -27,8 +36,8 @@ const buildAgentFrontmatter = (agent: {
 }): string => {
   const lines = [
     '---',
-    `name: ${agent.name}`,
-    `description: ${agent.description}`,
+    `name: ${JSON.stringify(agent.name)}`,
+    `description: ${JSON.stringify(agent.description)}`,
     `tools: ${agent.tools.join(', ')}`,
     'skills:',
     '  - tasks',
@@ -110,7 +119,7 @@ export const emit = async (spec: PluginSpec, repoRoot: string): Promise<void> =>
     mkdirSync(skillDir, { recursive: true });
     await Bun.write(
       join(skillDir, 'SKILL.md'),
-      `${buildSkillFrontmatter(skill.description)}${body}`,
+      await formatMarkdown(`${buildSkillFrontmatter(skill.description)}${body}`),
     );
   }
 
@@ -120,7 +129,7 @@ export const emit = async (spec: PluginSpec, repoRoot: string): Promise<void> =>
     const body = await Bun.file(agent.sourcePath).text();
     await Bun.write(
       join(pluginRoot, 'agents', `${agent.name}.md`),
-      `${buildAgentFrontmatter(agent)}${body}`,
+      await formatMarkdown(`${buildAgentFrontmatter(agent)}${body}`),
     );
   }
 

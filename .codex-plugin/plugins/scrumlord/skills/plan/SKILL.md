@@ -1,6 +1,6 @@
 ---
-name: plan
-description: Plan every unplanned incomplete task: fan out a subagent per task to draft a plan, gate each through plan-review, and associate approved plans back to the task. Trigger on "plan the tasks" or "plan the backlog".
+name: 'plan'
+description: 'Plan every unplanned incomplete task: fan out a subagent per task to draft a plan, gate each through plan-review, and associate approved plans back to the task. Trigger on "plan the tasks" or "plan the backlog".'
 ---
 
 Batch-plan every task that lacks an approved plan. Where the `next` skill shepherds one task end-to-end, this skill pre-stages the planning queue: it finds tasks without a plan and fans out parallel subagents to draft one each, every draft gated through the same `plan-review` adversarial loop.

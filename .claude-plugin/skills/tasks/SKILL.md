@@ -1,5 +1,5 @@
 ---
-description: Inspect and update the local Scrumlord task graph.
+description: 'Inspect and update the local Scrumlord task graph.'
 ---
 
 # Tasks CLI

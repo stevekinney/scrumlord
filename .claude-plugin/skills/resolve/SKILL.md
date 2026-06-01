@@ -1,5 +1,5 @@
 ---
-description: Drive a task's pull request to merge-ready via the address-pr loop (unresolved comments, conflicts, failing CI), then complete the task. With --all, merge ready PRs and fan out to resolve the rest. Trigger on "resolve the PR".
+description: 'Drive a task''s pull request to merge-ready via the address-pr loop (unresolved comments, conflicts, failing CI), then complete the task. With --all, merge ready PRs and fan out to resolve the rest. Trigger on "resolve the PR".'
 ---
 
 Drive a task's pull request to merge-ready and complete the task. Where `next` stops at `in-review` with an open PR, `resolve` picks it up from there: it stabilizes the PR — resolving review comments, fixing CI, clearing merge conflicts — until it is merge-ready, then completes the task once merged.

@@ -82,6 +82,21 @@ describe('pluginManifestSchema (Codex)', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it('rejects unsupported hook component paths', () => {
+    const result = pluginManifestSchema.safeParse({
+      name: 'my-plugin',
+      version: '1.0.0',
+      description: 'A plugin',
+      hooks: './hooks/hooks.json',
+      interface: {
+        displayName: 'My Plugin',
+        shortDescription: 'Does stuff.',
+        category: 'Productivity',
+      },
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe('claudePluginManifestSchema', () => {

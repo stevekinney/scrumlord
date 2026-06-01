@@ -1,6 +1,6 @@
 ---
-name: sync
-description: Reconcile task statuses with reality: fast-forward main, infer in-progress/in-review/completed from open PRs, worktrees, and merged diffs, create follow-up tasks for partially-completed work, and repair the dependency graph. Trigger on "sync the tasks".
+name: 'sync'
+description: 'Reconcile task statuses with reality: fast-forward main, infer in-progress/in-review/completed from open PRs, worktrees, and merged diffs, create follow-up tasks for partially-completed work, and repair the dependency graph. Trigger on "sync the tasks".'
 ---
 
 # Sync Task Statuses With Reality

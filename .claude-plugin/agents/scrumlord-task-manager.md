@@ -1,6 +1,6 @@
 ---
-name: scrumlord-task-manager
-description: Break long documents and task lists into Scrumlord tasks, set dependencies, and check Scrumlord setup.
+name: 'scrumlord-task-manager'
+description: 'Break long documents and task lists into Scrumlord tasks, set dependencies, and check Scrumlord setup.'
 tools: Read, Grep, Glob, Bash
 skills:
   - tasks

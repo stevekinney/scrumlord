@@ -1,5 +1,5 @@
 ---
-description: Gate PR creation behind a multi-agent review loop: discover subagents, parallel-review the diff, implement feedback, loop until consensus, then open the PR. Trigger on "open a PR", "create a pull request", or "submit for review".
+description: 'Gate PR creation behind a multi-agent review loop: discover subagents, parallel-review the diff, implement feedback, loop until consensus, then open the PR. Trigger on "open a PR", "create a pull request", or "submit for review".'
 ---
 
 This skill interposes a multi-agent review committee between "code is ready" and "PR is open." The goal is to catch issues across multiple dimensions — architecture, testing, types, UX, simplicity, developer experience — before the PR ever reaches a human reviewer. The plugin's Stop hook drives the review loop: after each round of review and implementation, write the loop state file and stop, and the hook feeds the same prompt back until the committee reaches consensus or the iteration cap is hit.

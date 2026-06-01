@@ -1,6 +1,6 @@
 ---
-name: audit
-description: Review recently completed tasks, sessions, and PRs for uncaptured work, run the validation scripts, and file tasks for pre-existing issues. Trigger on "audit the tasks" or "audit the backlog".
+name: 'audit'
+description: 'Review recently completed tasks, sessions, and PRs for uncaptured work, run the validation scripts, and file tasks for pre-existing issues. Trigger on "audit the tasks" or "audit the backlog".'
 ---
 
 # Audit For Uncaptured Work And Pre-Existing Issues

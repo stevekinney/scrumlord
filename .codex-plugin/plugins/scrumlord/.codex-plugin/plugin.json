@@ -8,11 +8,10 @@
   "license": "MIT",
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
-  "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "Scrumlord",
     "shortDescription": "Local task graph for AI-driven development workflows.",
-    "longDescription": "Scrumlord stores a lightweight task graph in tmp/tasks.db at your project root. Install this plugin to get the tasks skill, the scrumlord-task-manager subagent skill, the MCP server, and lifecycle hooks that inject current-branch task context into every session. Requires the `tasks` binary on PATH (install via `bun add -g scrumlord`).",
+    "longDescription": "Scrumlord stores a lightweight task graph in tmp/tasks.db at your project root. Install this plugin to get the tasks skill, the scrumlord-task-manager subagent skill, and the MCP server. Requires the `tasks` binary on PATH (install via `bun add -g scrumlord`).",
     "developerName": "Steve Kinney",
     "category": "Productivity",
     "capabilities": ["Read", "Write"],
