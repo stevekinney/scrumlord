@@ -16,7 +16,10 @@ const pack = await $`npm pack --dry-run --json --ignore-scripts`.quiet();
 const parsed = JSON.parse(pack.stdout.toString()) as Array<{
   files?: Array<{ path?: string }>;
 }>;
-const packedFiles = new Set(parsed[0]?.files?.map((file) => file.path).filter(Boolean));
+const packedFilePaths =
+  parsed[0]?.files?.map((file) => file.path).filter((path): path is string => path !== undefined) ??
+  [];
+const packedFiles = new Set(packedFilePaths);
 const missing = requiredPackedFiles.filter((path) => !packedFiles.has(path));
 
 if (missing.length > 0) {
