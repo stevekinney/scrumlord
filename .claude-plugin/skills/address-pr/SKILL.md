@@ -1,5 +1,5 @@
 ---
-description: Load a pull request, implement review feedback (human and bots), resolve threads, and loop until CI is green and the PR is merge-ready. Trigger on a PR number, PR questions, or fix-it requests.
+description: 'Load a pull request, implement review feedback (human and bots), resolve threads, and loop until CI is green and the PR is merge-ready. Trigger on a PR number, PR questions, or fix-it requests.'
 ---
 
 # Address Pull Request Feedback

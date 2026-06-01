@@ -1,6 +1,6 @@
 ---
-name: plan-review
-description: Adversarially review a task's drafted plan with Codex before it is associated and implemented. Loops until Codex approves or the round cap is hit; fail-warns when Codex is unavailable.
+name: 'plan-review'
+description: "Adversarially review a task's drafted plan with Codex before it is associated and implemented. Loops until Codex approves or the round cap is hit; fail-warns when Codex is unavailable."
 ---
 
 This skill runs an adversarial plan-review loop against Codex on a task's drafted plan **before** that plan is associated with the task and implemented. It is invoked by the `plan` / `next` workflows: they draft a plan, hand its path here, and only proceed once this skill reports approval.

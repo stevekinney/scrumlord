@@ -1,5 +1,5 @@
 ---
-description: Clear the merge queue: find every open pull request that is genuinely ready, fan out to merge each, and complete the associated task. Conservative — never force-merges. Trigger on "merge the ready PRs".
+description: 'Clear the merge queue: find every open pull request that is genuinely ready, fan out to merge each, and complete the associated task. Conservative — never force-merges. Trigger on "merge the ready PRs".'
 ---
 
 # Merge All Ready Pull Requests

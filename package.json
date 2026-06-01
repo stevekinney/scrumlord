@@ -39,7 +39,7 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "lint": "oxlint --disable-nested-config --type-aware --tsconfig ./tsconfig.json",
     "lint:fix": "oxlint --fix --disable-nested-config --type-aware --tsconfig ./tsconfig.json",
-    "package:check": "publint && attw --pack --ignore-rules cjs-resolves-to-esm",
+    "package:check": "publint && attw --pack --ignore-rules cjs-resolves-to-esm && bun run scripts/check-package-plugins.ts",
     "prepack": "bun run build",
     "prepublishOnly": "bun run validate",
     "smoke:pipeline": "bun run scripts/smoke-pipeline.ts",

@@ -84,7 +84,7 @@ export const scrumlordPluginSpec: PluginSpec = {
     longDescription:
       'Scrumlord stores a lightweight task graph in tmp/tasks.db at your project root. ' +
       'Install this plugin to get the tasks skill, the scrumlord-task-manager subagent skill, ' +
-      'the MCP server, and lifecycle hooks that inject current-branch task context into every session. ' +
+      'and the MCP server. ' +
       'Requires the `tasks` binary on PATH (install via `bun add -g scrumlord`).',
     developerName: authorName,
     category: 'Productivity',

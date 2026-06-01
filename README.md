@@ -243,7 +243,7 @@ MCP tool errors return `isError: true` with structured content shaped as `{ "err
 
 ## Plugin
 
-Scrumlord ships as a plugin for both Claude Code and the Codex CLI. The plugin bundles the workflow skills, the `scrumlord-task-manager` subagent, lifecycle hooks that inject current-branch task context into every session, and the MCP server. It does _not_ bundle the `tasks` binary: the hooks call `tasks` on your `PATH`, so install the CLI globally first.
+Scrumlord ships as a plugin for both Claude Code and the Codex CLI. The plugin bundles the workflow skills, the `scrumlord-task-manager` subagent, and the MCP server. The Claude plugin also bundles lifecycle hooks that inject current-branch task context into every session. Codex users should install the same lifecycle hooks with `tasks setup --agent-hooks`, because Codex plugin manifests do not accept hook component paths. It does _not_ bundle the `tasks` binary: install the CLI globally first.
 
 ```bash
 bun add -g scrumlord
@@ -298,7 +298,7 @@ The plugin provides one subagent, `scrumlord-task-manager`, restricted to the `R
 
 ### Hooks
 
-The plugin registers lifecycle hooks that run `tasks agent-hook <provider>` and exit quietly when the project is not initialized for Scrumlord or the `tasks` binary is absent. The hook injects the current-branch task into the agent context, records session IDs, captures plan content on plan-exit, and synchronizes Git status after relevant Bash commands.
+The Claude plugin registers lifecycle hooks that run `tasks agent-hook claude` and exit quietly when the project is not initialized for Scrumlord or the `tasks` binary is absent. For Codex, run `tasks setup --agent-hooks` after installing the CLI to write equivalent user-level hook configuration. The hook injects the current-branch task into the agent context, records session IDs, captures plan content on plan-exit, and synchronizes Git status after relevant Bash commands.
 
 | Event              | Matcher           | Claude | Codex |
 | ------------------ | ----------------- | :----: | :---: |

@@ -46,7 +46,7 @@ describe('emitClaude', () => {
     await emitClaude(scrumlordPluginSpec, root);
     const agent = scrumlordPluginSpec.agents[0]!;
     const body = readFileSync(join(root, '.claude-plugin', 'agents', `${agent.name}.md`), 'utf-8');
-    expect(body.startsWith(`---\nname: ${agent.name}`)).toBe(true);
+    expect(body.startsWith(`---\nname: '${agent.name}'`)).toBe(true);
     expect(body).toContain('skills:\n  - tasks');
   });
 });
@@ -62,16 +62,22 @@ describe('emitCodex', () => {
 
   it('nests an installable plugin.json under plugins/<name>/.codex-plugin', async () => {
     await emitCodex(scrumlordPluginSpec, root);
-    const manifest = readJson(
-      root,
-      '.codex-plugin',
-      'plugins',
-      scrumlordPluginSpec.name,
-      '.codex-plugin',
-      'plugin.json',
-    );
+    const pluginRoot = join(root, '.codex-plugin', 'plugins', scrumlordPluginSpec.name);
+    const manifest = readJson(pluginRoot, '.codex-plugin', 'plugin.json');
     expect(pluginManifestSchema.safeParse(manifest).success).toBe(true);
     expect(manifest['name']).toBe(scrumlordPluginSpec.name);
+    expect(manifest['hooks']).toBeUndefined();
+    expect(readJson(pluginRoot, '.mcp.json')).toEqual({
+      mcpServers: {
+        [scrumlordPluginSpec.mcp.serverName]: {
+          command: scrumlordPluginSpec.mcp.command,
+          args: scrumlordPluginSpec.mcp.args,
+        },
+      },
+    });
+    expect(readFileSync(join(pluginRoot, 'skills', 'tasks', 'SKILL.md'), 'utf-8')).toContain(
+      "name: 'tasks'",
+    );
     expect(manifest['interface']['displayName']).toBe(
       scrumlordPluginSpec.codexInterface.displayName,
     );

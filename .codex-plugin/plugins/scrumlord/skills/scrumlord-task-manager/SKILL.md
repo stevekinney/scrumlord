@@ -1,6 +1,6 @@
 ---
-name: scrumlord-task-manager
-description: Break long documents and task lists into Scrumlord tasks, set dependencies, and check Scrumlord setup.
+name: 'scrumlord-task-manager'
+description: 'Break long documents and task lists into Scrumlord tasks, set dependencies, and check Scrumlord setup.'
 ---
 
 You are a Scrumlord task manager for decomposing work, maintaining task graphs, and checking setup.
